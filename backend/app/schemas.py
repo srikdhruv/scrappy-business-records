@@ -29,7 +29,7 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
-from app.models import PaymentMethod
+from app.models import FeeKind, PaymentMethod
 from app.months import MONTH_PATTERN, format_month
 
 __all__ = [
@@ -40,6 +40,7 @@ __all__ = [
     "DashboardSummary",
     "ErrorResponse",
     "FeeChangeRead",
+    "FeeKind",
     "HealthResponse",
     "LedgerMonth",
     "MonthStatus",
@@ -54,6 +55,7 @@ __all__ = [
     "StudentDetail",
     "StudentListFilter",
     "StudentRead",
+    "StudentReturn",
     "StudentUpdate",
     "SuggestedPayment",
     "SuggestionReason",
@@ -228,7 +230,7 @@ class SuggestionReason(enum.StrEnum):
     owed = "owed"
     """The oldest month up to now that is Unpaid or Partial."""
     next_unpaid = "next_unpaid"
-    """Nothing is owed yet: the first later month that isn't fully paid."""
+    """Nothing is owed yet: the first later month with a fee that isn't fully paid."""
     all_paid = "all_paid"
     """Nothing is left to pay in the months they are enrolled, up to the latest month a payment
     can be logged for (24 months ahead): they have left and paid up, or paid that far ahead."""
@@ -300,8 +302,10 @@ class StudentUpdate(_Model):
     """Partial update. Only fields that are sent change.
 
     To change the fee, send `monthly_fee_paise`, and optionally `fee_effective_month` (defaults
-    to the current month). Earlier months keep their old fee. Send `left_month: null` to
-    un-archive a student.
+    to the current month). Earlier months keep their fee, and the new fee lasts until the next
+    fee change already set after it, if any. Send `left_month: null` to un-archive a student
+    as if they never left (every month since counts); `POST /students/{id}/return` instead
+    skips the months they were away.
 
     Edit rules. This model checks what it can on its own. The router checks the rest against the
     stored student and answers **422** in the standard validation shape (`app.errors`), never a
@@ -355,6 +359,32 @@ class StudentUpdate(_Model):
         return value
 
 
+class StudentReturn(_Model):
+    """Body of `POST /students/{id}/return`: a student who left is coming again (PRD ledger
+    rule 11). The months between `left_month` and `from_month` get a 0 fee, so they are never
+    owed; their fee carries on from `from_month`."""
+
+    from_month: Month = Field(
+        description="The first month they owe again: after left_month, at most 24 months "
+        "after the current month."
+    )
+    monthly_fee_paise: FeePaise | None = Field(
+        default=None,
+        description="Their fee from from_month. Defaults to the fee their schedule has for that "
+        "month, ignoring ₹0 fees left by an earlier return.",
+    )
+
+
+class FeeChangeRead(_ReadModel):
+    id: int
+    effective_month: Month
+    amount_paise: NonNegativePaise
+    kind: FeeKind = Field(
+        description="`fee`: set by the owner (₹0 is a month off or a free place). `away`: the "
+        "₹0 for the months away, written by coming back after leaving."
+    )
+
+
 class StudentRead(_ReadModel):
     """A student as shown in lists, with their current fee and overall balance."""
 
@@ -378,7 +408,8 @@ class StudentRead(_ReadModel):
     )
     status: BalanceStatus = Field(
         description="`owes` if anything is owed for a due month (`owed_paise` > 0); otherwise "
-        "`credit` if a due month was paid too much (`credit_paise` > 0); otherwise `up_to_date`."
+        "`credit` if any month was paid more than its fee (`credit_paise` > 0); otherwise "
+        "`up_to_date`."
     )
     owed_paise: NonNegativePaise = Field(
         description="Still owed: the sum of what's left on every due month (active months up to "
@@ -386,12 +417,17 @@ class StudentRead(_ReadModel):
     )
     paid_ahead_paise: NonNegativePaise = Field(
         description="Money paid for months after the current month that they're still enrolled "
-        "in (not due yet; not credit). Months after left_month count as credit instead."
+        "in, up to each month's fee (not due yet; not credit). Anything above the fee, and "
+        "anything for a month after left_month, counts as credit instead."
     )
     credit_paise: NonNegativePaise = Field(
-        description="Money in overpaid months up to this month: the sum of max(0, paid - "
-        "expected) over months up to and including the current month. Payments for later "
-        "months (paid ahead) are not credit."
+        description="Money paid above the fee: the sum of max(0, paid - expected) over every "
+        "month with a payment, later months included (all of it where the fee is 0). Paying a "
+        "later month up to its fee is paid ahead, not credit."
+    )
+    next_fee_change: FeeChangeRead | None = Field(
+        description="The first fee change after the month monthly_fee_paise is for, if any "
+        '(so the UI can say "No fee until December 2026, then ₹1,000").'
     )
     tenure_months: int = Field(
         ge=0,
@@ -404,12 +440,6 @@ class StudentRead(_ReadModel):
     )
     created_at: UtcDatetime
     updated_at: UtcDatetime
-
-
-class FeeChangeRead(_ReadModel):
-    id: int
-    effective_month: Month
-    amount_paise: NonNegativePaise
 
 
 class LedgerMonth(_ReadModel):
@@ -442,10 +472,9 @@ class SuggestedPayment(_ReadModel):
     already fully paid, and never one outside the months the student is enrolled in.
 
     - `owed`: the oldest month up to now that is Unpaid or Partial, and what's left on it.
-    - `next_unpaid`: the first later month that isn't fully paid, and what's left on it.
+    - `next_unpaid`: the first later month with a fee that isn't fully paid, and what's left on
+      it. Months with a 0 fee are skipped.
     - `all_paid`: nothing left to pay; `for_month` and `amount_paise` are null.
-
-    `amount_paise` is also null for a month whose fee is 0.
     """
 
     for_month: Month | None
@@ -501,9 +530,16 @@ class PaymentRead(_ReadModel):
 class DashboardSummary(_ReadModel):
     expected_paise: NonNegativePaise = Field(description="Expected for M from active students.")
     collected_paise: NonNegativePaise = Field(description="Payments whose for_month is M.")
+    paid_ahead_paise: NonNegativePaise = Field(
+        description="For a month after the current one: what's paid for it by students "
+        "enrolled then, up to each one's fee (anything above is credit). 0 for the current "
+        "month and earlier ones, which use collected_paise."
+    )
     still_due_paise: NonNegativePaise = Field(description="Sum of max(0, expected - paid).")
     not_fully_paid_count: int = Field(ge=0, description="Students unpaid or partial for M.")
-    active_student_count: int = Field(ge=0, description="Students active in M.")
+    active_student_count: int = Field(
+        ge=0, description="Students with a fee due in M: active in M, with a fee above 0."
+    )
 
 
 class YetToPayItem(_ReadModel):
@@ -518,8 +554,8 @@ class YetToPayItem(_ReadModel):
     remaining_paise: PositivePaise
     status: Literal[MonthStatus.unpaid, MonthStatus.partial]
     credit_paise: NonNegativePaise = Field(
-        description="The student's money in overpaid months up to the current month (see "
-        "StudentRead.credit_paise), so the UI can say they have credit."
+        description="The student's money paid above the fee (see StudentRead.credit_paise), "
+        "so the UI can say they have credit."
     )
 
 
@@ -541,8 +577,8 @@ class BacklogItem(_ReadModel):
     months: list[BacklogMonth] = Field(description="Oldest first.")
     total_owed_paise: PositivePaise
     credit_paise: NonNegativePaise = Field(
-        description="The student's money in overpaid months up to the current month (see "
-        "StudentRead.credit_paise), so the UI can say they have credit."
+        description="The student's money paid above the fee (see StudentRead.credit_paise), "
+        "so the UI can say they have credit."
     )
 
 

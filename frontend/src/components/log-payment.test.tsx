@@ -32,6 +32,18 @@ describe('Log payment form', () => {
     expect(dialog.getByRole('radio', { name: 'UPI' })).toHaveAttribute('aria-checked', 'true')
   })
 
+  it('finds a student the same way as the Students page', async () => {
+    const { user, dialog } = await openFromHeader()
+    dialog.getByRole('combobox', { name: /Student/ }).focus()
+    await user.keyboard('nair arjun') // any word order
+    expect(await screen.findAllByRole('option')).toHaveLength(1)
+    expect(screen.getByRole('option', { name: /Arjun Nair/ })).toBeInTheDocument()
+    await user.clear(screen.getByPlaceholderText('Type a name…'))
+    await user.keyboard('9000000004') // saved as "90000 00004"
+    await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(1))
+    expect(screen.getByRole('option', { name: /Arjun Nair/ })).toBeInTheDocument()
+  })
+
   it('explains what is missing, inline, before saving', async () => {
     const { user, dialog } = await openFromHeader()
     await user.click(dialog.getByRole('button', { name: 'Save payment' }))
@@ -138,6 +150,54 @@ describe('Log payment form', () => {
     await user.type(dialog.getByLabelText('Amount'), '20,00,000')
     await user.click(dialog.getByRole('button', { name: 'Save payment' }))
     expect(dialog.getByText('The most you can enter is ₹10,00,000.')).toBeInTheDocument()
+    // The Indian "/-" at the end doesn't hide it behind a format message.
+    await user.clear(dialog.getByLabelText('Amount'))
+    await user.type(dialog.getByLabelText('Amount'), '₹20,00,000/-')
+    expect(dialog.getByText('The most you can enter is ₹10,00,000.')).toBeInTheDocument()
+  })
+
+  it('saves with Enter after clicking a method button, once, with that method', async () => {
+    const { user, dialog } = await openFromHeader()
+    dialog.getByRole('combobox', { name: /Student/ }).focus()
+    await user.keyboard('kiara')
+    await user.click(await screen.findByRole('option', { name: /Kiara Fernandes/ }))
+    await dialog.findByText('Due now: October 2026')
+    const before = mockDb.payments.length
+
+    const cash = dialog.getByRole('radio', { name: 'Cash' })
+    await user.click(cash)
+    expect(cash).toHaveFocus()
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByText('Payment saved')).toBeInTheDocument()
+    expect(mockDb.payments).toHaveLength(before + 1)
+    expect(mockDb.payments.at(-1)).toMatchObject({ method: 'cash', for_month: '2026-10' })
+  })
+
+  it('still moves between the method buttons with the arrow keys; Enter saves the one focused', async () => {
+    const { user, dialog } = await openFromHeader()
+    dialog.getByRole('combobox', { name: /Student/ }).focus()
+    await user.keyboard('kiara')
+    await user.click(await screen.findByRole('option', { name: /Kiara Fernandes/ }))
+    await dialog.findByText('Due now: October 2026')
+
+    await user.click(dialog.getByRole('radio', { name: 'UPI' }))
+    await user.keyboard('{ArrowRight}{ArrowRight}')
+    expect(dialog.getByRole('radio', { name: 'Other' })).toHaveFocus()
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByText('Payment saved')).toBeInTheDocument()
+    expect(mockDb.payments.at(-1)).toMatchObject({ method: 'other' })
+  })
+
+  it('doesn’t save from a method button while something is missing', async () => {
+    const { user, dialog } = await openFromHeader()
+    const before = mockDb.payments.length
+    await user.click(dialog.getByRole('radio', { name: 'Cash' }))
+    await user.keyboard('{Enter}')
+    expect(dialog.getByText('Choose who paid.')).toBeInTheDocument()
+    expect(dialog.getByRole('radio', { name: 'Cash' })).toHaveAttribute('aria-checked', 'true')
+    expect(mockDb.payments).toHaveLength(before)
   })
 
   it('gently checks an amount far above the fee, without blocking', async () => {

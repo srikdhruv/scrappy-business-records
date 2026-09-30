@@ -45,6 +45,17 @@ def _printable(value: object) -> object:
     return value
 
 
+CLASH_MESSAGE = (
+    "That change clashed with another one saved at the same moment. Reload the page and check."
+)
+
+
+async def integrity_error_handler(_request: Request, _exc: Exception) -> JSONResponse:
+    """A database rule (a unique month, a student that no longer exists) refused a write that
+    raced another request. Say so plainly as a 409, never a 500."""
+    return JSONResponse(status_code=status.HTTP_409_CONFLICT, content={"detail": CLASH_MESSAGE})
+
+
 async def validation_error_handler(_request: Request, exc: Exception) -> JSONResponse:
     """FastAPI's own 422 body (`{"detail": exc.errors()}`), made safe to encode."""
     assert isinstance(exc, RequestValidationError)

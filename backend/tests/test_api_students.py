@@ -248,8 +248,33 @@ def test_archive_and_unarchive(api: TestClient) -> None:
     url = f"/api/students/{s['id']}"
     d = api.patch(url, json={"left_month": "2026-02"}).json()
     assert (d["is_active"], d["balance_paise"]) == (False, -300000)
+    # Their last month has passed: it can't be emptied or moved later here (that would make
+    # the months away owed); coming back is POST /return. Moving it earlier is fine.
+    for later in (None, "2026-03", "2026-09"):
+        response = api.patch(url, json={"left_month": later})
+        assert response.status_code == 422, later
+        [item] = response.json()["detail"]
+        assert item["loc"] == ["body", "left_month"]
+        assert item["msg"] == (
+            "They left after February 2026, so this can only move earlier. If they came back: "
+            "first set the real last month they paid for before leaving (an earlier one is "
+            "fine), then use Mark as coming again from the month they came back. Set a new Left "
+            "month after that if needed."
+        )
+    d = api.patch(url, json={"left_month": "2026-01"}).json()
+    assert (d["left_month"], d["balance_paise"]) == ("2026-01", -150000)
+    d = api.patch(url, json={"left_month": "2026-01", "notes": "same month is fine"}).json()
+    assert d["notes"] == "same month is fine"
+
+
+def test_staying_before_the_left_month_has_passed(api: TestClient) -> None:
+    s = make_student(api)
+    url = f"/api/students/{s['id']}"
+    api.patch(url, json={"left_month": "2026-06"})  # leaving after this month
     d = api.patch(url, json={"left_month": None}).json()
     assert (d["is_active"], d["left_month"], d["balance_paise"]) == (True, None, -900000)
+    api.patch(url, json={"left_month": "2026-07"})
+    assert api.patch(url, json={"left_month": "2026-09"}).json()["left_month"] == "2026-09"
 
 
 def test_moving_joined_month_earlier_moves_the_first_fee(api: TestClient) -> None:
@@ -364,11 +389,12 @@ def test_suggest_payment(api: TestClient) -> None:
 
 
 def test_suggest_payment_zero_fee(api: TestClient) -> None:
+    # A free place never owes anything, so nothing is suggested.
     s = make_student(api, joined_month="2026-06", monthly_fee_paise=0)
     assert api.get(f"/api/students/{s['id']}/suggest-payment").json() == {
-        "for_month": "2026-07",
+        "for_month": None,
         "amount_paise": None,
-        "reason": "next_unpaid",
+        "reason": "all_paid",
     }
 
 

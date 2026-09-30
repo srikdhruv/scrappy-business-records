@@ -26,6 +26,7 @@ FIELDS = [
     "for_month",
     "method",
     "note",
+    "from_month",
 ]
 
 scalars = st.one_of(
@@ -60,6 +61,8 @@ routes = st.sampled_from(
         ("patch", "/api/students/{id}"),
         ("delete", "/api/students/{id}"),
         ("get", "/api/students/{id}/suggest-payment"),
+        ("post", "/api/students/{id}/return"),
+        ("delete", "/api/students/{id}/fee-changes/{id}"),
         ("get", "/api/payments"),
         ("post", "/api/payments"),
         ("get", "/api/payments/{id}"),

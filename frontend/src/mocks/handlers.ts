@@ -12,6 +12,7 @@ import type {
   SortOrder,
   StudentCreate,
   StudentListFilter,
+  StudentReturn,
   StudentUpdate,
 } from '@/api/types'
 
@@ -84,6 +85,17 @@ export function createHandlers(db: MockDb, { latency = 0 }: HandlerOptions = {})
     http.delete(api('/students/:id'), async ({ params }) => {
       await wait()
       return respond(() => db.deleteStudent(idParam(params.id)), 204)
+    }),
+
+    http.post(api('/students/:id/return'), async ({ params, request }) => {
+      await wait()
+      const body = (await request.json()) as StudentReturn
+      return respond(() => db.returnStudent(idParam(params.id), body))
+    }),
+
+    http.delete(api('/students/:id/fee-changes/:feeId'), async ({ params }) => {
+      await wait()
+      return respond(() => db.deleteFeeChange(idParam(params.id), idParam(params.feeId)), 204)
     }),
 
     http.get(api('/payments'), async ({ request }) => {

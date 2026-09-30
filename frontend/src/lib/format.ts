@@ -81,6 +81,18 @@ export function rupeesToPaise(
   input: string,
   { allowZero = false }: { allowZero?: boolean } = {},
 ): number | null {
+  const paise = parseRupees(input)
+  if (paise === null || !Number.isSafeInteger(paise) || paise > MAX_AMOUNT_PAISE) return null
+  if (paise === 0 && !allowZero) return null
+  return paise
+}
+
+/**
+ * The paise in `input`, read exactly as `rupeesToPaise` reads it, but without the ₹10,00,000
+ * cap or the check for 0: "₹20,00,000/-" -> 200000000. Null if it isn't written like an amount
+ * at all. Lets a form tell "too big" apart from "not an amount".
+ */
+export function parseRupees(input: string): number | null {
   const cleaned = input
     .trim()
     .replace(/^(?:₹|rs\.?|inr)\s*/i, '')
@@ -99,10 +111,7 @@ export function rupeesToPaise(
     return null
   }
   const rupees = Number(whole.replace(/,/g, '') || '0')
-  const paise = rupees * 100 + Number((decimals ?? '').padEnd(2, '0'))
-  if (!Number.isSafeInteger(paise) || paise > MAX_AMOUNT_PAISE) return null
-  if (paise === 0 && !allowZero) return null
-  return paise
+  return rupees * 100 + Number((decimals ?? '').padEnd(2, '0'))
 }
 
 /** Paise -> the plain number to prefill an amount box with: 150000 -> "1500", 150050 -> "1500.50". */
@@ -142,6 +151,15 @@ export function formatDate(date: string): string {
 export function formatMonth(month: string): string {
   const { year, month: m } = parseMonth(month)
   return `${MONTH_NAMES[m - 1]} ${year}`
+}
+
+/** A run of months: "June 2026", "June–August 2026" or "December 2025 – February 2026". */
+export function formatMonthSpan(from: string, to: string): string {
+  if (from === to) return formatMonth(from)
+  const { year: fromYear, month: fromMonth } = parseMonth(from)
+  return fromYear === parseMonth(to).year
+    ? `${MONTH_NAMES[fromMonth - 1]}–${formatMonth(to)}`
+    : `${formatMonth(from)} – ${formatMonth(to)}`
 }
 
 /** "2026-10" -> "Oct 2026", for tight spaces such as table cells. */

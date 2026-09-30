@@ -12,8 +12,10 @@ import type {
   StudentDetail,
   StudentListFilter,
   StudentRead,
+  StudentReturn,
   StudentUpdate,
 } from '@/api/types'
+import { nextFeeChange, returnFee } from '@/lib/fees'
 import { addMonths, currentMonth, formatMonth, today } from '@/lib/format'
 
 import {
@@ -84,6 +86,7 @@ const MONTH_LABELS: Record<string, string> = {
   joined_month: 'Joined month',
   left_month: 'Left month',
   fee_effective_month: 'The month the new fee starts',
+  from_month: "The month they're back from",
   for_month: 'Month',
 }
 
@@ -96,6 +99,18 @@ function checkNotTooLate(field: string, month: string | null | undefined, now: s
       `${MONTH_LABELS[field]} can't be later than ${formatMonth(latest)} (two years from now)`,
     )
   }
+}
+
+function nextFeeRead(fees: FeeChangeRow[], after: string) {
+  const next = nextFeeChange(fees, after)
+  return next
+    ? {
+        id: next.id,
+        effective_month: next.effective_month,
+        amount_paise: next.amount_paise,
+        kind: next.kind,
+      }
+    : null
 }
 
 function nowIso(): string {
@@ -161,6 +176,10 @@ export class MockDb {
       credit_paise: credit,
       paid_ahead_paise: paidAheadPaise(book, now),
       tenure_months: tenureMonths(student, now),
+      next_fee_change: nextFeeRead(
+        book.fees,
+        now < student.joined_month ? student.joined_month : now,
+      ),
       current_month: now,
     }
   }
@@ -171,7 +190,12 @@ export class MockDb {
       ...this.toRead(student),
       fee_history: book.fees
         .toSorted((a, b) => a.effective_month.localeCompare(b.effective_month))
-        .map(({ id, effective_month, amount_paise }) => ({ id, effective_month, amount_paise })),
+        .map(({ id, effective_month, amount_paise, kind }) => ({
+          id,
+          effective_month,
+          amount_paise,
+          kind,
+        })),
       months: ledgerMonths(book, this.now()),
       payment_count: book.payments.length,
       total_paid_paise: book.payments.reduce((sum, p) => sum + p.amount_paise, 0),
@@ -232,6 +256,7 @@ export class MockDb {
       student_id: student.id,
       effective_month: student.joined_month,
       amount_paise: body.monthly_fee_paise,
+      kind: 'fee',
     })
     return this.toDetail(student)
   }
@@ -279,6 +304,14 @@ export class MockDb {
     }
     const leftSent = 'left_month' in body
     const left = leftSent ? (body.left_month ?? null) : student.left_month
+    const stored = student.left_month
+    if (leftSent && stored !== null && stored < now && (left === null || left > stored)) {
+      invalid(
+        'left_month',
+        `They left after ${formatMonth(stored)}, so this can only move earlier. If they came back: first set the real last month they paid for before leaving (an earlier one is fine), then use Mark as coming again from the month they came back. Set a new Left month after that if needed.`,
+      )
+    }
+    if (left !== null && left !== stored) this.dropStaleAway(id, left)
     if (left !== null && left < joined) {
       invalid(
         leftSent ? 'left_month' : 'joined_month',
@@ -299,18 +332,116 @@ export class MockDb {
     if (feeMonth !== null && fee != null && feeFor(own, feeMonth) !== fee) {
       // A fee change for a month that already has one replaces its amount.
       const existing = own.find((f) => f.effective_month === feeMonth)
-      if (existing) existing.amount_paise = fee
+      if (existing) Object.assign(existing, { amount_paise: fee, kind: 'fee' })
       else
         this.fees.push({
           id: this.id(),
           student_id: id,
           effective_month: feeMonth,
           amount_paise: fee,
+          kind: 'fee',
         })
     }
 
     Object.assign(student, next, { updated_at: nowIso() })
     return this.toDetail(student)
+  }
+
+  /** Mirrors `return_student` in backend/app/services/students.py, including its 422s. */
+  returnStudent(id: number, body: StudentReturn): StudentDetail {
+    const student = this.findStudent(id)
+    const now = this.now()
+    const left = student.left_month
+    if (left === null) invalid('from_month', "They haven't been marked as left")
+    checkMonth('from_month', body.from_month)
+    if (!body.from_month) invalid('from_month', 'Field required')
+    const back = body.from_month
+    const firstAway = addMonths(left, 1)
+    if (back < firstAway) {
+      invalid(
+        'from_month',
+        `They can only be back from ${formatMonth(firstAway)} on, the month after they left`,
+      )
+    }
+    checkNotTooLate('from_month', back, now)
+    if (body.monthly_fee_paise != null) {
+      const fee = body.monthly_fee_paise
+      if (!Number.isInteger(fee) || fee < 0 || fee > 100_000_000) {
+        invalid('monthly_fee_paise', 'Input should be less than or equal to 100000000')
+      }
+    }
+    const own = () => this.fees.filter((f) => f.student_id === id)
+    const feeBack = body.monthly_fee_paise ?? returnFee(own(), back)
+    this.fees = this.fees.filter(
+      (f) =>
+        f.student_id !== id ||
+        !(
+          (f.effective_month > left && f.effective_month < back) ||
+          (f.kind === 'away' && f.effective_month > left)
+        ),
+    )
+    const gap = back > firstAway
+    if (gap) {
+      this.fees.push({
+        id: this.id(),
+        student_id: id,
+        effective_month: firstAway,
+        amount_paise: 0,
+        kind: 'away',
+      })
+    }
+    const atBack = own().find((f) => f.effective_month === back)
+    if (atBack) Object.assign(atBack, { amount_paise: feeBack, kind: 'fee' })
+    else if (gap || feeFor(own(), back) !== feeBack) {
+      this.fees.push({
+        id: this.id(),
+        student_id: id,
+        effective_month: back,
+        amount_paise: feeBack,
+        kind: 'fee',
+      })
+    }
+    Object.assign(student, { left_month: null, updated_at: nowIso() })
+    return this.toDetail(student)
+  }
+
+  /** Mirrors `_drop_stale_away`: 'away' runs that reach the new left month, or come after it. */
+  private dropStaleAway(id: number, left: string) {
+    const own = this.fees
+      .filter((f) => f.student_id === id)
+      .toSorted((a, b) => a.effective_month.localeCompare(b.effective_month))
+    const stale = new Set<number>()
+    own.forEach((row, i) => {
+      if (row.kind !== 'away') return
+      const end = own.slice(i + 1).find((f) => f.kind === 'fee')?.effective_month
+      if (end === undefined || addMonths(end, -1) >= left) stale.add(row.id)
+    })
+    this.fees = this.fees.filter((f) => !stale.has(f.id))
+  }
+
+  /** Mirrors `delete_fee_change` in backend/app/services/students.py. */
+  deleteFeeChange(studentId: number, feeChangeId: number): void {
+    this.findStudent(studentId)
+    const own = this.fees
+      .filter((f) => f.student_id === studentId)
+      .toSorted((a, b) => a.effective_month.localeCompare(b.effective_month))
+    const change = own.find((f) => f.id === feeChangeId) ?? notFound('Fee change')
+    const refuse = (msg: string): never => {
+      throw new MockHttpError(422, {
+        detail: [{ loc: ['path', 'fee_change_id'], msg, type: 'value_error' }],
+      })
+    }
+    if (change === own[0]) refuse("The first fee can't be removed. To change it, use Edit.")
+    if (change.kind === 'fee' && own[own.indexOf(change) - 1]?.kind === 'away') {
+      refuse('This is the fee they came back on. To change it, set a new fee in Edit.')
+    }
+    if (change.effective_month <= this.now()) {
+      refuse(
+        "Only a fee change that hasn't started yet can be removed. To change a fee that has " +
+          'started, set a new fee with Edit.',
+      )
+    }
+    this.fees = this.fees.filter((f) => f.id !== feeChangeId)
   }
 
   deleteStudent(id: number): void {

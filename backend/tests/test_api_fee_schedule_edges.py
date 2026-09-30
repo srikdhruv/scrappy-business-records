@@ -1,0 +1,303 @@
+"""Edge cases of coming back and fee changes: coming back more than once, a payment for a month
+away still to come, a fee from a later month, two clicks at once, and a database clash. The
+current month is frozen at June 2026 (see conftest)."""
+
+from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
+from fastapi.testclient import TestClient
+from helpers import Json, make_student, months_of, pay
+from sqlalchemy.exc import IntegrityError
+
+from app.errors import CLASH_MESSAGE
+from app.services import students as students_service
+
+
+def fees_of(detail: Json) -> list[tuple[str, int]]:
+    return [(f["effective_month"], f["amount_paise"]) for f in detail["fee_history"]]
+
+
+def come_back(api: TestClient, student_id: int, from_month: str) -> Json:
+    response = api.post(f"/api/students/{student_id}/return", json={"from_month": from_month})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_leave_come_back_leave_again_at_the_same_month_come_back_straight_away(
+    api: TestClient,
+) -> None:
+    s = make_student(api, monthly_fee_paise=200000, joined_month="2026-01", left_month="2026-03")
+    come_back(api, s["id"], "2026-05")  # away in April
+    assert api.patch(f"/api/students/{s['id']}", json={"left_month": "2026-03"}).status_code == 200
+    # Marking them as left at March again removes the earlier return's "away" April (it
+    # contradicts owing up to March). Back straight after: every month is owed.
+    d = come_back(api, s["id"], "2026-04")
+    assert fees_of(d) == [("2026-01", 200000), ("2026-05", 200000)]
+    assert [m["status"] for m in d["months"][3:]] == ["unpaid", "unpaid", "unpaid"]
+    assert d["owed_paise"] == 6 * 200000
+
+
+def test_coming_back_again_ignores_the_months_away_of_an_earlier_return(api: TestClient) -> None:
+    s = make_student(api, monthly_fee_paise=200000, joined_month="2026-01", left_month="2026-03")
+    for m in ("2026-01", "2026-02", "2026-03"):
+        pay(api, s["id"], m, 200000)
+    come_back(api, s["id"], "2026-07")  # ₹0 from April, ₹2,000 from July
+    api.patch(f"/api/students/{s['id']}", json={"left_month": "2026-03"})
+    d = come_back(api, s["id"], "2026-05")
+    assert months_of(d)["2026-04"] == (0, 0, "not_applicable")
+    assert months_of(d)["2026-05"] == (200000, 0, "unpaid")
+    assert months_of(d)["2026-06"] == (200000, 0, "unpaid")
+    assert d["owed_paise"] == 400000
+
+
+def kinds_of(detail: Json) -> list[tuple[str, int, str]]:
+    return [(f["effective_month"], f["amount_paise"], f["kind"]) for f in detail["fee_history"]]
+
+
+def test_correcting_the_left_month_after_coming_back(api: TestClient) -> None:
+    # Left after March, back in July (away from April). Then the owner corrects the left month
+    # to May, and they come back in July again: April and May are owed, June is away.
+    s = make_student(api, monthly_fee_paise=100000, joined_month="2026-01", left_month="2026-03")
+    for m in ("2026-01", "2026-02", "2026-03"):
+        pay(api, s["id"], m, 100000)
+    d = come_back(api, s["id"], "2026-07")
+    assert kinds_of(d) == [
+        ("2026-01", 100000, "fee"),
+        ("2026-04", 0, "away"),
+        ("2026-07", 100000, "fee"),
+    ]
+    d = api.patch(f"/api/students/{s['id']}", json={"left_month": "2026-05"}).json()
+    assert kinds_of(d) == [("2026-01", 100000, "fee"), ("2026-07", 100000, "fee")]
+    d = come_back(api, s["id"], "2026-07")
+    assert kinds_of(d) == [
+        ("2026-01", 100000, "fee"),
+        ("2026-06", 0, "away"),
+        ("2026-07", 100000, "fee"),
+    ]
+    assert months_of(d)["2026-04"] == (100000, 0, "unpaid")
+    assert months_of(d)["2026-05"] == (100000, 0, "unpaid")
+    assert months_of(d)["2026-06"] == (0, 0, "not_applicable")
+    assert d["owed_paise"] == 200000
+
+
+def test_several_returns_keep_each_earlier_absence(api: TestClient) -> None:
+    s = make_student(api, monthly_fee_paise=100000, joined_month="2026-01", left_month="2026-02")
+    come_back(api, s["id"], "2026-04")  # away in March
+    api.patch(f"/api/students/{s['id']}", json={"left_month": "2026-05"})  # leaves again
+    d = come_back(api, s["id"], "2026-07")  # away in June
+    assert kinds_of(d) == [
+        ("2026-01", 100000, "fee"),
+        ("2026-03", 0, "away"),
+        ("2026-04", 100000, "fee"),
+        ("2026-06", 0, "away"),
+        ("2026-07", 100000, "fee"),
+    ]
+    assert [m["status"] for m in d["months"]] == [
+        "unpaid", "unpaid", "not_applicable", "unpaid", "unpaid", "not_applicable",
+    ]  # fmt: skip
+
+
+def test_a_planned_month_off_is_kept_when_coming_back(api: TestClient) -> None:
+    s = make_student(api, monthly_fee_paise=100000, joined_month="2026-01", left_month="2026-03")
+    url = f"/api/students/{s['id']}"
+    api.patch(url, json={"monthly_fee_paise": 0, "fee_effective_month": "2026-09"})
+    api.patch(url, json={"monthly_fee_paise": 100000, "fee_effective_month": "2026-10"})
+    d = come_back(api, s["id"], "2026-07")
+    assert kinds_of(d) == [
+        ("2026-01", 100000, "fee"),
+        ("2026-04", 0, "away"),
+        ("2026-07", 100000, "fee"),
+        ("2026-09", 0, "fee"),  # the owner's month off stays
+        ("2026-10", 100000, "fee"),
+    ]
+    # An owner's ₹0 month off on the return month itself is the fee they come back on.
+    t = make_student(api, name="Kabir Mehta", joined_month="2026-01", left_month="2026-02")
+    api.patch(
+        f"/api/students/{t['id']}", json={"monthly_fee_paise": 0, "fee_effective_month": "2026-05"}
+    )
+    d = come_back(api, t["id"], "2026-05")
+    assert kinds_of(d)[-1] == ("2026-05", 0, "fee")
+
+
+def test_a_fee_set_on_a_month_away_becomes_the_owners(api: TestClient) -> None:
+    s = make_student(api, joined_month="2026-01", left_month="2026-02")
+    come_back(api, s["id"], "2026-05")  # away from March
+    response = api.patch(
+        f"/api/students/{s['id']}",
+        json={"monthly_fee_paise": 120000, "fee_effective_month": "2026-03"},
+    )
+    assert response.status_code == 200, response.text
+    assert kinds_of(response.json())[1] == ("2026-03", 120000, "fee")
+
+
+def test_a_wrong_left_month_and_following_the_message_to_put_it_right(api: TestClient) -> None:
+    # Left after March, back in July (away April to June). Then marked as left after May by
+    # mistake: the away months up to May are gone, so April and May are owed.
+    s = make_student(api, monthly_fee_paise=100000, joined_month="2026-01", left_month="2026-03")
+    url = f"/api/students/{s['id']}"
+    for m in ("2026-01", "2026-02", "2026-03"):
+        pay(api, s["id"], m, 100000)
+    come_back(api, s["id"], "2026-07")
+    d = api.patch(url, json={"left_month": "2026-05"}).json()
+    assert kinds_of(d) == [("2026-01", 100000, "fee"), ("2026-07", 100000, "fee")]
+    assert d["owed_paise"] == 200000  # April and May
+    # Moving it later is refused, and the message says what to do instead ...
+    refused = api.patch(url, json={"left_month": "2026-09"})
+    assert refused.status_code == 422
+    assert "first set the real last month" in refused.json()["detail"][0]["msg"]
+    # ... which is: the real left month (March, earlier: allowed), then back from July.
+    api.patch(url, json={"left_month": "2026-03"})
+    d = come_back(api, s["id"], "2026-07")
+    assert kinds_of(d) == [
+        ("2026-01", 100000, "fee"),
+        ("2026-04", 0, "away"),
+        ("2026-07", 100000, "fee"),
+    ]
+    assert (d["owed_paise"], d["left_month"]) == (0, None)
+
+
+def test_the_fee_they_came_back_on_cant_be_removed(api: TestClient) -> None:
+    s = make_student(api, joined_month="2026-01", left_month="2026-02")
+    d = come_back(api, s["id"], "2026-09")  # a return still to come
+    back_fee = next(f for f in d["fee_history"] if f["effective_month"] == "2026-09")
+    response = api.delete(f"/api/students/{s['id']}/fee-changes/{back_fee['id']}")
+    assert response.status_code == 422
+    [item] = response.json()["detail"]
+    assert item["msg"] == "This is the fee they came back on. To change it, set a new fee in Edit."
+    # Its away row (from March) has started, so it can't be removed either ...
+    away = next(f for f in d["fee_history"] if f["kind"] == "away")
+    assert api.delete(f"/api/students/{s['id']}/fee-changes/{away['id']}").status_code == 422
+    # ... but an away row that hasn't started can (those months are then owed):
+    t = make_student(api, name="Kabir Mehta", joined_month="2026-01", left_month="2026-07")
+    d = come_back(api, t["id"], "2026-10")
+    away = next(f for f in d["fee_history"] if f["kind"] == "away")
+    assert api.delete(f"/api/students/{t['id']}/fee-changes/{away['id']}").status_code == 204
+
+
+def test_the_dashboard_counts_paid_ahead_only_up_to_the_fee(api: TestClient) -> None:
+    a = make_student(api, monthly_fee_paise=100000, joined_month="2026-01")
+    b = make_student(api, name="Kabir Mehta", monthly_fee_paise=100000, joined_month="2026-01",
+                     left_month="2026-02")  # fmt: skip
+    come_back(api, b["id"], "2026-09")  # away in August
+    pay(api, a["id"], "2026-08", 250000)  # ₹1,500 more than the fee
+    pay(api, b["id"], "2026-08", 100000)  # a month away: all extra
+    august = api.get("/api/dashboard", params={"month": "2026-08"}).json()["summary"]
+    assert (august["collected_paise"], august["paid_ahead_paise"]) == (350000, 100000)
+    assert august["active_student_count"] == 1
+    assert api.get("/api/dashboard").json()["summary"]["paid_ahead_paise"] == 0  # June: due
+
+
+def test_coming_back_on_a_different_fee(api: TestClient) -> None:
+    s = make_student(api, joined_month="2026-01", left_month="2026-02")
+    url = f"/api/students/{s['id']}/return"
+    too_big = api.post(url, json={"from_month": "2026-05", "monthly_fee_paise": 100000001})
+    assert too_big.status_code == 422
+    response = api.post(url, json={"from_month": "2026-05", "monthly_fee_paise": 250000})
+    assert response.status_code == 200
+    assert fees_of(response.json()) == [("2026-01", 150000), ("2026-03", 0), ("2026-05", 250000)]
+
+
+def test_a_payment_for_a_month_away_still_to_come_is_extra_not_paid_ahead(
+    api: TestClient,
+) -> None:
+    s = make_student(api, monthly_fee_paise=100000, joined_month="2026-01", left_month="2026-05")
+    for m in ("2026-01", "2026-02", "2026-03", "2026-04", "2026-05"):
+        pay(api, s["id"], m, 100000)
+    come_back(api, s["id"], "2026-09")  # away June to August
+    pay(api, s["id"], "2026-08", 100000)  # a month away, still to come
+    d = api.get(f"/api/students/{s['id']}").json()
+    assert months_of(d)["2026-08"] == (0, 100000, "overpaid")
+    assert (d["paid_ahead_paise"], d["credit_paise"], d["status"]) == (0, 100000, "credit")
+    # A later month they're enrolled in counts as paid ahead only up to its fee.
+    pay(api, s["id"], "2026-09", 150000)
+    d = api.get(f"/api/students/{s['id']}").json()
+    assert (d["paid_ahead_paise"], d["credit_paise"]) == (100000, 150000)
+
+
+def test_no_fee_now_then_a_fee_later(api: TestClient) -> None:
+    s = make_student(api, monthly_fee_paise=100000, joined_month="2026-01", left_month="2026-02")
+    d = come_back(api, s["id"], "2026-12")
+    assert d["monthly_fee_paise"] == 0
+    nxt = d["next_fee_change"]
+    assert (nxt["effective_month"], nxt["amount_paise"]) == ("2026-12", 100000)
+    [listed] = [x for x in api.get("/api/students").json() if x["id"] == s["id"]]
+    assert listed["next_fee_change"]["effective_month"] == "2026-12"
+    assert make_student(api, name="Kabir Mehta")["next_fee_change"] is None
+    # The dashboard counts only students with a fee due this month.
+    board = api.get("/api/dashboard").json()
+    assert board["summary"]["active_student_count"] == 1  # Kabir
+
+
+def test_two_clicks_at_once_come_back_once(api: TestClient) -> None:
+    s = make_student(api, joined_month="2026-01", left_month="2026-02")
+
+    def click(_: int) -> int:
+        response = api.post(f"/api/students/{s['id']}/return", json={"from_month": "2026-05"})
+        return response.status_code
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        codes = sorted(pool.map(click, range(6)))
+    assert codes == [200, 422, 422, 422, 422, 422]
+    d = api.get(f"/api/students/{s['id']}").json()
+    assert fees_of(d) == [("2026-01", 150000), ("2026-03", 0), ("2026-05", 150000)]
+
+
+def test_fee_changes_at_once_never_500(api: TestClient) -> None:
+    s = make_student(api, joined_month="2026-01")
+
+    def change(amount: int) -> int:
+        return api.patch(
+            f"/api/students/{s['id']}",
+            json={"monthly_fee_paise": amount, "fee_effective_month": "2026-09"},
+        ).status_code
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        codes = list(pool.map(change, [160000 + i for i in range(6)]))
+    assert codes == [200] * 6
+    [_, sep] = api.get(f"/api/students/{s['id']}").json()["fee_history"]
+    assert sep["effective_month"] == "2026-09"
+
+    later = api.get(f"/api/students/{s['id']}").json()["fee_history"][1]["id"]
+    url = f"/api/students/{s['id']}/fee-changes/{later}"
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        removed = sorted(pool.map(lambda _: api.delete(url).status_code, range(4)))
+    assert removed == [204, 404, 404, 404]
+
+
+def test_no_500_from_changes_at_the_same_moment(api: TestClient) -> None:
+    """Many changes to one student at once (double clicks, two tabs): never a 500."""
+    s = make_student(api, joined_month="2026-01", left_month="2026-02")
+    sid = s["id"]
+    fee = {"monthly_fee_paise": 1, "fee_effective_month": "2026-09"}
+    payment = {"student_id": sid, "amount_paise": 100, "paid_on": "2026-06-01",
+               "for_month": "2026-06", "method": "cash"}  # fmt: skip
+    calls: list[tuple[str, str, Json | None]] = [
+        ("post", f"/api/students/{sid}/return", {"from_month": "2026-05"}),
+        ("post", f"/api/students/{sid}/return", {"from_month": "2026-04"}),
+        ("patch", f"/api/students/{sid}", fee),
+        ("patch", f"/api/students/{sid}", {**fee, "monthly_fee_paise": 2}),
+        ("patch", f"/api/students/{sid}", {"left_month": "2026-03"}),
+        ("delete", f"/api/students/{sid}/fee-changes/{s['fee_history'][0]['id'] + 1}", None),
+        ("post", "/api/payments", payment),
+    ] * 6
+
+    def call(c: tuple[str, str, Json | None]) -> int:
+        return api.request(c[0], c[1], json=c[2]).status_code
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        codes = list(pool.map(call, calls))
+    assert all(code < 500 for code in codes), codes
+
+
+def test_a_clash_in_the_database_is_a_plain_409(
+    api: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def clash(*_args: object) -> None:
+        raise IntegrityError("INSERT ...", None, Exception("UNIQUE constraint failed"))
+
+    monkeypatch.setattr(students_service, "delete_fee_change", clash)
+    response = api.delete("/api/students/1/fee-changes/1")
+    assert response.status_code == 409
+    assert response.json() == {"detail": CLASH_MESSAGE}

@@ -3,7 +3,7 @@
  * open (with the button showing progress) until the action has finished.
  */
 import { TriangleAlertIcon } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -25,6 +25,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel,
+  pendingLabel = 'Deleting…',
   onConfirm,
 }: {
   open: boolean
@@ -32,12 +33,18 @@ export function ConfirmDialog({
   title: ReactNode
   description: ReactNode
   confirmLabel: string
+  /** What the button says while the action runs. */
+  pendingLabel?: string
   /** Runs the action. The dialog closes when it resolves, and shows a toast if it throws. */
   onConfirm: () => Promise<unknown>
 }) {
   const [pending, setPending] = useState(false)
+  // Blocks a second click before `pending` has re-rendered the button as disabled.
+  const running = useRef(false)
 
   const confirm = async () => {
+    if (running.current) return
+    running.current = true
     setPending(true)
     try {
       await onConfirm()
@@ -45,6 +52,7 @@ export function ConfirmDialog({
     } catch (error) {
       toast.error(errorMessage(error))
     } finally {
+      running.current = false
       setPending(false)
     }
   }
@@ -66,7 +74,7 @@ export function ConfirmDialog({
             Cancel
           </AlertDialogCancel>
           <Button variant="destructive" size="lg" onClick={confirm} disabled={pending}>
-            {pending ? 'Deleting…' : confirmLabel}
+            {pending ? pendingLabel : confirmLabel}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

@@ -187,12 +187,14 @@ export function buildFixture(specs: StudentSpec[], now: Date = new Date()): Fixt
         student_id: id,
         effective_month: joined,
         amount_paise: spec.feeChange.oldFee * 100,
+        kind: 'fee',
       })
       fees.push({
         id: nextId++,
         student_id: id,
         effective_month: addMonths(thisMonth, -spec.feeChange.from),
         amount_paise: spec.fee * 100,
+        kind: 'fee',
       })
     } else {
       fees.push({
@@ -200,6 +202,7 @@ export function buildFixture(specs: StudentSpec[], now: Date = new Date()): Fixt
         student_id: id,
         effective_month: joined,
         amount_paise: spec.fee * 100,
+        kind: 'fee',
       })
     }
 

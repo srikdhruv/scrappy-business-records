@@ -78,6 +78,48 @@ export interface paths {
         patch: operations["updateStudent"];
         trace?: never;
     };
+    "/api/students/{student_id}/return": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Return Student
+         * @description A student who left is coming again from `from_month`. The months they were away get a
+         *     0 fee (never owed), their fee carries on from `from_month`, and `left_month` is cleared,
+         *     all at once.
+         */
+        post: operations["returnStudent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/students/{student_id}/fee-changes/{fee_change_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Fee Change
+         * @description Remove a fee change that hasn't started yet. Never the first (joining) fee.
+         */
+        delete: operations["deleteFeeChange"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/students/{student_id}/suggest-payment": {
         parameters: {
             query?: never;
@@ -191,7 +233,7 @@ export interface components {
             total_owed_paise: number;
             /**
              * Credit Paise
-             * @description The student's money in overpaid months up to the current month (see StudentRead.credit_paise), so the UI can say they have credit.
+             * @description The student's money paid above the fee (see StudentRead.credit_paise), so the UI can say they have credit.
              */
             credit_paise: number;
         };
@@ -265,6 +307,11 @@ export interface components {
              */
             collected_paise: number;
             /**
+             * Paid Ahead Paise
+             * @description For a month after the current one: what's paid for it by students enrolled then, up to each one's fee (anything above is credit). 0 for the current month and earlier ones, which use collected_paise.
+             */
+            paid_ahead_paise: number;
+            /**
              * Still Due Paise
              * @description Sum of max(0, expected - paid).
              */
@@ -276,7 +323,7 @@ export interface components {
             not_fully_paid_count: number;
             /**
              * Active Student Count
-             * @description Students active in M.
+             * @description Students with a fee due in M: active in M, with a fee above 0.
              */
             active_student_count: number;
         };
@@ -307,7 +354,18 @@ export interface components {
              * @description Amount in paise, 0 or more.
              */
             amount_paise: number;
+            /** @description `fee`: set by the owner (₹0 is a month off or a free place). `away`: the ₹0 for the months away, written by coming back after leaving. */
+            kind: components["schemas"]["FeeKind"];
         };
+        /**
+         * FeeKind
+         * @description What a fee change is. `fee`: a fee the owner set (₹0 means a month off or a free place).
+         *     `away`: the ₹0 for the months away, written by coming back after leaving (PRD ledger rule
+         *     11), and managed by the app: cleaned up when the left month changes or they come back
+         *     again.
+         * @enum {string}
+         */
+        FeeKind: "fee" | "away";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -572,7 +630,7 @@ export interface components {
              * @description Net: all payments minus everything expected up to this month. For reference only: money paid ahead or paid twice can cancel out months still owed, so headlines use `status` and `owed_paise`.
              */
             balance_paise: number;
-            /** @description `owes` if anything is owed for a due month (`owed_paise` > 0); otherwise `credit` if a due month was paid too much (`credit_paise` > 0); otherwise `up_to_date`. */
+            /** @description `owes` if anything is owed for a due month (`owed_paise` > 0); otherwise `credit` if any month was paid more than its fee (`credit_paise` > 0); otherwise `up_to_date`. */
             status: components["schemas"]["BalanceStatus"];
             /**
              * Owed Paise
@@ -581,14 +639,16 @@ export interface components {
             owed_paise: number;
             /**
              * Paid Ahead Paise
-             * @description Money paid for months after the current month that they're still enrolled in (not due yet; not credit). Months after left_month count as credit instead.
+             * @description Money paid for months after the current month that they're still enrolled in, up to each month's fee (not due yet; not credit). Anything above the fee, and anything for a month after left_month, counts as credit instead.
              */
             paid_ahead_paise: number;
             /**
              * Credit Paise
-             * @description Money in overpaid months up to this month: the sum of max(0, paid - expected) over months up to and including the current month. Payments for later months (paid ahead) are not credit.
+             * @description Money paid above the fee: the sum of max(0, paid - expected) over every month with a payment, later months included (all of it where the fee is 0). Paying a later month up to its fee is paid ahead, not credit.
              */
             credit_paise: number;
+            /** @description The first fee change after the month monthly_fee_paise is for, if any (so the UI can say "No fee until December 2026, then ₹1,000"). */
+            next_fee_change: components["schemas"]["FeeChangeRead"] | null;
             /**
              * Tenure Months
              * @description How long they have been a student, in months. Still coming: whole months since joined_month (0 in the joining month or before). Left (left_month before the current month): the months enrolled, both ends counted (left_month - joined_month + 1).
@@ -676,7 +736,7 @@ export interface components {
              * @description Net: all payments minus everything expected up to this month. For reference only: money paid ahead or paid twice can cancel out months still owed, so headlines use `status` and `owed_paise`.
              */
             balance_paise: number;
-            /** @description `owes` if anything is owed for a due month (`owed_paise` > 0); otherwise `credit` if a due month was paid too much (`credit_paise` > 0); otherwise `up_to_date`. */
+            /** @description `owes` if anything is owed for a due month (`owed_paise` > 0); otherwise `credit` if any month was paid more than its fee (`credit_paise` > 0); otherwise `up_to_date`. */
             status: components["schemas"]["BalanceStatus"];
             /**
              * Owed Paise
@@ -685,14 +745,16 @@ export interface components {
             owed_paise: number;
             /**
              * Paid Ahead Paise
-             * @description Money paid for months after the current month that they're still enrolled in (not due yet; not credit). Months after left_month count as credit instead.
+             * @description Money paid for months after the current month that they're still enrolled in, up to each month's fee (not due yet; not credit). Anything above the fee, and anything for a month after left_month, counts as credit instead.
              */
             paid_ahead_paise: number;
             /**
              * Credit Paise
-             * @description Money in overpaid months up to this month: the sum of max(0, paid - expected) over months up to and including the current month. Payments for later months (paid ahead) are not credit.
+             * @description Money paid above the fee: the sum of max(0, paid - expected) over every month with a payment, later months included (all of it where the fee is 0). Paying a later month up to its fee is paid ahead, not credit.
              */
             credit_paise: number;
+            /** @description The first fee change after the month monthly_fee_paise is for, if any (so the UI can say "No fee until December 2026, then ₹1,000"). */
+            next_fee_change: components["schemas"]["FeeChangeRead"] | null;
             /**
              * Tenure Months
              * @description How long they have been a student, in months. Still coming: whole months since joined_month (0 in the joining month or before). Left (left_month before the current month): the months enrolled, both ends counted (left_month - joined_month + 1).
@@ -718,12 +780,33 @@ export interface components {
             updated_at: string;
         };
         /**
+         * StudentReturn
+         * @description Body of `POST /students/{id}/return`: a student who left is coming again (PRD ledger
+         *     rule 11). The months between `left_month` and `from_month` get a 0 fee, so they are never
+         *     owed; their fee carries on from `from_month`.
+         */
+        StudentReturn: {
+            /**
+             * From Month
+             * @description The first month they owe again: after left_month, at most 24 months after the current month.
+             * @example 2026-10
+             */
+            from_month: string;
+            /**
+             * Monthly Fee Paise
+             * @description Their fee from from_month. Defaults to the fee their schedule has for that month, ignoring ₹0 fees left by an earlier return.
+             */
+            monthly_fee_paise?: number | null;
+        };
+        /**
          * StudentUpdate
          * @description Partial update. Only fields that are sent change.
          *
          *     To change the fee, send `monthly_fee_paise`, and optionally `fee_effective_month` (defaults
-         *     to the current month). Earlier months keep their old fee. Send `left_month: null` to
-         *     un-archive a student.
+         *     to the current month). Earlier months keep their fee, and the new fee lasts until the next
+         *     fee change already set after it, if any. Send `left_month: null` to un-archive a student
+         *     as if they never left (every month since counts); `POST /students/{id}/return` instead
+         *     skips the months they were away.
          *
          *     Edit rules. This model checks what it can on its own. The router checks the rest against the
          *     stored student and answers **422** in the standard validation shape (`app.errors`), never a
@@ -766,10 +849,9 @@ export interface components {
          *     already fully paid, and never one outside the months the student is enrolled in.
          *
          *     - `owed`: the oldest month up to now that is Unpaid or Partial, and what's left on it.
-         *     - `next_unpaid`: the first later month that isn't fully paid, and what's left on it.
+         *     - `next_unpaid`: the first later month with a fee that isn't fully paid, and what's left on
+         *       it. Months with a 0 fee are skipped.
          *     - `all_paid`: nothing left to pay; `for_month` and `amount_paise` are null.
-         *
-         *     `amount_paise` is also null for a month whose fee is 0.
          */
         SuggestedPayment: {
             /** For Month */
@@ -832,7 +914,7 @@ export interface components {
             status: "unpaid" | "partial";
             /**
              * Credit Paise
-             * @description The student's money in overpaid months up to the current month (see StudentRead.credit_paise), so the UI can say they have credit.
+             * @description The student's money paid above the fee (see StudentRead.credit_paise), so the UI can say they have credit.
              */
             credit_paise: number;
         };
@@ -850,6 +932,7 @@ export type DashboardResponse = components['schemas']['DashboardResponse'];
 export type DashboardSummary = components['schemas']['DashboardSummary'];
 export type ErrorResponse = components['schemas']['ErrorResponse'];
 export type FeeChangeRead = components['schemas']['FeeChangeRead'];
+export type FeeKind = components['schemas']['FeeKind'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];
 export type HealthResponse = components['schemas']['HealthResponse'];
 export type LedgerMonth = components['schemas']['LedgerMonth'];
@@ -865,6 +948,7 @@ export type StudentCreate = components['schemas']['StudentCreate'];
 export type StudentDetail = components['schemas']['StudentDetail'];
 export type StudentListFilter = components['schemas']['StudentListFilter'];
 export type StudentRead = components['schemas']['StudentRead'];
+export type StudentReturn = components['schemas']['StudentReturn'];
 export type StudentUpdate = components['schemas']['StudentUpdate'];
 export type SuggestedPayment = components['schemas']['SuggestedPayment'];
 export type SuggestionReason = components['schemas']['SuggestionReason'];
@@ -1062,6 +1146,89 @@ export interface operations {
                 };
             };
             /** @description No student with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    returnStudent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StudentReturn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentDetail"];
+                };
+            };
+            /** @description No student with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deleteFeeChange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+                fee_change_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such student or fee change */
             404: {
                 headers: {
                     [name: string]: unknown;

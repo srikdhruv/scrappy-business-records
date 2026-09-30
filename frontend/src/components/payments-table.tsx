@@ -95,6 +95,10 @@ export function PaymentsTable({
       [
         column.accessor('paid_on', {
           header: 'Paid on',
+          // The list starts newest first, so the first click shows oldest first. (Without this
+          // a date counts as text, sorts A to Z first, and the first click only cleared the
+          // sort: nothing moved.)
+          sortDescFirst: true,
           sortFn: (a, b) => compare(a.original.paid_on, b.original.paid_on),
           cell: (info) => formatDate(info.getValue()),
         }),

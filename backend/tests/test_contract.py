@@ -17,6 +17,8 @@ EXPECTED_OPERATIONS = {
     ("patch", "/api/students/{student_id}"): "updateStudent",
     ("delete", "/api/students/{student_id}"): "deleteStudent",
     ("get", "/api/students/{student_id}/suggest-payment"): "suggestPayment",
+    ("post", "/api/students/{student_id}/return"): "returnStudent",
+    ("delete", "/api/students/{student_id}/fee-changes/{fee_change_id}"): "deleteFeeChange",
     ("get", "/api/payments"): "listPayments",
     ("post", "/api/payments"): "createPayment",
     ("get", "/api/payments/{payment_id}"): "getPayment",
@@ -42,6 +44,9 @@ def test_status_codes(client: TestClient) -> None:
     assert "201" in paths["/api/payments"]["post"]["responses"]
     assert "204" in paths["/api/students/{student_id}"]["delete"]["responses"]
     assert "204" in paths["/api/payments/{payment_id}"]["delete"]["responses"]
+    fee_change = "/api/students/{student_id}/fee-changes/{fee_change_id}"
+    assert "204" in paths[fee_change]["delete"]["responses"]
+    assert "200" in paths["/api/students/{student_id}/return"]["post"]["responses"]
     assert "404" in paths["/api/students/{student_id}"]["get"]["responses"]
 
 
@@ -182,6 +187,8 @@ EVERY_ENDPOINT = [
     ("get", "/api/students/1", None),
     ("delete", "/api/students/1", None),
     ("get", "/api/students/1/suggest-payment", None),
+    ("post", "/api/students/1/return", {"from_month": "2026-06"}),
+    ("delete", "/api/students/1/fee-changes/1", None),
     ("get", "/api/payments", None),
     ("get", "/api/payments/1", None),
     ("delete", "/api/payments/1", None),

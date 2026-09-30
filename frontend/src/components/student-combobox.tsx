@@ -22,14 +22,8 @@ import {
   CommandList,
 } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { studentMatches } from '@/lib/search'
 import { cn } from '@/lib/utils'
-
-/** Show a student when every typed word appears in their name or batch (no fuzzy guessing). */
-function containsWords(value: string, search: string, keywords?: string[]): number {
-  const haystack = [value.replace(/ #\d+$/, ''), ...(keywords ?? [])].join(' ').toLowerCase()
-  const words = search.toLowerCase().split(/\s+/).filter(Boolean)
-  return words.every((word) => haystack.includes(word)) ? 1 : 0
-}
 
 const itemValue = (student: StudentRead) => `${student.name} #${student.id}`
 
@@ -62,6 +56,13 @@ export function StudentCombobox({
   const selected = students.find((s) => s.id === value)
   const active = students.filter((s) => s.is_active)
   const left = students.filter((s) => !s.is_active)
+  // The same search as the Students page (lib/search.ts): name, parent, class or phone, any
+  // word order, ignoring capitals, accents and the spaces in phone numbers.
+  const byValue = new Map(students.map((s) => [itemValue(s), s]))
+  const filter = (candidate: string, typed: string): number => {
+    const student = byValue.get(candidate)
+    return student && studentMatches(student, typed) ? 1 : 0
+  }
 
   const autoId = useId()
   const buttonId = id ?? `${autoId}-button`
@@ -106,7 +107,6 @@ export function StudentCombobox({
     <CommandItem
       key={student.id}
       value={itemValue(student)}
-      keywords={student.batch_label ? [student.batch_label] : undefined}
       data-checked={student.id === value}
       onSelect={() => choose(student.id)}
     >
@@ -168,7 +168,7 @@ export function StudentCombobox({
         }}
       >
         {/* Starts on the chosen student, so Enter right away keeps the same one. */}
-        <Command filter={containsWords} defaultValue={selected ? itemValue(selected) : undefined}>
+        <Command filter={filter} defaultValue={selected ? itemValue(selected) : undefined}>
           <CommandInput
             ref={inputRef}
             placeholder="Type a name…"

@@ -1,6 +1,7 @@
 /**
  * Add a student (S1) or edit one (S2). Changing the fee always asks "from which month?" so that
- * earlier months keep their old fee (PRD ledger rule 7).
+ * earlier months keep their old fee (PRD ledger rule 7), and says, from their real fee history,
+ * how long the new fee lasts (until the next fee change already set, if any).
  */
 import { InfoIcon } from 'lucide-react'
 import { useState, type FormEvent, type ReactNode } from 'react'
@@ -8,6 +9,7 @@ import { toast } from 'sonner'
 
 import { useCreateStudent, useServerMonth, useUpdateStudent } from '@/api/queries'
 import type { StudentDetail, StudentUpdate } from '@/api/types'
+import { AwayWarning } from '@/components/away-warning'
 import { MonthPicker } from '@/components/month-picker'
 import { Button } from '@/components/ui/button'
 import {
@@ -32,6 +34,7 @@ import {
   rupeesToPaise,
 } from '@/lib/format'
 import { amountProblem } from '@/lib/amount'
+import { awayOwedAgain, feeAt, newFeeSentence } from '@/lib/fees'
 
 type Field =
   'name' | 'fee' | 'feeFrom' | 'joined' | 'left' | 'phone' | 'guardian' | 'batch' | 'notes'
@@ -91,6 +94,7 @@ function StudentForm({
   const now = student?.current_month ?? serverMonth ?? currentMonth()
   const [name, setName] = useState(student?.name ?? '')
   const [fee, setFee] = useState(student ? paiseToRupeesInput(student.monthly_fee_paise) : '')
+  const [feeEdited, setFeeEdited] = useState(false)
   const [feeFrom, setFeeFrom] = useState<string | null>(
     student && student.joined_month > now ? student.joined_month : now,
   )
@@ -102,6 +106,10 @@ function StudentForm({
     setJoined(now)
   }
   const [left, setLeft] = useState<string | null>(student?.left_month ?? null)
+  // Months away (from an earlier return) a new left month would make owed again: ask first.
+  const owedAgain =
+    student && left && left !== student.left_month ? awayOwedAgain(student.fee_history, left) : []
+  const [awayConfirmed, setAwayConfirmed] = useState(false)
   const [phone, setPhone] = useState(student?.phone ?? '')
   const [guardian, setGuardian] = useState(student?.guardian_name ?? '')
   const [batch, setBatch] = useState(student?.batch_label ?? '')
@@ -115,7 +123,22 @@ function StudentForm({
   const saving = createStudent.isPending || updateStudent.isPending
 
   const feePaise = rupeesToPaise(fee, { allowZero: true })
-  const feeChanged = editing && feePaise !== null && feePaise !== student.monthly_fee_paise
+  const fees = student?.fee_history ?? []
+  // "New fee applies from" shows for a fee different from this month's. It also shows whenever
+  // they have a fee change that hasn't started yet, and, once the fee box has been touched,
+  // whenever they have more than one fee: then this month's fee can still differ from the fee in
+  // effect in the chosen month (to undo a scheduled raise, or end a month off).
+  const hasScheduled = fees.some((f, i) => i > 0 && f.effective_month > now)
+  const showFeeFrom =
+    editing &&
+    feePaise !== null &&
+    (feePaise !== student.monthly_fee_paise || hasScheduled || (feeEdited && fees.length > 1))
+  // Only a fee different from the one already in effect in the chosen month is recorded.
+  const feeChanged = showFeeFrom && feeFrom !== null && feePaise !== feeAt(fees, feeFrom)
+  const replaces = feeChanged ? fees.find((f) => f.effective_month === feeFrom) : undefined
+  // Someone whose last month has passed comes back with "Mark as coming again" on their profile,
+  // which asks which month; emptying "Left in month" here would make every month away owed.
+  const hasLeft = editing && student.left_month !== null && !student.is_active
 
   const clientErrors: Partial<Record<Field, string>> = {}
   if (!name.trim()) clientErrors.name = 'Enter their name.'
@@ -124,8 +147,10 @@ function StudentForm({
   if (!joined) clientErrors.joined = 'Pick the month they joined.'
   if (left && joined && left < joined) {
     clientErrors.left = 'This can’t be before the month they joined.'
+  } else if (owedAgain.length > 0 && !awayConfirmed) {
+    clientErrors.left = 'Tick the box if those months should be owed again.'
   }
-  if (feeChanged && !feeFrom) clientErrors.feeFrom = 'Pick the month the new fee starts.'
+  if (showFeeFrom && !feeFrom) clientErrors.feeFrom = 'Pick the month the new fee starts.'
   if (feeChanged && feeFrom && joined && feeFrom < joined) {
     clientErrors.feeFrom = 'The new fee can’t start before the month they joined.'
   }
@@ -234,6 +259,7 @@ function StudentForm({
               value={fee}
               onChange={(e) => {
                 setFee(e.target.value)
+                setFeeEdited(true)
                 clearServer('fee')
               }}
               aria-invalid={Boolean(errors.fee) || undefined}
@@ -264,7 +290,7 @@ function StudentForm({
         </FormField>
       </div>
 
-      {feeChanged && (
+      {showFeeFrom && (
         <div className="grid gap-3 rounded-xl border border-primary/40 bg-primary/10 p-4">
           <FormField
             id="student-fee-from"
@@ -291,9 +317,20 @@ function StudentForm({
           <p id="student-fee-from-help" className="flex items-start gap-2 text-base">
             <InfoIcon className="mt-0.5 size-4 shrink-0 text-primary-strong" aria-hidden />
             <span>
-              From {feeFrom ? formatMonth(feeFrom) : 'that month'} they’ll owe{' '}
-              <strong>{formatRupees(feePaise)}</strong> a month. Earlier months keep the old fee of{' '}
-              <strong>{formatRupees(student.monthly_fee_paise)}</strong>.
+              {!feeFrom ? (
+                'Choose the first month of the new fee.'
+              ) : !feeChanged ? (
+                `That’s already their fee in ${formatMonth(feeFrom)}, so nothing changes.`
+              ) : (
+                <>
+                  {newFeeSentence(fees, feeFrom, feePaise, now)}
+                  {replaces &&
+                    ` It replaces the ${replaces.amount_paise === 0 ? 'no-fee change' : formatRupees(replaces.amount_paise)} already set for ${formatMonth(feeFrom)}.`}{' '}
+                  {feeFrom < now
+                    ? `Months before ${formatMonth(feeFrom)} don’t change, but the months since then do.`
+                    : `Months before ${formatMonth(feeFrom)} don’t change.`}
+                </>
+              )}
             </span>
           </p>
         </div>
@@ -342,26 +379,40 @@ function StudentForm({
           optional
           error={errors.left}
           errorId={errorId('left')}
-          help="The last month they should pay for. Leave empty while they’re still coming."
+          help={
+            hasLeft
+              ? 'The last month they paid for. It can only move earlier here. Came back after all? Use Mark as coming again on their profile, then set a new Left month if needed.'
+              : 'The last month they should pay for. Leave empty while they’re still coming.'
+          }
         >
           <MonthPicker
             id="student-left"
             label="Left in month"
             current={now}
-            max={addMonths(now, MONTHS_AHEAD)}
+            // Once it has passed it can only move earlier here; coming back is on the profile.
+            max={hasLeft && student.left_month ? student.left_month : addMonths(now, MONTHS_AHEAD)}
             value={left}
             onChange={(m) => {
               setLeft(m)
+              setAwayConfirmed(false)
               clearServer('left')
             }}
             placeholder="Still coming"
-            clearLabel="Still coming"
+            clearLabel={hasLeft ? undefined : 'Still coming'}
             min={joined ?? undefined}
             invalid={Boolean(errors.left)}
             aria-describedby={errorId('left') ?? 'student-left-help'}
             className="sm:max-w-64"
           />
         </FormField>
+      )}
+
+      {editing && (
+        <AwayWarning
+          spans={owedAgain}
+          confirmed={awayConfirmed}
+          onConfirmedChange={setAwayConfirmed}
+        />
       )}
 
       <FormField id="student-notes" label="Notes" optional error={errors.notes}>

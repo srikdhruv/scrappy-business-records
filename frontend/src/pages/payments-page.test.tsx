@@ -66,6 +66,24 @@ describe('payments page', () => {
     )
   })
 
+  it('shows oldest first on the first click on Paid on, which starts newest first', async () => {
+    const user = userEvent.setup()
+    renderApp('/payments')
+    await table()
+    const heading = () => header().getByRole('columnheader', { name: /Paid on/ })
+    expect(heading()).toHaveAttribute('aria-sort', 'descending')
+    const newestFirst = column('Paid on')
+
+    await user.click(header().getByRole('button', { name: 'Paid on' }))
+    expect(heading()).toHaveAttribute('aria-sort', 'ascending')
+    const oldestFirst = column('Paid on')
+    expect(oldestFirst[0]).not.toBe(newestFirst[0])
+    expect(oldestFirst.at(-1)).toBe(newestFirst[0])
+
+    await user.click(header().getByRole('button', { name: 'Paid on' }))
+    expect(column('Paid on')[0]).toBe(newestFirst[0])
+  })
+
   it('searches by student name', async () => {
     const user = userEvent.setup()
     renderApp('/payments')

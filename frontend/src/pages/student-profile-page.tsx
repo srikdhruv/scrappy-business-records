@@ -15,15 +15,23 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 
 import { ApiError } from '@/api/client'
-import { useDeleteStudent, usePayments, useStudent, useUpdateStudent } from '@/api/queries'
-import type { LedgerMonth, StudentDetail } from '@/api/types'
+import {
+  useDeleteFeeChange,
+  useDeleteStudent,
+  usePayments,
+  useStudent,
+  useUpdateStudent,
+} from '@/api/queries'
+import type { FeeChangeRead, LedgerMonth, StudentDetail } from '@/api/types'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PageHeader } from '@/components/layout/page-header'
 import { useLogPayment } from '@/components/log-payment'
+import { ComeBackDialog } from '@/components/come-back-dialog'
 import { MarkLeftDialog } from '@/components/mark-left-dialog'
 import { Panel } from '@/components/panel'
 import { PaymentsTable } from '@/components/payments-table'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
+import { FeeNow } from '@/components/fee-now'
 import { ExtraPaidNote, MonthStatusBadge, PaidAheadNote, StatusPill } from '@/components/status'
 import { TONE_TEXT, balanceTone, standingLabel } from '@/lib/status'
 import { StudentAvatar } from '@/components/student-avatar'
@@ -39,6 +47,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { errorMessage } from '@/lib/errors'
+import { feeAt, newFeeSentence } from '@/lib/fees'
 import { addMonths, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
 import { firstName, formatMonthCount, plural, tenurePhrase } from '@/lib/labels'
 import { cn } from '@/lib/utils'
@@ -129,10 +138,12 @@ function Profile({ student }: { student: StudentDetail }) {
   const [paymentsMonth, setPaymentsMonth] = useState<string | null>(null)
   const leaving = student.left_month !== null && student.is_active
 
-  const comeBack = async () => {
+  const [comeBackOpen, setComeBackOpen] = useState(false)
+  // Marked as leaving, but that month hasn't passed: they're simply staying.
+  const stay = async () => {
     try {
       await updateStudent.mutateAsync({ id: student.id, body: { left_month: null } })
-      toast.success(leaving ? `${student.name} is staying` : `${student.name} is active again`)
+      toast.success(`${student.name} is staying`)
     } catch (error) {
       toast.error(errorMessage(error))
     }
@@ -193,7 +204,7 @@ function Profile({ student }: { student: StudentDetail }) {
               <Button
                 variant="outline"
                 size="lg"
-                onClick={() => void comeBack()}
+                onClick={() => (leaving ? void stay() : setComeBackOpen(true))}
                 disabled={updateStudent.isPending}
               >
                 <UndoIcon aria-hidden />
@@ -281,6 +292,13 @@ function Profile({ student }: { student: StudentDetail }) {
 
       <StudentFormDialog open={editOpen} onOpenChange={setEditOpen} student={student} />
       {leftOpen && <MarkLeftDialog student={student} open={leftOpen} onOpenChange={setLeftOpen} />}
+      {comeBackOpen && student.left_month && (
+        <ComeBackDialog
+          student={{ ...student, left_month: student.left_month }}
+          open={comeBackOpen}
+          onOpenChange={setComeBackOpen}
+        />
+      )}
       <ConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
@@ -333,15 +351,14 @@ function BalanceCard({
   onFix?: (month: string) => void
 }) {
   const afterLeft = (month: string) => student.left_month !== null && month > student.left_month
-  // Money paid too much: due months, and any month after they left (even a later one).
-  const overpaid = student.months.filter(
-    (m) => m.status === 'overpaid' && (m.is_due || afterLeft(m.month)),
-  )
+  // Money paid too much: any month paid above its fee (all of it where the fee is 0).
+  const overpaid = student.months.filter((m) => m.status === 'overpaid')
   const credit = student.credit_paise
   const tone = balanceTone(student.status)
   // Paid ahead: the last month, after this one and still enrolled, paid in full without a gap.
   let aheadTo: string | undefined
   for (const m of student.months.filter((m) => !m.is_due && !afterLeft(m.month))) {
+    if (m.expected_paise === 0) continue // a month off or away: nothing to pay ahead, go on
     if (m.status !== 'paid' && m.status !== 'overpaid') break
     aheadTo = m.month
   }
@@ -402,7 +419,7 @@ function BalanceCard({
           {student.status === 'owes'
             ? `${plural(owed.length, 'month')} not fully paid.`
             : student.status === 'credit'
-              ? `Paid ${formatRupees(credit)} more than was due.`
+              ? `Paid ${formatRupees(credit)} more than the fee.`
               : aheadTo
                 ? `Everything due is paid, and ahead to ${formatMonth(aheadTo)}.`
                 : 'Everything due so far has been paid.'}
@@ -488,22 +505,11 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function DetailsCard({ student }: { student: StudentDetail }) {
-  const fees = student.fee_history
   return (
     <Panel title="Details">
       <dl className="grid gap-x-8 gap-y-4 px-6 pb-6 sm:grid-cols-2">
         <Detail label="Monthly fee">
-          <span className="font-bold tabular-nums">{formatRupees(student.monthly_fee_paise)}</span>
-          {fees.length > 1 && (
-            <span className="mt-1 block text-sm text-muted-foreground">
-              {fees
-                .map(
-                  (f) =>
-                    `${formatRupees(f.amount_paise)} from ${formatMonthShort(f.effective_month)}`,
-                )
-                .join(' · ')}
-            </span>
-          )}
+          <FeeNow student={student} long />
         </Detail>
         <Detail label="Joined">
           {formatMonth(student.joined_month)}
@@ -515,6 +521,7 @@ function DetailsCard({ student }: { student: StudentDetail }) {
               : tenurePhrase(student)}
           </span>
         </Detail>
+        {student.fee_history.length > 1 && <FeeHistory student={student} />}
         <Detail label="Class or batch">{student.batch_label ?? <Muted>Not set</Muted>}</Detail>
         <Detail label="Phone">
           {student.phone ? (
@@ -536,6 +543,101 @@ function DetailsCard({ student }: { student: StudentDetail }) {
       </dl>
     </Panel>
   )
+}
+
+/**
+ * Every fee and the month it starts (PRD ledger rule 7). A fee change that hasn't started yet
+ * can be removed here; the fee before it then carries on.
+ */
+function FeeHistory({ student }: { student: StudentDetail }) {
+  const fees = student.fee_history
+  const now = student.current_month
+  const [toRemove, setToRemove] = useState<FeeChangeRead | null>(null)
+  const remove = useDeleteFeeChange()
+  const rest = toRemove ? fees.filter((f) => f.id !== toRemove.id) : fees
+  return (
+    <div className="space-y-0.5 sm:col-span-2">
+      <dt className="text-sm font-bold text-muted-foreground" id="fee-history">
+        Fee history
+      </dt>
+      <dd>
+        <ul aria-labelledby="fee-history" className="grid text-base">
+          {fees.map((f, i) => {
+            const scheduled = i > 0 && f.effective_month > now
+            // Not the fee they came back on: it ends a run of months away, and removing it
+            // would leave them away for good. Change it with Edit instead.
+            const removable = scheduled && fees[i - 1]!.kind !== 'away'
+            return (
+              <li key={f.id} className="flex min-h-8 flex-wrap items-center gap-x-2">
+                <span className="tabular-nums">
+                  <span
+                    className={cn('font-semibold', f.amount_paise === 0 && 'text-muted-foreground')}
+                  >
+                    {f.kind === 'away'
+                      ? 'Away (no fee)'
+                      : f.amount_paise === 0
+                        ? 'No fee'
+                        : formatRupees(f.amount_paise)}
+                  </span>{' '}
+                  <span className="text-muted-foreground">
+                    from {formatMonthShort(f.effective_month)}
+                  </span>
+                </span>
+                {scheduled && (
+                  <>
+                    <span className="text-sm text-muted-foreground">(not started yet)</span>
+                  </>
+                )}
+                {removable && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-owed hover:bg-owed-soft hover:text-owed"
+                      onClick={() => setToRemove(f)}
+                      aria-label={`Remove the fee change from ${formatMonth(f.effective_month)}`}
+                    >
+                      Remove
+                    </Button>
+                  </>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </dd>
+      <ConfirmDialog
+        open={toRemove !== null}
+        onOpenChange={(open) => !open && setToRemove(null)}
+        title={
+          toRemove &&
+          `Remove the ${toRemove.amount_paise === 0 ? 'no-fee change' : `${formatRupees(toRemove.amount_paise)} fee`} from ${formatMonth(toRemove.effective_month)}?`
+        }
+        confirmLabel="Remove fee change"
+        pendingLabel="Removing…"
+        description={
+          toRemove && (
+            <p>
+              After this, {afterRemoving(rest, toRemove.effective_month, now)} Nothing else changes.
+            </p>
+          )
+        }
+        onConfirm={async () => {
+          if (!toRemove) return
+          await remove.mutateAsync({ studentId: student.id, feeChangeId: toRemove.id })
+          toast.success('Fee change removed', {
+            description: `${student.name}, ${formatMonth(toRemove.effective_month)}`,
+          })
+        }}
+      />
+    </div>
+  )
+}
+
+/** "from November 2026 they'll owe ₹1,800 a month.": what's left once a fee change is gone. */
+function afterRemoving(rest: FeeChangeRead[], month: string, now: string): string {
+  const sentence = newFeeSentence(rest, month, feeAt(rest, month), now)
+  return sentence.charAt(0).toLowerCase() + sentence.slice(1)
 }
 
 function Muted({ children }: { children: ReactNode }) {
@@ -582,7 +684,7 @@ function MonthHistory({
         {rows.map((m) => {
           const owes = m.is_due && (m.status === 'unpaid' || m.status === 'partial')
           const afterLeaving = student.left_month !== null && m.month > student.left_month
-          const extra = (m.is_due || afterLeaving) && m.status === 'overpaid'
+          const extra = m.status === 'overpaid'
           return (
             <TableRow key={m.month} className={cn(extra && 'bg-credit-soft/40')}>
               <TableCell className="pl-6 font-semibold">{formatMonth(m.month)}</TableCell>

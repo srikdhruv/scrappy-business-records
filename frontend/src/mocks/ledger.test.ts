@@ -31,8 +31,20 @@ function book(overrides: Partial<StudentBook['student']> = {}, payments: [string
   return {
     student,
     fees: [
-      { id: 1, student_id: 1, effective_month: student.joined_month, amount_paise: 150000 },
-      { id: 2, student_id: 1, effective_month: '2026-09', amount_paise: 180000 },
+      {
+        id: 1,
+        student_id: 1,
+        effective_month: student.joined_month,
+        amount_paise: 150000,
+        kind: 'fee' as 'fee' | 'away',
+      },
+      {
+        id: 2,
+        student_id: 1,
+        effective_month: '2026-09',
+        amount_paise: 180000,
+        kind: 'fee' as 'fee' | 'away',
+      },
     ],
     payments: payments.map(([month, rupees], i) => ({
       id: 10 + i,
@@ -136,6 +148,7 @@ describe('mock ledger', () => {
     expect(d.summary).toEqual({
       expected_paise: 180000,
       collected_paise: 0,
+      paid_ahead_paise: 0,
       still_due_paise: 180000,
       not_fully_paid_count: 1,
       active_student_count: 1,
@@ -148,5 +161,20 @@ describe('mock ledger', () => {
     expect(d.backlog[0]!.total_owed_paise).toBe(150000 + 80000)
     expect(d.overpaid).toEqual([expect.objectContaining({ month: '2026-07', excess_paise: 50000 })])
     expect(creditPaise(kabir, NOW)).toBe(50000)
+  })
+})
+
+describe('paid ahead and credit for later months', () => {
+  it('counts paid ahead up to the fee, and the rest as credit', () => {
+    const b = book({}, [['2026-11', 2000]]) // ₹1,800 fee in November
+    expect(paidAheadPaise(b, NOW)).toBe(180000)
+    expect(creditPaise(b, NOW)).toBe(20000)
+  })
+
+  it('counts a payment for a later month with no fee (a month away) as credit', () => {
+    const b = book({}, [['2026-12', 1800]])
+    b.fees.push({ id: 3, student_id: 1, effective_month: '2026-12', amount_paise: 0, kind: 'away' })
+    expect(paidAheadPaise(b, NOW)).toBe(0)
+    expect(creditPaise(b, NOW)).toBe(180000)
   })
 })
