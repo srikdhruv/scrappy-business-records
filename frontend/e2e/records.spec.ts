@@ -133,9 +133,11 @@ test('mark as left moves the student to the Left tab', async ({ page, request })
   ).toBeVisible()
 
   await page.goto('/students')
-  await expect(page.getByRole('tab', { name: /Active/ })).toHaveAttribute('aria-selected', 'true')
+  const show = page.getByRole('combobox', { name: /^Show:/ })
+  await expect(show).toHaveAccessibleName(/^Show: Active/)
   await expect(page.getByRole('link', { name })).toHaveCount(0)
-  await page.getByRole('tab', { name: /Left/ }).click()
+  await show.click()
+  await page.getByRole('option', { name: /^Left/ }).click()
   await expect(page.getByRole('link', { name })).toBeVisible()
 })
 
@@ -208,7 +210,10 @@ test('deleting a student asks first, then removes them and their payments', asyn
   await pay(request, { student_id: id, amount_paise: 150000, for_month: now })
 
   await page.goto('/students')
-  const activeTab = page.getByRole('tab', { name: /Active/ })
+  // The "All batches" tab counts the students who haven't left.
+  const activeTab = page
+    .getByRole('navigation', { name: 'Batches' })
+    .getByRole('link', { name: /^All batches/ })
   await expect(page.getByRole('link', { name })).toBeVisible()
   const before = Number((await activeTab.textContent())?.replace(/\D/g, ''))
 
