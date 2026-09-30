@@ -6,7 +6,7 @@
  "note": "Made by scripts/make_release_fixture.py from the released code. Fictional data. Never edit by hand: regenerate it instead.",
  "tables": {
   "fee_changes": {
-   "count": 15,
+   "count": 20,
    "columns": [
     "id",
     "student_id",
@@ -14,7 +14,7 @@
     "amount_paise",
     "kind"
    ],
-   "sha256": "a8a147e363a54c7edf6f6ec68dfc118d864f72dc57592c3d8227a77dc5e48bb9",
+   "sha256": "9ad8ddf73053a5e6e92944935fa029bbec9be35eb90d731913592468804d422e",
    "rows": [
     [1, 1, "2026-01-01", 150000, "fee"],
     [2, 1, "2026-06-01", 180000, "fee"],
@@ -30,11 +30,16 @@
     [12, 6, "2026-08-01", 100000, "fee"],
     [13, 7, "2026-03-01", 150000, "fee"],
     [14, 8, "2026-05-01", 120000, "fee"],
-    [15, 9, "2026-08-01", 80000, "fee"]
+    [15, 9, "2026-08-01", 80000, "fee"],
+    [18, 11, "2026-06-01", 149950, "fee"],
+    [19, 11, "2026-08-01", 999999, "fee"],
+    [20, 11, "2026-12-01", 100000000, "fee"],
+    [21, 11, "2027-01-01", 1, "fee"],
+    [23, 12, "2026-09-01", 110000, "fee"]
    ]
   },
   "payments": {
-   "count": 30,
+   "count": 37,
    "columns": [
     "id",
     "student_id",
@@ -44,7 +49,7 @@
     "method",
     "note"
    ],
-   "sha256": "0198fb256308594c15f3dcf4df7c3e469d22dc1078c4e1de680aa9dfa267ff2e",
+   "sha256": "31683e153215d63d5f4c4355f1fd1536d1a70c958f012597056e91f33088ba89",
    "rows": [
     [1, 1, 150000, "2026-01-05", "2026-01-01", "upi", null],
     [2, 1, 150000, "2026-02-05", "2026-02-01", "upi", null],
@@ -75,11 +80,18 @@
     [27, 6, 100000, "2026-04-28", "2026-04-01", "cash", "Trial month, before joining"],
     [28, 6, 100000, "2026-05-05", "2026-05-01", "upi", null],
     [29, 7, 150000, "2026-03-05", "2026-03-01", "upi", "पहली फ़ीस"],
-    [30, 7, 300000, "2026-05-05", "2026-05-01", "cash", "Two months together"]
+    [30, 7, 300000, "2026-05-05", "2026-05-01", "cash", "Two months together"],
+    [34, 11, 149950, "2026-06-05", "2026-06-01", "upi", "₹1,499.50"],
+    [35, 11, 1, "2026-07-05", "2026-07-01", "other", "1 paisa test transfer"],
+    [36, 11, 149949, "2026-07-05", "2026-07-01", "upi", null],
+    [37, 11, 999999, "2026-08-05", "2026-08-01", "cash", "₹9,999.99"],
+    [38, 11, 100000000, "2026-09-30", "2026-10-01", "other", "Largest allowed amount"],
+    [39, 9, 79950, "2026-08-05", "2026-09-01", "cash", "Edited: ₹50 off"],
+    [40, 12, 110000, "2026-09-05", "2026-09-01", "upi", null]
    ]
   },
   "students": {
-   "count": 9,
+   "count": 11,
    "columns": [
     "id",
     "name",
@@ -90,7 +102,7 @@
     "left_month",
     "notes"
    ],
-   "sha256": "641ad69a3da6079f488e1ca17d8b800daa0924cf44007f5a0b8fe475b7f84d41",
+   "sha256": "de4f8c40c32279bea185dca03a978ddd5a18b870ae40aa854ea66f8c5e26689f",
    "rows": [
     [1, "Ananya Rao", "98765 43210", "Lakshmi Rao", "Mon/Wed 5pm – Koramangala", "2026-01-01", null, "Prefers the evening batch.\nSister may join next year."],
     [2, "Kabir Mehta", "98765 43211", "Sunil Mehta", "Sat 10am – Jayanagar Studio", "2025-11-01", "2026-06-01", "Moved to Pune."],
@@ -100,7 +112,9 @@
     [6, "Zoë Fernandes", "+91 98765 43214", null, "Weekend – Café studio", "2026-05-01", null, null],
     [7, "अनिका शर्मा", "98765 43215", "राजेश शर्मा", null, "2026-03-01", null, "नोट: शनिवार को आती है 🙂"],
     [8, "Arjun Menon", "98765 43216", "Vivek Menon", "Mon/Wed 5pm – Koramangala", "2026-05-01", null, null],
-    [9, "Tara", null, null, null, "2026-08-01", null, null]
+    [9, "Tara", null, null, null, "2026-08-01", null, null],
+    [11, "Nisha Kulkarni", "98765 43217", null, "Sat 10am – Jayanagar Studio", "2026-06-01", null, null],
+    [12, "Kiran Bose", null, null, null, "2026-09-01", null, null]
    ]
   }
  }

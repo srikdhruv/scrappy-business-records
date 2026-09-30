@@ -11,7 +11,11 @@ stored values (see `backend/tests/release_data.py`), which `test_release_upgrade
 after upgrading the file with today's code.
 
 `--today` fixes "today" for the release's clock (default: the day the tag was made), so the
-data is the same each time. Needs git and uv; everything else is the standard library.
+data is the same each time: the same rows, the same ids, and a byte-identical manifest. The
+database-made timestamps are set to noon on that day. The `.db` file's bytes can still differ
+between runs in one way: a table Alembic rebuilt (batch mode) lists its constraints in an order
+that varies from run to run, as it does on a real laptop. Needs git and uv; everything else is
+the standard library.
 """
 
 from __future__ import annotations
@@ -55,6 +59,21 @@ def _run(cmd: list[str], cwd: Path, env: dict[str, str]) -> None:
     subprocess.run(cmd, cwd=cwd, env=env, check=True)
 
 
+def _normalise_timestamps(conn: sqlite3.Connection, today: dt.date) -> None:
+    """Set the database-made timestamps (`created_at`, `updated_at`: the clock at the moment of
+    saving) to noon on `today`, so regenerating a fixture gives the same bytes. They aren't
+    something the owner entered, and the upgrade test doesn't compare them (ADR 0004)."""
+    stamp = f"{today.isoformat()} 12:00:00"
+    tables = [
+        r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    ]
+    for table in tables:
+        columns = {r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
+        for column in sorted(columns & {"created_at", "updated_at"}):
+            conn.execute(f'UPDATE "{table}" SET "{column}" = ?', (stamp,))
+    conn.commit()
+
+
 def make(tag: str, today: dt.date | None, out_dir: Path) -> tuple[Path, Path]:
     try:
         _git("rev-parse", "--verify", "--quiet", f"{tag}^{{commit}}")
@@ -87,6 +106,7 @@ def make(tag: str, today: dt.date | None, out_dir: Path) -> tuple[Path, Path]:
             db.unlink(missing_ok=True)
             conn = sqlite3.connect(live)
             try:
+                _normalise_timestamps(conn, today)
                 conn.execute("VACUUM INTO ?", (str(db),))  # a compact, self-contained copy
             finally:
                 conn.close()

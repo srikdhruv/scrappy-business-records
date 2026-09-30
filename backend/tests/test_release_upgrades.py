@@ -16,11 +16,21 @@ Each fixture runs twice: against today's migrations, and with one more (additive
 top that rebuilds the `students` table, as the next release's might. So the "upgrade needed"
 path (pre-migration backup, table copy) is always exercised, even while the newest fixture is
 already at the latest revision.
+
+What it doesn't go through: `python -m app` (`app/__main__.py`), which takes the server lock
+and starts uvicorn before the same startup code runs. The lock only stops a second server
+starting on the same database; it doesn't read or change the data, and it has its own tests
+(`test_lifetime.py`, `test_launcher.py`). The data path, from the lifespan's backups and
+migrations to the API, is exactly the one the laptop runs.
+
+The timestamps the database sets itself (`created_at`, `updated_at`) aren't compared: they
+may be normalised, but what the owner entered never is (see `release_data.py`, ADR 0004).
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 import shutil
 import sqlite3
@@ -131,20 +141,39 @@ def migrations(
 
 def _assert_intact(db: Path, release: Release, when: str) -> None:
     """Every table, row and stored value in the release's manifest is in `db`, unchanged."""
-    stored = release_data.dump_like(db, release.tables)
+    try:
+        stored = release_data.dump_like(db, release.tables)
+    except sqlite3.Error as exc:  # a table or column the release had is gone
+        pytest.fail(f"{release.tag}: data lost {when}: {exc}")
     problems = []
     for table, expected in release.tables.items():
-        before = {tuple(r[:1]): r for r in expected["rows"]}
-        after = {tuple(r[:1]): r for r in stored[table]["rows"]}
+        columns = expected["columns"]
+        got = stored[table]
+        if "id" in columns:
+            key = columns.index("id")
+            before = {r[key]: r for r in expected["rows"]}
+            after = {r[key]: r for r in got["rows"]}
+        else:  # no id: compare whole rows
+            before = {json.dumps(r): r for r in expected["rows"]}
+            after = {json.dumps(r): r for r in got["rows"]}
         problems += [f"{table}: lost {before[k]}" for k in before.keys() - after.keys()]
         problems += [f"{table}: new {after[k]}" for k in after.keys() - before.keys()]
-        problems += [
-            f"{table}: {before[k]} became {after[k]}"
-            for k in before.keys() & after.keys()
-            if before[k] != after[k]
-        ]
-    assert not problems, f"{release.tag}: data changed {when}:\n" + "\n".join(sorted(problems))
-    assert stored == release.tables
+        for k in sorted(before.keys() & after.keys(), key=str):
+            changes = [
+                f"{c} {old!r} -> {new!r}"
+                for c, old, new in zip(columns, before[k], after[k], strict=True)
+                if old != new or type(old) is not type(new)
+            ]
+            if changes:
+                problems.append(f"{table} row {before[k][:1]}: " + ", ".join(changes))
+        if got["count"] != expected["count"]:
+            problems.append(f"{table}: {expected['count']} rows became {got['count']}")
+        if not problems and got["sha256"] != expected["sha256"]:
+            problems.append(
+                f"{table}: the rows look the same but hash differently "
+                f"({expected['sha256'][:12]} -> {got['sha256'][:12]}); a value's type changed?"
+            )
+    assert not problems, f"{release.tag}: data changed {when}:\n" + "\n".join(problems)
 
 
 def _check_database(db: Path) -> None:

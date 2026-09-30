@@ -218,7 +218,67 @@ def populate(api: Api) -> None:
     )
 
     # --- A student with every field empty but the required ones.
-    api.student(name="Tara", monthly_fee_paise=80000, joined_month=m(-1))
+    tara = api.student(name="Tara", monthly_fee_paise=80000, joined_month=m(-1))
+
+    # --- Edits and deletes, through the API as the owner would, so ids have gaps and edited
+    # rows differ from how they were first saved: a renumbering would show. (SQLite reuses the
+    # highest id, so each deleted row has a newer row saved after it before it goes.)
+    rohan = api.student(
+        name="Rohan Desai",
+        monthly_fee_paise=250000,
+        joined_month=m(-2),
+        phone="98765 43218",
+        notes="Added by mistake",
+    )
+    api.pay(rohan, m(-2), 250000, "upi")
+    api.pay(rohan, m(-1), 250000, "cash")
+    api.call("PATCH", f"/api/students/{rohan}", {"monthly_fee_paise": 260000})
+    mistake = api.pay(kabir, m(-6), 250000, "upi", note="Logged twice")
+
+    # --- Amounts that aren't round: paise, ₹1,499.50, ₹9,999.99 and the largest allowed
+    # (MAX_AMOUNT_PAISE, ₹10,00,000), so rounding to rupees (or anything else) shows.
+    most = 100_000_000
+    nisha = api.student(
+        name="Nisha Kulkarni",
+        monthly_fee_paise=149_950,
+        joined_month=m(-3),
+        phone="98765 43217",
+        batch_label=batch_b,
+    )
+    api.pay(nisha, m(-3), 149_950, "upi", note="₹1,499.50")
+    api.pay(nisha, m(-2), 1, "other", note="1 paisa test transfer")
+    api.pay(nisha, m(-2), 149_949, "upi")
+    api.pay(nisha, m(-1), 999_999, "cash", note="₹9,999.99")
+    api.pay(nisha, m(1), most, "other", note="Largest allowed amount")
+    for amount, offset in ((999_999, -1), (most, 3), (1, 4)):
+        api.call(
+            "PATCH",
+            f"/api/students/{nisha}",
+            {"monthly_fee_paise": amount, "fee_effective_month": m(offset)},
+        )
+
+    # A payment edited (amount, method, note and month).
+    edited = api.pay(tara, m(-1), 80000, "upi", note="Typo")
+    api.call(
+        "PATCH",
+        f"/api/payments/{edited}",
+        {"amount_paise": 79_950, "method": "cash", "note": "Edited: ₹50 off", "for_month": m(0)},
+    )
+    # A scheduled fee change, to be removed before it starts.
+    api.call(
+        "PATCH",
+        f"/api/students/{tara}",
+        {"monthly_fee_paise": 90000, "fee_effective_month": m(3)},
+    )
+    scheduled = api.call("GET", f"/api/students/{tara}")["fee_history"][-1]
+    kiran = api.student(name="Kiran Bose", monthly_fee_paise=110000, joined_month=m(0))
+    api.pay(kiran, m(0), 110000, "upi")
+
+    # Now the deletes: a student with payments and fee changes (theirs go with them), a
+    # payment, and the scheduled fee change.
+    api.call("DELETE", f"/api/students/{rohan}")
+    api.call("DELETE", f"/api/payments/{mistake}")
+    api.call("DELETE", f"/api/students/{tara}/fee-changes/{scheduled['id']}")
 
 
 def main() -> None:
