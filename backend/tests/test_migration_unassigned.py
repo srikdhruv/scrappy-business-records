@@ -1,5 +1,5 @@
-"""Migrations 0003 (unassigned_payments) and 0004 (students.uid) only add: the records a v0.1.0 laptop has come
-through untouched, and the new table has the same safeguards as `payments`."""
+"""Migrations 0003 (unassigned_payments) and 0004 (students.uid) only add: the records a v0.1.0
+laptop has come through untouched, and the new table has the same safeguards as `payments`."""
 
 from __future__ import annotations
 

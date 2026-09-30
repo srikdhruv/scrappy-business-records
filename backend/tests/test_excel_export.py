@@ -34,9 +34,17 @@ def values(ws: Worksheet) -> list[list[Any]]:
 # --------------------------------------------------------------------------- the round trip
 
 
-def _strip(item: Json) -> Json:
-    return {k: v for k, v in item.items() if k not in ("id", "student_id", "created_at",
-                                                        "updated_at")}  # fmt: skip
+_IDS = ("id", "student_id", "payment_id", "created_at", "updated_at")
+
+
+def _strip(item: Any) -> Any:
+    """`item` without database ids or timestamps, at any depth (a credit source names the
+    payment it came from by id)."""
+    if isinstance(item, dict):
+        return {k: _strip(v) for k, v in item.items() if k not in _IDS}
+    if isinstance(item, list):
+        return [_strip(v) for v in item]
+    return item
 
 
 def _records(api: TestClient) -> Json:

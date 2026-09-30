@@ -1543,6 +1543,8 @@ since, and adds nothing twice.
 ### Good to know
 
 - **An upload only adds.** It never changes or overwrites anything already in the app.
+- **Uploaded payments count like any other:** money above a month's fee pays the oldest month
+  still owed, and the profile and Dashboard say so (*"₹1,500 credit from the … payment"*).
 - **Uploading the same file twice is safe:** everything that was added the first time shows as
   *Already exists*.
 - **A backup is saved just before anything is added** (`records-pre-import-…` in your backups
@@ -1653,7 +1655,8 @@ If they really paid twice, log the second one with **+ Log payment**, then delet
 ### Good to know
 
 - **Unassigned payments count nowhere:** not in any student's balance, and not in the
-  Dashboard's *Collected* or *Still due*. Once assigned, they count like any other payment.
+  Dashboard's *Collected* or *Still due*. Once assigned, they count like any other payment
+  (extra money in one pays the oldest month still owed).
 - **Download everything** includes them (the *Unassigned payments* sheet), so they come back
   after moving to a new laptop.
 - Uploading the same file again doesn't add them twice.

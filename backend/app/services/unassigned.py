@@ -114,7 +114,7 @@ def assign(session: Session, row_id: int, student_id: int, today: dt.date) -> Pa
     session.add(payment)
     session.delete(row)
     session.commit()
-    return get_payment(session, payment.id)
+    return get_payment(session, payment.id, today.replace(day=1))
 
 
 def delete(session: Session, row_id: int) -> None:

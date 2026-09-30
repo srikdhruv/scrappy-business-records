@@ -73,6 +73,7 @@ def export_students(
 def export_payments(
     session: SessionDep,
     today: TodayDep,
+    current: CurrentMonthDep,
     student_id: int | None = Query(None, gt=0),
     month: Month | None = Query(None),
     q: str | None = Query(None, max_length=200),
@@ -82,7 +83,14 @@ def export_payments(
 ) -> Response:
     """The payments on the Payments page for these filters, in its order, as an Excel file."""
     rows = exports.payments_shown(
-        session, student_id=student_id, month=month, q=q, method=method, sort=sort, order=order
+        session,
+        current,
+        student_id=student_id,
+        month=month,
+        q=q,
+        method=method,
+        sort=sort,
+        order=order,
     )
     return _xlsx(exports.payments_workbook(session, rows), exports.filename("payments", today))
 

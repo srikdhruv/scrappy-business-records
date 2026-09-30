@@ -198,6 +198,7 @@ _PAYMENT_COLUMNS = (
 
 def payments_shown(
     session: Session,
+    current_month: dt.date,
     *,
     student_id: int | None,
     month: str | None,
@@ -208,7 +209,7 @@ def payments_shown(
 ) -> list[PaymentRead]:
     """The payments the Payments page shows for these filters, in its order."""
     rows = payment_service.list_payments(
-        session, student_id=student_id, month=month, q=q, sort=sort, order=order
+        session, current_month, student_id=student_id, month=month, q=q, sort=sort, order=order
     )
     return [p for p in rows if method is None or p.method is method]
 
@@ -300,7 +301,7 @@ def everything_workbook(session: Session, current_month: dt.date) -> bytes:
         ),
     )
 
-    payments = payment_service.list_payments(session)
+    payments = payment_service.list_payments(session, current_month)
     _add_sheet(
         book,
         "Payments",

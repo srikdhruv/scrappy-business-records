@@ -9,7 +9,17 @@ import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
 
-import { createStudent, monthRow, serverMonth, uniqueName } from './helpers'
+import { formatDate, today } from '../src/lib/format'
+import {
+  addMonths,
+  createStudent,
+  formatMonth,
+  monthRow,
+  panel,
+  pay,
+  serverMonth,
+  uniqueName,
+} from './helpers'
 
 const folder = mkdtempSync(path.join(tmpdir(), 'scrappy-excel-'))
 
@@ -178,4 +188,54 @@ test('a payment for someone not found waits as unassigned, then is given to a st
   await page.goto(`/students/${keptId}`)
   // ₹1,200 of a ₹1,500 fee: part paid.
   await expect(monthRow(page, now).getByText('Partial')).toBeVisible()
+})
+
+test('an uploaded payment double the fee pays the month still owed, as credit', async ({
+  page,
+}) => {
+  const request = page.request
+  const now = await serverMonth(request)
+  const [first, missed] = [addMonths(now, -2), addMonths(now, -1)]
+  const name = uniqueName('Kiara')
+  const tag = uniqueName('Double').replace(/ /g, '')
+  const id = await createStudent(request, { name, monthly_fee_paise: 150000, joined_month: first })
+  await pay(request, { student_id: id, amount_paise: 150000, for_month: first })
+  // ₹3,000 for this month, in a file: logged, downloaded, then taken out again to upload.
+  const paid = await request.post('/api/payments', {
+    data: { student_id: id, amount_paise: 300000, paid_on: today(), for_month: now,
+            method: 'upi', note: tag },
+  }) // prettier-ignore
+  expect(paid.status()).toBe(201)
+  await page.goto('/payments')
+  await page.getByRole('searchbox', { name: /Search payments/ }).fill(tag)
+  await expect(page.getByRole('table').getByText('1 payment', { exact: true })).toBeVisible()
+  const file = await download(page, 'Download Excel')
+  const { id: paymentId } = (await paid.json()) as { id: number }
+  expect((await request.delete(`/api/payments/${paymentId}`)).status()).toBe(204)
+
+  // Last month is owed again; the upload brings the double payment back.
+  await page.goto(`/students/${id}`)
+  await expect(monthRow(page, missed).getByText('Unpaid')).toBeVisible()
+  await page.goto('/payments')
+  const dialog = await upload(page, file.file)
+  await expect(dialog.getByTestId('upload-summary')).toHaveText('Will add 1 payment.')
+  await dialog.getByRole('button', { name: 'Add' }).click()
+  await expect(page.getByText('Added 1 payment', { exact: true })).toBeVisible()
+
+  // The extra ₹1,500 pays last month, like a payment typed in.
+  const short = (month: string) => {
+    const [monthName, year] = formatMonth(month).split(' ')
+    return `${monthName!.slice(0, 3)} ${year}`
+  }
+  await page.goto(`/students/${id}`)
+  await expect(monthRow(page, missed).getByText('Paid', { exact: true })).toBeVisible()
+  await expect(
+    monthRow(page, missed).getByText(
+      `₹1,500 credit from the ${formatDate(today())} payment (for ${short(now)})`,
+    ),
+  ).toBeVisible()
+  await page.goto('/')
+  await expect(
+    panel(page, /Earlier months still owed/).getByRole('link', { name: new RegExp(name) }),
+  ).toHaveCount(0)
 })
