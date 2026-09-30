@@ -25,6 +25,8 @@ EXPECTED_OPERATIONS = {
     ("patch", "/api/payments/{payment_id}"): "updatePayment",
     ("delete", "/api/payments/{payment_id}"): "deletePayment",
     ("get", "/api/dashboard"): "getDashboard",
+    ("get", "/api/report"): "getReport",
+    ("get", "/api/report.xlsx"): "downloadReport",
 }
 
 

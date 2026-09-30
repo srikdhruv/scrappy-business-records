@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from functools import cached_property
 
 from app.months import add_months, first_of_month, month_range
-from app.schemas import BalanceStatus, MonthStatus, SuggestionReason
+from app.schemas import BalanceStatus, MonthStatus, ReportStatus, SuggestionReason
 from app.services.text import fold
 
 __all__ = [
@@ -55,12 +55,15 @@ __all__ = [
     "OverpaidEntry",
     "Payment",
     "PaymentUse",
+    "Report",
+    "ReportRow",
     "StudentLedger",
     "StudentRecord",
     "Suggestion",
     "YetToPayEntry",
     "allocate",
     "build_dashboard",
+    "build_report",
     "credit",
     "has_left",
     "month_status",
@@ -70,6 +73,7 @@ __all__ = [
     "paid_ahead",
     "payment_uses",
     "pays_until",
+    "report_status",
     "standing_status",
     "student_ledger",
     "suggest_payment",
@@ -815,3 +819,115 @@ def build_dashboard(
         overpaid=tuple(overpaid),
         credit_moves=tuple(moves),
     )
+
+
+# --------------------------------------------------------------------------- monthly report
+
+
+REPORT_STATUS_ORDER: tuple[ReportStatus, ...] = tuple(ReportStatus)
+"""The report's default order: whom to follow up with first (unpaid), then the rest."""
+
+
+@dataclass(frozen=True, slots=True)
+class ReportRow:
+    """One student on the monthly report for M."""
+
+    student: StudentRecord
+    line: MonthLine
+    """M, after extra money has been handed out (rule 4)."""
+    status: ReportStatus
+    is_enrolled: bool
+    """Active in M (rule 1)."""
+    owed_before: tuple[MonthLine, ...]
+    """Due months before M that are still Unpaid or Partial: the dashboard's backlog."""
+    owed_now_paise: int
+    """`owed` as of the current month: the students list and profile headline."""
+    credit_paise: int
+    """`credit` as of the current month."""
+    paid_ahead_paise: int
+    """`paid_ahead` as of the current month."""
+
+    @property
+    def owed_before_paise(self) -> int:
+        return sum(line.remaining_paise for line in self.owed_before)
+
+    @property
+    def extra_sent_paise(self) -> int:
+        return sum(e.amount_paise for e in self.line.extra_sent)
+
+
+@dataclass(frozen=True)
+class Report:
+    month: dt.date
+    rows: tuple[ReportRow, ...]
+
+
+def report_status(student: StudentRecord, line: MonthLine, current_month: dt.date) -> ReportStatus:
+    """One word for M, from what pays it (rule 4):
+
+    - not enrolled in M: **left** after `left_month`; **no fee** before `joined_month`;
+    - a 0 fee (a month off, a month away, a free place): **no fee**;
+    - fully paid: **paid with credit** if some of it came from another payment's extra money,
+      else **paid** (for a month after the current one, that means paid ahead);
+    - otherwise, for a month after the current one: **not due yet**;
+    - otherwise **unpaid** (nothing pays it) or **partial**.
+    """
+    month = line.month
+    if not student.is_active(month):
+        left = student.left_month is not None and month > student.left_month
+        return ReportStatus.left if left else ReportStatus.no_fee
+    if line.expected_paise == 0:
+        return ReportStatus.no_fee
+    if line.remaining_paise == 0:
+        return ReportStatus.paid_with_credit if line.covered_by_credit_paise else ReportStatus.paid
+    if month > first_of_month(current_month):
+        return ReportStatus.not_due_yet
+    return ReportStatus.unpaid if line.counted_paise == 0 else ReportStatus.partial
+
+
+def build_report(
+    students: Iterable[StudentRecord], month: dt.date, current_month: dt.date
+) -> Report:
+    """The monthly report for M: one row per student relevant to M, worked out from the same
+    allocation as the dashboard and the profiles (rule 4, as of the current month, whichever M).
+
+    A student is on it if they are enrolled in M, have money logged for M, have extra money
+    moving into or out of M, or still owe for a due month before M (the dashboard's *Earlier
+    months still owed*, which includes students who have since left).
+
+    Rows are in `REPORT_STATUS_ORDER` (unpaid first), then by name ignoring case and accents.
+    """
+    month = first_of_month(month)
+    current_month = first_of_month(current_month)
+    backlog_end = min(add_months(month, -1), current_month)
+    rows: list[ReportRow] = []
+    for s in students:
+        alloc = s.allocation(current_month)
+        line = month_line(s, month, current_month)
+        owing = tuple(
+            ml
+            for m in due_months(s, backlog_end)
+            if (ml := month_line(s, m, current_month)).is_owing
+        )
+        touched = (
+            line.paid_paise > 0
+            or line.covered_by_credit_paise > 0
+            or any(mv.payment.for_month == month for mv in alloc.moves)
+        )
+        enrolled = s.is_active(month)
+        if not (enrolled or touched or owing):
+            continue
+        rows.append(
+            ReportRow(
+                student=s,
+                line=line,
+                status=report_status(s, line, current_month),
+                is_enrolled=enrolled,
+                owed_before=owing,
+                owed_now_paise=owed(s, current_month),
+                credit_paise=credit(s, current_month),
+                paid_ahead_paise=paid_ahead(s, current_month),
+            )
+        )
+    rows.sort(key=lambda r: (REPORT_STATUS_ORDER.index(r.status), *_sort_key(r.student)))
+    return Report(month=month, rows=tuple(rows))

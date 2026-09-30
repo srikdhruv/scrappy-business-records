@@ -205,6 +205,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Report
+         * @description Every student for one month: fee, paid, credit, extra, short, status and what's owed.
+         */
+        get: operations["getReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/report.xlsx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Report
+         * @description The same report as an Excel file, named like `scrappy-records-report-2026-10.xlsx`.
+         */
+        get: operations["downloadReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -766,6 +806,226 @@ export interface components {
             /** Note */
             note?: string | null;
         };
+        /** ReportResponse */
+        ReportResponse: {
+            /**
+             * Month
+             * @description The month reported on (M).
+             * @example 2026-10
+             */
+            month: string;
+            /**
+             * Current Month
+             * @description The server's current month. Months after it aren't due yet.
+             * @example 2026-10
+             */
+            current_month: string;
+            /**
+             * Today
+             * Format: date
+             * @description The server's date, to print on the report.
+             */
+            today: string;
+            /**
+             * Rows
+             * @description Every student enrolled in M, with money logged for or paying M, or still owing for an earlier month. Unpaid first (in ReportStatus order), then by name.
+             */
+            rows: components["schemas"]["ReportRow"][];
+            totals: components["schemas"]["ReportTotals"];
+        };
+        /**
+         * ReportRow
+         * @description One student on the monthly report for M. The M numbers are the student's `LedgerMonth`
+         *     for M; the standing numbers are their `StudentRead` ones (as of the current month).
+         *     `paid_paise = paid_direct_paise + extra_sent_paise + extra_unused_paise` and
+         *     `paid_direct_paise + covered_by_credit_paise + short_paise = fee_paise`.
+         */
+        ReportRow: {
+            /** Student Id */
+            student_id: number;
+            /** Student Name */
+            student_name: string;
+            /** Batch Label */
+            batch_label: string | null;
+            /** Phone */
+            phone: string | null;
+            /**
+             * Is Enrolled
+             * @description Active in M (joined on or before M, not left before).
+             */
+            is_enrolled: boolean;
+            /**
+             * Fee Paise
+             * @description The fee for M (0 if not enrolled in M).
+             */
+            fee_paise: number;
+            /**
+             * Paid Paise
+             * @description Everything logged for M, as typed.
+             */
+            paid_paise: number;
+            /**
+             * Paid Direct Paise
+             * @description The part of paid_paise that pays M: at most its fee.
+             */
+            paid_direct_paise: number;
+            /**
+             * Covered By Credit Paise
+             * @description Extra money from payments logged for other months that pays M.
+             */
+            covered_by_credit_paise: number;
+            /**
+             * Credit Sources
+             * @description Where covered_by_credit_paise came from.
+             */
+            credit_sources: components["schemas"]["CreditSource"][];
+            /**
+             * Extra Sent Paise
+             * @description Money logged for M above its fee that paid other months (Σ extra_sent).
+             */
+            extra_sent_paise: number;
+            /**
+             * Extra Sent
+             * @description Where it went, oldest month first.
+             */
+            extra_sent: components["schemas"]["ExtraSent"][];
+            /**
+             * Extra Unused Paise
+             * @description Money logged for M that no month needed: kept as credit.
+             */
+            extra_unused_paise: number;
+            /**
+             * Short Paise
+             * @description What's left of M's fee: the LedgerMonth's remaining_paise.
+             */
+            short_paise: number;
+            status: components["schemas"]["ReportStatus"];
+            /**
+             * Owed Before Paise
+             * @description Still owed for due months before M (the dashboard's backlog total).
+             */
+            owed_before_paise: number;
+            /**
+             * Owed Before Months
+             * @description Those months, oldest first.
+             */
+            owed_before_months: string[];
+            /**
+             * Owed Now Paise
+             * @description Everything still owed as of the current month (StudentRead.owed_paise).
+             */
+            owed_now_paise: number;
+            /**
+             * Credit Paise
+             * @description StudentRead.credit_paise.
+             */
+            credit_paise: number;
+            /**
+             * Paid Ahead Paise
+             * @description StudentRead.paid_ahead_paise.
+             */
+            paid_ahead_paise: number;
+        };
+        /**
+         * ReportStatus
+         * @description One student's status for month M on the monthly report, in the report's default order
+         *     (whom to follow up with first). From the same numbers as `MonthStatus`:
+         *
+         *     - `unpaid`, `partial`: a due month (up to the current month) that nothing, or not enough,
+         *       pays.
+         *     - `not_due_yet`: a month after the current one that isn't fully paid ahead yet.
+         *     - `paid_with_credit`: fully paid, some of it by extra money from another payment
+         *       (`covered_by_credit_paise > 0`).
+         *     - `paid`: fully paid by money logged for M (for a later month: paid ahead).
+         *     - `no_fee`: a ₹0 fee in M (a month off, a month away, a free place), or before they joined.
+         *     - `left`: M is after their left month (they are on the report because of money or dues).
+         * @enum {string}
+         */
+        ReportStatus: "unpaid" | "partial" | "not_due_yet" | "paid_with_credit" | "paid" | "no_fee" | "left";
+        /**
+         * ReportTotals
+         * @description Sums over every row. `fee_paise`, `collected_paise`, `short_paise`,
+         *     `not_fully_paid_count` and `active_student_count` are the dashboard summary's
+         *     `expected_paise`, `collected_paise`, `still_due_paise`, `not_fully_paid_count` and
+         *     `active_student_count` for M.
+         */
+        ReportTotals: {
+            /**
+             * Student Count
+             * @description How many rows.
+             */
+            student_count: number;
+            /**
+             * Fee Paise
+             * @description Amount in paise, 0 or more.
+             */
+            fee_paise: number;
+            /**
+             * Paid Paise
+             * @description Amount in paise, 0 or more.
+             */
+            paid_paise: number;
+            /**
+             * Paid Direct Paise
+             * @description Amount in paise, 0 or more.
+             */
+            paid_direct_paise: number;
+            /**
+             * Covered By Credit Paise
+             * @description Amount in paise, 0 or more.
+             */
+            covered_by_credit_paise: number;
+            /**
+             * Collected Paise
+             * @description What pays M: Σ paid_direct_paise + covered_by_credit_paise.
+             */
+            collected_paise: number;
+            /**
+             * Extra Sent Paise
+             * @description Amount in paise, 0 or more.
+             */
+            extra_sent_paise: number;
+            /**
+             * Extra Unused Paise
+             * @description Amount in paise, 0 or more.
+             */
+            extra_unused_paise: number;
+            /**
+             * Short Paise
+             * @description Amount in paise, 0 or more.
+             */
+            short_paise: number;
+            /**
+             * Owed Before Paise
+             * @description Amount in paise, 0 or more.
+             */
+            owed_before_paise: number;
+            /**
+             * Owed Now Paise
+             * @description Amount in paise, 0 or more.
+             */
+            owed_now_paise: number;
+            /**
+             * Credit Paise
+             * @description Amount in paise, 0 or more.
+             */
+            credit_paise: number;
+            /**
+             * Paid Ahead Paise
+             * @description Amount in paise, 0 or more.
+             */
+            paid_ahead_paise: number;
+            /**
+             * Not Fully Paid Count
+             * @description Rows with something short on M.
+             */
+            not_fully_paid_count: number;
+            /**
+             * Active Student Count
+             * @description Rows enrolled in M with a fee above 0.
+             */
+            active_student_count: number;
+        };
         /**
          * SortOrder
          * @enum {string}
@@ -1158,6 +1418,10 @@ export type PaymentMethod = components['schemas']['PaymentMethod'];
 export type PaymentRead = components['schemas']['PaymentRead'];
 export type PaymentSort = components['schemas']['PaymentSort'];
 export type PaymentUpdate = components['schemas']['PaymentUpdate'];
+export type ReportResponse = components['schemas']['ReportResponse'];
+export type ReportRow = components['schemas']['ReportRow'];
+export type ReportStatus = components['schemas']['ReportStatus'];
+export type ReportTotals = components['schemas']['ReportTotals'];
 export type SortOrder = components['schemas']['SortOrder'];
 export type StudentCreate = components['schemas']['StudentCreate'];
 export type StudentDetail = components['schemas']['StudentDetail'];
@@ -1724,6 +1988,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DashboardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getReport: {
+        parameters: {
+            query?: {
+                /** @description Defaults to the current month. */
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    downloadReport: {
+        parameters: {
+            query?: {
+                /** @description Defaults to the current month. */
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report as an Excel workbook (.xlsx), as a download. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
                 };
             };
             /** @description Validation Error */
