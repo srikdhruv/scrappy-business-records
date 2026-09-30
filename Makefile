@@ -11,7 +11,7 @@ DEV_ENV  := SCRAPPY_HOME="$(DEVDATA)" SCRAPPY_BACKUP_DIR="$(DEVDATA)/backups" SC
 OPENAPI  := frontend/node_modules/.tmp/openapi.json
 
 .DEFAULT_GOAL := help
-.PHONY: help setup dev dev-mock seed test e2e lint fmt gen-api build run package db-reset clean
+.PHONY: help setup dev dev-mock seed test e2e guide-screenshots lint fmt gen-api build run package db-reset clean
 
 help: ## List the available commands
 	@echo "Scrappy Records — make targets:"
@@ -52,6 +52,9 @@ e2e: build ## Build, then run the Playwright end-to-end tests against the produc
 		exit 1; \
 	fi
 	cd frontend && npx playwright test
+
+guide-screenshots: build ## Retake the pictures in docs/images/feature-guide/ (real server, demo data)
+	cd frontend && node scripts/feature-guide-screenshots.mjs
 
 lint: ## Lint and type-check everything (ruff, eslint, prettier --check, tsc)
 	cd backend && uv run ruff check . ../scripts && uv run ruff format --check . ../scripts
