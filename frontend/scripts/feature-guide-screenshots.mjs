@@ -5,8 +5,8 @@
  * scripts/guide_server.py) three times, each on a free port with its own throwaway data folder:
  * one with the fictional demo data (`app.seed`),
  * one empty (the first-run screen), and a copy of the demo data that is changed and then stopped
- * (a fee change already scheduled, Undo, "leaving", a payment after leaving, and the "Can't reach
- * Scrappy Records" banner). The last demo pictures mark a student who left as coming again.
+ * (a fee change already scheduled, Undo, "leaving", a payment after leaving, extra kept as credit,
+ * and the "Can't reach Scrappy Records" banner). The last demo pictures mark a student who left as coming again.
  * Nothing here touches ./.devdata or a real install.
  *
  * The date is frozen at GUIDE_TODAY, on the server (scripts/guide_server.py overrides
@@ -128,6 +128,22 @@ const idOf = (name) => {
   if (!s) throw new Error(`No demo student called ${name}`)
   return s.id
 }
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+]
+/** "May 2026", as the Month by month table writes it. */
+const monthName = (month) => `${MONTH_NAMES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`
 const addMonths = (month, n) => {
   const [y, m] = month.split('-').map(Number)
   const i = y * 12 + m - 1 + n
@@ -173,6 +189,15 @@ async function windowShot(name, height) {
 const dialog = () => page.locator('[data-slot="dialog-content"]')
 const popover = () => page.locator('[data-radix-popper-content-wrapper]').last()
 const section = (text) => page.locator('section').filter({ hasText: text }).last()
+/** Rows of the profile's Month by month table, by their month ("August 2026"). */
+const monthRows = (...months) => [
+  section('Month by month').getByRole('row').first(), // the headings
+  ...months.map((month) =>
+    section('Month by month')
+      .getByRole('row')
+      .filter({ has: page.getByRole('cell', { name: month, exact: true }) }),
+  ),
+]
 const header = () => page.locator('main header').first()
 const yetToPay = () => page.locator('section').filter({ has: page.locator('#yet-to-pay-heading') })
 const escape = async () => {
@@ -198,7 +223,7 @@ await shot('dashboard-summary', page.getByRole('group', { name: 'Summary' }))
 await shot('dashboard-yet-to-pay', yetToPay())
 await shot('dashboard-earlier-and-extra', [
   section('Earlier months still owed'),
-  section('Paid too much'),
+  section('Extra money used'),
 ])
 
 await open(demo, `/?month=${addMonths(now, 1)}`)
@@ -213,6 +238,9 @@ await open(demo, '/')
 await page.getByRole('button', { name: 'Log payment for Arjun Menon' }).click()
 await settle()
 await shot('log-payment-from-dashboard', dialog(), 0)
+await page.locator('#payment-amount').fill('2400')
+await page.waitForTimeout(300)
+await shot('log-payment-extra', dialog(), 0)
 await escape()
 
 await header().getByRole('button', { name: 'Log payment' }).click()
@@ -274,9 +302,12 @@ await shot('profile-paid-ahead', [
   section('Month by month'),
 ])
 
-await open(demo, `/students/${idOf('Vihaan Joshi')}`) // paid too much for one month
-await shot('profile-credit', page.getByRole('region', { name: 'Balance' }))
-await page.getByRole('button', { name: 'Edit payment' }).first().click()
+await open(demo, `/students/${idOf('Vihaan Joshi')}`) // paid for two months at once
+await shot('profile-credit-used', monthRows(monthName(now), monthName(addMonths(now, -1))))
+// From the Payments page, where the row is on screen without scrolling (the picture is taken
+// from the top of the page).
+await open(demo, `/payments?student=${idOf('Vihaan Joshi')}`)
+await page.getByRole('button', { name: /^Edit payment: ₹4,000/ }).click()
 await settle()
 await shot('edit-payment', dialog(), 0)
 await escape()
@@ -330,14 +361,30 @@ await open(copy, `/students/${idOf('Zara Khan')}`)
 await shot('profile-leaving', header())
 
 // Rohan's last payment, typed for a month after he left instead of his last month.
+// Rohan's last payment logged two months after he left (it pays his last month anyway), then
+// ₹500 more for that last month: no month needs it, so it's kept as credit.
 const rohan = idOf('Rohan Desai')
 const [lastPayment] = await api(copy, `/payments?student_id=${rohan}&sort=for_month&order=desc`)
 await api(copy, `/payments/${lastPayment.id}`, {
   method: 'PATCH',
   body: JSON.stringify({ for_month: addMonths(lastPayment.for_month, 2) }),
 })
+await api(copy, '/payments', {
+  method: 'POST',
+  body: JSON.stringify({
+    student_id: rohan,
+    amount_paise: 50000,
+    paid_on: GUIDE_TODAY,
+    for_month: lastPayment.for_month,
+    method: 'cash',
+  }),
+})
 await open(copy, `/students/${rohan}`)
-await shot('profile-paid-after-leaving', page.getByRole('region', { name: 'Balance' }))
+await shot('profile-credit', page.getByRole('region', { name: 'Balance' }))
+await shot(
+  'profile-paid-after-leaving',
+  monthRows(monthName(addMonths(lastPayment.for_month, 2)), monthName(lastPayment.for_month)),
+)
 
 await open(copy, '/')
 await page.getByRole('button', { name: 'Log payment for Ira Banerjee' }).click()
