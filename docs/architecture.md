@@ -14,7 +14,7 @@ no Docker, no database server and no separate web server.
 │                            │ 2. if not: spawn server (detached), wait      │
 │                            │ 3. open browser → http://127.0.0.1:8765       │
 │                            ▼                                               │
-│  ┌──────────── pythonw.exe -m uvicorn app.main:app (127.0.0.1:8765) ────┐  │
+│  ┌──────────── pythonw.exe -m app  (uvicorn, 127.0.0.1:8765) ───────────┐  │
 │  │  FastAPI                                                             │  │
 │  │   ├─ /api/health, /api/students, /api/payments, /api/dashboard       │  │
 │  │   ├─ services/ledger.py  (pure business rules: dues, statuses)       │  │
@@ -77,14 +77,42 @@ environment variable, which tests and dev mode use:
 | `SCRAPPY_BACKUP_DIR` | `Documents\ScrappyRecords Backups` | Backups |
 | `SCRAPPY_PORT` | `8765` | Server port |
 
+The paths are looked up each time they're needed, not once at import, so tests can change them.
+`SCRAPPY_BACKUP_DIR` does **not** follow `SCRAPPY_HOME`: dev mode (`make dev`, `make run`) and the
+tests set both, so they never write into a real Documents folder.
+
+## Starting the server
+
+The server is always started the same way: **`python -m app`** (`backend/app/__main__.py`). On
+the laptop the launcher runs it with `pythonw.exe`, detached, so no console window appears:
+
+```
+app\python\pythonw.exe -m app          (working directory: the app folder)
+```
+
+`python -m app` runs uvicorn in-process on `127.0.0.1:$SCRAPPY_PORT` (default 8765) with
+`log_config=None` and `use_colors=False`. Under `pythonw`, `sys.stdout` and `sys.stderr` are
+`None`, and uvicorn's default logging config would crash on them. So uvicorn doesn't configure
+logging at all: its loggers propagate to the root logger, which gets a console handler only
+when a console exists. The log file (`logs\server.log`) is added to the root logger by the
+packaging PR. Don't start the server as `pythonw -m uvicorn app.main:app`: that uses uvicorn's
+default logging and crashes without a console.
+
 ## Lifecycle
 
-**Startup.** `app.main`'s lifespan handler runs these steps in order:
+**Startup.** `app.main`'s lifespan handler (`run_startup_tasks`) runs these steps in order:
 1. Create the data, log and backup directories.
 2. Take the **daily backup**, if none exists for today.
-3. If the database is behind the latest Alembic revision, take a **pre-migration backup**, then
-   `alembic upgrade head`.
+3. If the database is behind the latest Alembic revision (`app.migrate.needs_upgrade()`), take a
+   **pre-migration backup**, then `alembic upgrade head` (`app.migrate.upgrade_to_head()`, which
+   builds the Alembic config in code and doesn't depend on the working directory). Migrations
+   run with SQLite foreign keys **off**, because rebuilding a table with them on would
+   cascade-delete its payments. They run in **one transaction**, and are rolled back if
+   `PRAGMA foreign_key_check` finds any broken references afterwards.
 4. Serve requests.
+
+The server's version (in `/api/health`) comes from the installed package metadata. If that's
+missing, it's read from a `VERSION` file next to the `app` package, as in the bundle layout above.
 
 **Opening the app twice.** The launcher sees `/api/health` answering with
 `{"app": "scrappy-records"}` and only opens the browser.
@@ -122,6 +150,7 @@ A stock Windows 10/11 laptop already has PowerShell 5.1, a browser, `Expand-Arch
   real data;
 - Vite on :5173, proxying `/api` to :8765.
 
-`make run` serves the production build from :8765, exactly as the laptop does.
+`make run` serves the production build from :8765 with `python -m app`, exactly as the laptop
+does.
 
 See [development runbook](runbooks/development.md).
