@@ -478,6 +478,7 @@ def test_dashboard_present_month(school: list[StudentRecord]) -> None:
     assert board.summary == ledger.DashboardSummary(
         expected_paise=1500_00 + 2000_00 + 1200_00,
         collected_paise=1500_00 + 500_00,
+        paid_ahead_paise=0,
         still_due_paise=1500_00 + 1200_00,
         not_fully_paid_count=2,
         active_student_count=3,
@@ -502,6 +503,7 @@ def test_dashboard_past_month(school: list[StudentRecord]) -> None:
     assert board.summary == ledger.DashboardSummary(
         expected_paise=1500_00 + 2000_00 + 1200_00 + 1500_00,
         collected_paise=1500_00 + 1200_00 + 1500_00,
+        paid_ahead_paise=0,
         still_due_paise=2000_00,
         not_fully_paid_count=1,
         active_student_count=4,
@@ -531,7 +533,7 @@ def test_dashboard_future_month(school: list[StudentRecord]) -> None:
 
 def test_dashboard_empty() -> None:
     board = ledger.build_dashboard([], JUN, JUN)
-    assert board.summary == ledger.DashboardSummary(0, 0, 0, 0, 0)
+    assert board.summary == ledger.DashboardSummary(0, 0, 0, 0, 0, 0)
     assert (board.yet_to_pay, board.backlog, board.overpaid) == ((), (), ())
 
 

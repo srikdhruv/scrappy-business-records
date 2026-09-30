@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db import lock_for_writing
 from app.errors import not_found, unprocessable
-from app.models import FeeChange, Student
+from app.models import FeeChange, FeeKind, Student
 from app.months import add_months, format_month, parse_month
 from app.schemas import (
     FeeChangeRead,
@@ -113,7 +113,10 @@ def _next_fee_change(student: Student, current_month: dt.date) -> FeeChangeRead 
         return None
     f = later[0]
     return FeeChangeRead(
-        id=f.id, effective_month=format_month(f.effective_month), amount_paise=f.amount_paise
+        id=f.id,
+        effective_month=format_month(f.effective_month),
+        amount_paise=f.amount_paise,
+        kind=f.kind,
     )
 
 
@@ -131,6 +134,7 @@ def student_detail(student: Student, current_month: dt.date) -> StudentDetail:
                 id=f.id,
                 effective_month=format_month(f.effective_month),
                 amount_paise=f.amount_paise,
+                kind=f.kind,
             )
             for f in sorted(student.fee_changes, key=lambda f: f.effective_month)
         ],
@@ -271,8 +275,9 @@ def update_student(
         and (left is None or left > stored_left)
     ):
         raise unprocessable(
-            f"They left after {stored_left:%B %Y}. To say they've come back, use "
-            "Mark as coming again on their profile.",
+            f"They left after {stored_left:%B %Y}. Came back after all? Use Mark as coming "
+            f"again from {add_months(stored_left, 1):%B %Y}, then set a new Left month if "
+            "needed.",
             field="left_month",
         )
     if left is not None and left < joined:
@@ -294,6 +299,8 @@ def update_student(
     for name in ("name", "phone", "guardian_name", "batch_label", "notes"):
         if name in sent:
             setattr(student, name, getattr(body, name))
+    if left is not None and left != student.left_month:
+        _drop_stale_away(session, student, left)
     student.left_month = left
     if joined != student.joined_month:
         student.joined_month = joined
@@ -331,10 +338,12 @@ def return_student(
 
     - the months between `left_month` and `from_month` get a 0 fee (one fee change at the month
       after `left_month`; none if they're back straight away);
-    - from `from_month` they owe `monthly_fee_paise` if it was sent, else `return_fee`: the fee
-      their schedule has for that month, ignoring ₹0 rows left by an earlier return;
-    - every fee change after `left_month` and before `from_month` is removed (replaced by the
-      0 fee), and one at `from_month` gets that fee; fee changes after `from_month` are kept;
+    - from `from_month` they owe `monthly_fee_paise` if it was sent, else `return_fee`: the
+      latest fee the owner set on or before that month (never an 'away' row);
+    - every fee change after `left_month` and before `from_month` is removed (replaced by one
+      'away' row), and so is every 'away' row after `left_month` (leftovers of earlier
+      returns); a fee change at `from_month` gets that fee. Fee changes the owner set after
+      `from_month`, a planned month off included, are kept;
     - `left_month` is cleared.
 
     422 (on `from_month`) if they haven't been marked as left, if `from_month` isn't after
@@ -358,15 +367,30 @@ def return_student(
     fee_back = (
         body.monthly_fee_paise
         if body.monthly_fee_paise is not None
-        else return_fee(student.fee_changes, left, back)
+        else return_fee(student.fee_changes, back)
     )
-    for change in [f for f in student.fee_changes if left < f.effective_month < back]:
+    stale = [
+        f
+        for f in student.fee_changes
+        # The gap is rewritten; 'away' rows after leaving are leftovers of earlier returns.
+        if left < f.effective_month < back or (f.kind is FeeKind.away and f.effective_month > left)
+    ]
+    for change in stale:
         student.fee_changes.remove(change)  # delete-orphan: the row is deleted
     session.flush()  # delete before inserting, so a change at `first_away` can't clash
-    if back > first_away:
-        student.fee_changes.append(FeeChange(effective_month=first_away, amount_paise=0))
+    gap = back > first_away
+    if gap:
+        student.fee_changes.append(
+            FeeChange(effective_month=first_away, amount_paise=0, kind=FeeKind.away)
+        )
         session.flush()
-    _set_fee_from(session, student, back, fee_back)
+    at_back = next((f for f in student.fee_changes if f.effective_month == back), None)
+    if at_back is not None:
+        at_back.amount_paise, at_back.kind = fee_back, FeeKind.fee
+    elif gap or to_record(student).fee_in_effect(back) != fee_back:
+        # After a gap there is always a fee row at `back`, even ₹0: it ends the months away.
+        student.fee_changes.append(FeeChange(effective_month=back, amount_paise=fee_back))
+    session.flush()
     student.left_month = None
 
     session.commit()
@@ -374,18 +398,34 @@ def return_student(
     return get_student(session, student.id, current_month)
 
 
-def return_fee(fee_changes: Iterable[FeeChange], left: dt.date, back: dt.date) -> int:
-    """The fee someone coming back from `back` owes: the latest fee change on or before `back`,
-    skipping ₹0 ones after `left` (the months away of an earlier return, which must never become
-    the fee they come back on). Usually that's the fee they paid when they left; a raise set
-    for a month while they were away counts. The first fee is always on or before `left`, so
-    there is always one."""
-    eligible = [
-        f
-        for f in fee_changes
-        if f.effective_month <= back and not (f.effective_month > left and f.amount_paise == 0)
-    ]
+def return_fee(fee_changes: Iterable[FeeChange], back: dt.date) -> int:
+    """The fee someone coming back from `back` owes: the latest fee the owner set (`kind`
+    'fee') on or before `back`. 'away' rows (an earlier return's months away) never count.
+    Usually that's the fee they paid when they left; a raise set for a month while they were
+    away counts, and so does a ₹0 month off the owner set. The first fee is always a 'fee' on
+    or before `back`, so there is always one."""
+    eligible = [f for f in fee_changes if f.effective_month <= back and f.kind is FeeKind.fee]
     return max(eligible, key=lambda f: f.effective_month).amount_paise
+
+
+def _drop_stale_away(session: Session, student: Student, left: dt.date) -> None:
+    """The left month is being set to `left`: remove the 'away' rows (months away of an
+    earlier return) that no longer match. A run of months away starts at an 'away' row and
+    ends before the next 'fee' row. If that run ends before `left`, it's an earlier absence
+    and stays. If it reaches `left` or comes after it, it contradicts "they owe up to `left`"
+    (say the left month was corrected from March to May), so it goes: those months are owed
+    again, up to `left`, and nothing is owed after it anyway."""
+    rows = sorted(student.fee_changes, key=lambda f: f.effective_month)
+    stale: list[FeeChange] = []
+    for i, row in enumerate(rows):
+        if row.kind is not FeeKind.away:
+            continue
+        end = next((f.effective_month for f in rows[i + 1 :] if f.kind is FeeKind.fee), None)
+        if end is None or add_months(end, -1) >= left:
+            stale.append(row)
+    for row in stale:
+        student.fee_changes.remove(row)
+    session.flush()
 
 
 def delete_fee_change(

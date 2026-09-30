@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from alembic import command
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -163,3 +164,58 @@ def test_payment_dates_reject_non_dates(seeded: None, column: str, value: str) -
 def test_effective_month_rejects_non_months(seeded: None) -> None:
     fields = {"student_id": "1", "effective_month": "'2026-02'", "amount_paise": "1"}
     _insert("fee_changes", fields)
+
+
+@pytest.mark.parametrize(("kind", "amount"), [("'holiday'", "0"), ("'away'", "100"), ("NULL", "0")])
+def test_fee_change_kind_is_checked(seeded: None, kind: str, amount: str) -> None:
+    fields = {
+        "student_id": "1",
+        "effective_month": "'2026-03-01'",
+        "amount_paise": amount,
+        "kind": kind,
+    }
+    _insert("fee_changes", fields)
+
+
+def test_upgrade_to_fee_change_kind_keeps_the_data() -> None:
+    """0001 -> head on a database with students, fees (a ₹0 one too) and payments: every fee
+    change becomes a 'fee' (set by the owner), and nothing is lost."""
+    command.upgrade(migrate.alembic_config(), "0001")
+    with get_engine().begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO students (id, name, joined_month) VALUES (1, 'Ananya Rao', "
+                "'2026-01-01')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO fee_changes (student_id, effective_month, amount_paise) VALUES "
+                "(1, '2026-01-01', 150000), (1, '2026-04-01', 0), (1, '2026-05-01', 150000)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO payments (student_id, amount_paise, paid_on, for_month, method) "
+                "VALUES (1, 150000, '2026-01-05', '2026-01-01', 'upi')"
+            )
+        )
+    dispose_engines()
+    migrate.upgrade_to_head()
+    assert migrate.current_revision() == migrate.head_revision()
+    with get_engine().connect() as conn:
+        rows = conn.execute(
+            text("SELECT effective_month, amount_paise, kind FROM fee_changes ORDER BY 1")
+        ).all()
+        assert [tuple(r) for r in rows] == [
+            ("2026-01-01", 150000, "fee"),
+            ("2026-04-01", 0, "fee"),
+            ("2026-05-01", 150000, "fee"),
+        ]
+        assert conn.execute(text("SELECT count(*) FROM payments")).scalar() == 1
+    # And back down again, for a developer who needs to.
+    dispose_engines()
+    command.downgrade(migrate.alembic_config(), "0001")
+    with get_engine().connect() as conn:
+        columns = [c["name"] for c in inspect(conn).get_columns("fee_changes")]
+    assert "kind" not in columns

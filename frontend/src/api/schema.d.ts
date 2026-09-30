@@ -233,7 +233,7 @@ export interface components {
             total_owed_paise: number;
             /**
              * Credit Paise
-             * @description The student's money in overpaid months up to the current month (see StudentRead.credit_paise), so the UI can say they have credit.
+             * @description The student's money paid above the fee (see StudentRead.credit_paise), so the UI can say they have credit.
              */
             credit_paise: number;
         };
@@ -307,6 +307,11 @@ export interface components {
              */
             collected_paise: number;
             /**
+             * Paid Ahead Paise
+             * @description For a month after the current one: what's paid for it by students enrolled then, up to each one's fee (anything above is credit). 0 for the current month and earlier ones, which use collected_paise.
+             */
+            paid_ahead_paise: number;
+            /**
              * Still Due Paise
              * @description Sum of max(0, expected - paid).
              */
@@ -349,7 +354,18 @@ export interface components {
              * @description Amount in paise, 0 or more.
              */
             amount_paise: number;
+            /** @description `fee`: set by the owner (₹0 is a month off or a free place). `away`: the ₹0 for the months away, written by coming back after leaving. */
+            kind: components["schemas"]["FeeKind"];
         };
+        /**
+         * FeeKind
+         * @description What a fee change is. `fee`: a fee the owner set (₹0 means a month off or a free place).
+         *     `away`: the ₹0 for the months away, written by coming back after leaving (PRD ledger rule
+         *     11), and managed by the app: cleaned up when the left month changes or they come back
+         *     again.
+         * @enum {string}
+         */
+        FeeKind: "fee" | "away";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -614,7 +630,7 @@ export interface components {
              * @description Net: all payments minus everything expected up to this month. For reference only: money paid ahead or paid twice can cancel out months still owed, so headlines use `status` and `owed_paise`.
              */
             balance_paise: number;
-            /** @description `owes` if anything is owed for a due month (`owed_paise` > 0); otherwise `credit` if a due month was paid too much (`credit_paise` > 0); otherwise `up_to_date`. */
+            /** @description `owes` if anything is owed for a due month (`owed_paise` > 0); otherwise `credit` if any month was paid more than its fee (`credit_paise` > 0); otherwise `up_to_date`. */
             status: components["schemas"]["BalanceStatus"];
             /**
              * Owed Paise
@@ -623,12 +639,12 @@ export interface components {
             owed_paise: number;
             /**
              * Paid Ahead Paise
-             * @description Money paid for months after the current month that they're still enrolled in (not due yet; not credit). Months after left_month count as credit instead.
+             * @description Money paid for months after the current month that they're still enrolled in, up to each month's fee (not due yet; not credit). Anything above the fee, and anything for a month after left_month, counts as credit instead.
              */
             paid_ahead_paise: number;
             /**
              * Credit Paise
-             * @description Money in overpaid months up to this month: the sum of max(0, paid - expected) over months up to and including the current month. Payments for later months (paid ahead) are not credit.
+             * @description Money paid above the fee: the sum of max(0, paid - expected) over every month with a payment, later months included (all of it where the fee is 0). Paying a later month up to its fee is paid ahead, not credit.
              */
             credit_paise: number;
             /** @description The first fee change after the month monthly_fee_paise is for, if any (so the UI can say "No fee until December 2026, then ₹1,000"). */
@@ -720,7 +736,7 @@ export interface components {
              * @description Net: all payments minus everything expected up to this month. For reference only: money paid ahead or paid twice can cancel out months still owed, so headlines use `status` and `owed_paise`.
              */
             balance_paise: number;
-            /** @description `owes` if anything is owed for a due month (`owed_paise` > 0); otherwise `credit` if a due month was paid too much (`credit_paise` > 0); otherwise `up_to_date`. */
+            /** @description `owes` if anything is owed for a due month (`owed_paise` > 0); otherwise `credit` if any month was paid more than its fee (`credit_paise` > 0); otherwise `up_to_date`. */
             status: components["schemas"]["BalanceStatus"];
             /**
              * Owed Paise
@@ -729,12 +745,12 @@ export interface components {
             owed_paise: number;
             /**
              * Paid Ahead Paise
-             * @description Money paid for months after the current month that they're still enrolled in (not due yet; not credit). Months after left_month count as credit instead.
+             * @description Money paid for months after the current month that they're still enrolled in, up to each month's fee (not due yet; not credit). Anything above the fee, and anything for a month after left_month, counts as credit instead.
              */
             paid_ahead_paise: number;
             /**
              * Credit Paise
-             * @description Money in overpaid months up to this month: the sum of max(0, paid - expected) over months up to and including the current month. Payments for later months (paid ahead) are not credit.
+             * @description Money paid above the fee: the sum of max(0, paid - expected) over every month with a payment, later months included (all of it where the fee is 0). Paying a later month up to its fee is paid ahead, not credit.
              */
             credit_paise: number;
             /** @description The first fee change after the month monthly_fee_paise is for, if any (so the UI can say "No fee until December 2026, then ₹1,000"). */
@@ -898,7 +914,7 @@ export interface components {
             status: "unpaid" | "partial";
             /**
              * Credit Paise
-             * @description The student's money in overpaid months up to the current month (see StudentRead.credit_paise), so the UI can say they have credit.
+             * @description The student's money paid above the fee (see StudentRead.credit_paise), so the UI can say they have credit.
              */
             credit_paise: number;
         };
@@ -916,6 +932,7 @@ export type DashboardResponse = components['schemas']['DashboardResponse'];
 export type DashboardSummary = components['schemas']['DashboardSummary'];
 export type ErrorResponse = components['schemas']['ErrorResponse'];
 export type FeeChangeRead = components['schemas']['FeeChangeRead'];
+export type FeeKind = components['schemas']['FeeKind'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];
 export type HealthResponse = components['schemas']['HealthResponse'];
 export type LedgerMonth = components['schemas']['LedgerMonth'];

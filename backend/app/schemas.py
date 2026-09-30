@@ -29,7 +29,7 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
-from app.models import PaymentMethod
+from app.models import FeeKind, PaymentMethod
 from app.months import MONTH_PATTERN, format_month
 
 __all__ = [
@@ -40,6 +40,7 @@ __all__ = [
     "DashboardSummary",
     "ErrorResponse",
     "FeeChangeRead",
+    "FeeKind",
     "HealthResponse",
     "LedgerMonth",
     "MonthStatus",
@@ -378,6 +379,10 @@ class FeeChangeRead(_ReadModel):
     id: int
     effective_month: Month
     amount_paise: NonNegativePaise
+    kind: FeeKind = Field(
+        description="`fee`: set by the owner (₹0 is a month off or a free place). `away`: the "
+        "₹0 for the months away, written by coming back after leaving."
+    )
 
 
 class StudentRead(_ReadModel):
@@ -403,7 +408,8 @@ class StudentRead(_ReadModel):
     )
     status: BalanceStatus = Field(
         description="`owes` if anything is owed for a due month (`owed_paise` > 0); otherwise "
-        "`credit` if a due month was paid too much (`credit_paise` > 0); otherwise `up_to_date`."
+        "`credit` if any month was paid more than its fee (`credit_paise` > 0); otherwise "
+        "`up_to_date`."
     )
     owed_paise: NonNegativePaise = Field(
         description="Still owed: the sum of what's left on every due month (active months up to "
@@ -411,12 +417,13 @@ class StudentRead(_ReadModel):
     )
     paid_ahead_paise: NonNegativePaise = Field(
         description="Money paid for months after the current month that they're still enrolled "
-        "in (not due yet; not credit). Months after left_month count as credit instead."
+        "in, up to each month's fee (not due yet; not credit). Anything above the fee, and "
+        "anything for a month after left_month, counts as credit instead."
     )
     credit_paise: NonNegativePaise = Field(
-        description="Money in overpaid months up to this month: the sum of max(0, paid - "
-        "expected) over months up to and including the current month. Payments for later "
-        "months (paid ahead) are not credit."
+        description="Money paid above the fee: the sum of max(0, paid - expected) over every "
+        "month with a payment, later months included (all of it where the fee is 0). Paying a "
+        "later month up to its fee is paid ahead, not credit."
     )
     next_fee_change: FeeChangeRead | None = Field(
         description="The first fee change after the month monthly_fee_paise is for, if any "
@@ -523,6 +530,11 @@ class PaymentRead(_ReadModel):
 class DashboardSummary(_ReadModel):
     expected_paise: NonNegativePaise = Field(description="Expected for M from active students.")
     collected_paise: NonNegativePaise = Field(description="Payments whose for_month is M.")
+    paid_ahead_paise: NonNegativePaise = Field(
+        description="For a month after the current one: what's paid for it by students "
+        "enrolled then, up to each one's fee (anything above is credit). 0 for the current "
+        "month and earlier ones, which use collected_paise."
+    )
     still_due_paise: NonNegativePaise = Field(description="Sum of max(0, expected - paid).")
     not_fully_paid_count: int = Field(ge=0, description="Students unpaid or partial for M.")
     active_student_count: int = Field(
@@ -542,8 +554,8 @@ class YetToPayItem(_ReadModel):
     remaining_paise: PositivePaise
     status: Literal[MonthStatus.unpaid, MonthStatus.partial]
     credit_paise: NonNegativePaise = Field(
-        description="The student's money in overpaid months up to the current month (see "
-        "StudentRead.credit_paise), so the UI can say they have credit."
+        description="The student's money paid above the fee (see StudentRead.credit_paise), "
+        "so the UI can say they have credit."
     )
 
 
@@ -565,8 +577,8 @@ class BacklogItem(_ReadModel):
     months: list[BacklogMonth] = Field(description="Oldest first.")
     total_owed_paise: PositivePaise
     credit_paise: NonNegativePaise = Field(
-        description="The student's money in overpaid months up to the current month (see "
-        "StudentRead.credit_paise), so the UI can say they have credit."
+        description="The student's money paid above the fee (see StudentRead.credit_paise), "
+        "so the UI can say they have credit."
     )
 
 

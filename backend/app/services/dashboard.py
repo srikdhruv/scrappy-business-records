@@ -30,6 +30,7 @@ def get_dashboard(session: Session, month: dt.date, current_month: dt.date) -> D
         summary=DashboardSummary(
             expected_paise=s.expected_paise,
             collected_paise=s.collected_paise,
+            paid_ahead_paise=s.paid_ahead_paise,
             still_due_paise=s.still_due_paise,
             not_fully_paid_count=s.not_fully_paid_count,
             active_student_count=s.active_student_count,

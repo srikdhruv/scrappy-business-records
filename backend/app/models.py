@@ -51,6 +51,16 @@ class PaymentMethod(enum.StrEnum):
     other = "other"
 
 
+class FeeKind(enum.StrEnum):
+    """What a fee change is. `fee`: a fee the owner set (₹0 means a month off or a free place).
+    `away`: the ₹0 for the months away, written by coming back after leaving (PRD ledger rule
+    11), and managed by the app: cleaned up when the left month changes or they come back
+    again."""
+
+    fee = "fee"
+    away = "away"
+
+
 def _first_of_month(column: str) -> str:
     # `IS` (not `=`) so a value SQLite can't parse as a date (date() -> NULL) fails the CHECK
     # instead of passing it: rejects 'garbage', '2026-10', 20261001 and '2026-10-05'.
@@ -129,6 +139,19 @@ class FeeChange(Base):
     )
     effective_month: Mapped[dt.date] = mapped_column(Date, nullable=False)
     amount_paise: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[FeeKind] = mapped_column(
+        Enum(
+            FeeKind,
+            name="fee_kind",
+            native_enum=False,
+            create_constraint=False,  # declared below, like payments.method
+            length=8,
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+        default=FeeKind.fee,
+        server_default=FeeKind.fee.value,
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.current_timestamp()
     )
@@ -137,6 +160,10 @@ class FeeChange(Base):
 
     __table_args__ = (
         UniqueConstraint("student_id", "effective_month"),
+        CheckConstraint(
+            "kind IN ({})".format(", ".join(f"'{k.value}'" for k in FeeKind)), name="kind_valid"
+        ),
+        CheckConstraint("kind = 'fee' OR amount_paise = 0", name="away_is_no_fee"),
         CheckConstraint("amount_paise >= 0", name="amount_non_negative"),
         CheckConstraint(_first_of_month("effective_month"), name="effective_month_first_of_month"),
     )

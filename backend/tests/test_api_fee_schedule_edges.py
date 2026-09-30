@@ -31,9 +31,10 @@ def test_leave_come_back_leave_again_at_the_same_month_come_back_straight_away(
     s = make_student(api, monthly_fee_paise=200000, joined_month="2026-01", left_month="2026-03")
     come_back(api, s["id"], "2026-05")  # away in April
     assert api.patch(f"/api/students/{s['id']}", json={"left_month": "2026-03"}).status_code == 200
-    # Back straight after leaving again: the earlier return's ₹0 April must not become the fee.
+    # Marking them as left at March again removes the earlier return's "away" April (it
+    # contradicts owing up to March). Back straight after: every month is owed.
     d = come_back(api, s["id"], "2026-04")
-    assert fees_of(d) == [("2026-01", 200000), ("2026-04", 200000), ("2026-05", 200000)]
+    assert fees_of(d) == [("2026-01", 200000), ("2026-05", 200000)]
     assert [m["status"] for m in d["months"][3:]] == ["unpaid", "unpaid", "unpaid"]
     assert d["owed_paise"] == 6 * 200000
 
@@ -49,6 +50,88 @@ def test_coming_back_again_ignores_the_months_away_of_an_earlier_return(api: Tes
     assert months_of(d)["2026-05"] == (200000, 0, "unpaid")
     assert months_of(d)["2026-06"] == (200000, 0, "unpaid")
     assert d["owed_paise"] == 400000
+
+
+def kinds_of(detail: Json) -> list[tuple[str, int, str]]:
+    return [(f["effective_month"], f["amount_paise"], f["kind"]) for f in detail["fee_history"]]
+
+
+def test_correcting_the_left_month_after_coming_back(api: TestClient) -> None:
+    # Left after March, back in July (away from April). Then the owner corrects the left month
+    # to May, and they come back in July again: April and May are owed, June is away.
+    s = make_student(api, monthly_fee_paise=100000, joined_month="2026-01", left_month="2026-03")
+    for m in ("2026-01", "2026-02", "2026-03"):
+        pay(api, s["id"], m, 100000)
+    d = come_back(api, s["id"], "2026-07")
+    assert kinds_of(d) == [
+        ("2026-01", 100000, "fee"),
+        ("2026-04", 0, "away"),
+        ("2026-07", 100000, "fee"),
+    ]
+    d = api.patch(f"/api/students/{s['id']}", json={"left_month": "2026-05"}).json()
+    assert kinds_of(d) == [("2026-01", 100000, "fee"), ("2026-07", 100000, "fee")]
+    d = come_back(api, s["id"], "2026-07")
+    assert kinds_of(d) == [
+        ("2026-01", 100000, "fee"),
+        ("2026-06", 0, "away"),
+        ("2026-07", 100000, "fee"),
+    ]
+    assert months_of(d)["2026-04"] == (100000, 0, "unpaid")
+    assert months_of(d)["2026-05"] == (100000, 0, "unpaid")
+    assert months_of(d)["2026-06"] == (0, 0, "not_applicable")
+    assert d["owed_paise"] == 200000
+
+
+def test_several_returns_keep_each_earlier_absence(api: TestClient) -> None:
+    s = make_student(api, monthly_fee_paise=100000, joined_month="2026-01", left_month="2026-02")
+    come_back(api, s["id"], "2026-04")  # away in March
+    api.patch(f"/api/students/{s['id']}", json={"left_month": "2026-05"})  # leaves again
+    d = come_back(api, s["id"], "2026-07")  # away in June
+    assert kinds_of(d) == [
+        ("2026-01", 100000, "fee"),
+        ("2026-03", 0, "away"),
+        ("2026-04", 100000, "fee"),
+        ("2026-06", 0, "away"),
+        ("2026-07", 100000, "fee"),
+    ]
+    assert [m["status"] for m in d["months"]] == [
+        "unpaid", "unpaid", "not_applicable", "unpaid", "unpaid", "not_applicable",
+    ]  # fmt: skip
+
+
+def test_a_planned_month_off_is_kept_when_coming_back(api: TestClient) -> None:
+    s = make_student(api, monthly_fee_paise=100000, joined_month="2026-01", left_month="2026-03")
+    url = f"/api/students/{s['id']}"
+    api.patch(url, json={"monthly_fee_paise": 0, "fee_effective_month": "2026-09"})
+    api.patch(url, json={"monthly_fee_paise": 100000, "fee_effective_month": "2026-10"})
+    d = come_back(api, s["id"], "2026-07")
+    assert kinds_of(d) == [
+        ("2026-01", 100000, "fee"),
+        ("2026-04", 0, "away"),
+        ("2026-07", 100000, "fee"),
+        ("2026-09", 0, "fee"),  # the owner's month off stays
+        ("2026-10", 100000, "fee"),
+    ]
+    # An owner's ₹0 month off on the return month itself is the fee they come back on.
+    t = make_student(api, name="Kabir Mehta", joined_month="2026-01", left_month="2026-02")
+    api.patch(
+        f"/api/students/{t['id']}", json={"monthly_fee_paise": 0, "fee_effective_month": "2026-05"}
+    )
+    d = come_back(api, t["id"], "2026-05")
+    assert kinds_of(d)[-1] == ("2026-05", 0, "fee")
+
+
+def test_the_dashboard_counts_paid_ahead_only_up_to_the_fee(api: TestClient) -> None:
+    a = make_student(api, monthly_fee_paise=100000, joined_month="2026-01")
+    b = make_student(api, name="Kabir Mehta", monthly_fee_paise=100000, joined_month="2026-01",
+                     left_month="2026-02")  # fmt: skip
+    come_back(api, b["id"], "2026-09")  # away in August
+    pay(api, a["id"], "2026-08", 250000)  # ₹1,500 more than the fee
+    pay(api, b["id"], "2026-08", 100000)  # a month away: all extra
+    august = api.get("/api/dashboard", params={"month": "2026-08"}).json()["summary"]
+    assert (august["collected_paise"], august["paid_ahead_paise"]) == (350000, 100000)
+    assert august["active_student_count"] == 1
+    assert api.get("/api/dashboard").json()["summary"]["paid_ahead_paise"] == 0  # June: due
 
 
 def test_coming_back_on_a_different_fee(api: TestClient) -> None:

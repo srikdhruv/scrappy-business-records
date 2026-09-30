@@ -199,6 +199,8 @@ class StudentLedger:
 class DashboardSummary:
     expected_paise: int
     collected_paise: int
+    paid_ahead_paise: int
+    """For a month after the current one: Σ min(paid, expected) over students active then."""
     still_due_paise: int
     not_fully_paid_count: int
     active_student_count: int
@@ -462,7 +464,7 @@ def build_dashboard(
     current_month = first_of_month(current_month)
     ordered = sorted(students, key=_sort_key)
 
-    expected_total = collected = still_due = active_count = 0
+    expected_total = collected = paid_ahead_total = still_due = active_count = 0
     yet_to_pay: list[YetToPayEntry] = []
     backlog: list[BacklogEntry] = []
     overpaid: list[OverpaidEntry] = []
@@ -477,6 +479,8 @@ def build_dashboard(
             if line.expected_paise > 0:  # a ₹0 month (a month off, a free place) isn't counted
                 active_count += 1
             expected_total += line.expected_paise
+            if month > current_month:
+                paid_ahead_total += min(line.paid_paise, line.expected_paise)
             still_due += line.remaining_paise
             if line.is_owing:
                 yet_to_pay.append(YetToPayEntry(s, line, credit(s, current_month)))
@@ -501,6 +505,7 @@ def build_dashboard(
         summary=DashboardSummary(
             expected_paise=expected_total,
             collected_paise=collected,
+            paid_ahead_paise=paid_ahead_total,
             still_due_paise=still_due,
             not_fully_paid_count=len(yet_to_pay),
             active_student_count=active_count,

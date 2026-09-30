@@ -17,6 +17,7 @@ def test_empty_dashboard_defaults_to_current_month(api: TestClient) -> None:
         "summary": {
             "expected_paise": 0,
             "collected_paise": 0,
+            "paid_ahead_paise": 0,
             "still_due_paise": 0,
             "not_fully_paid_count": 0,
             "active_student_count": 0,
@@ -57,6 +58,7 @@ def test_dashboard_sections(api: TestClient) -> None:
     assert june["summary"] == {
         "expected_paise": 150000 + 200000 + 120000,
         "collected_paise": 150000 + 100000,
+        "paid_ahead_paise": 0,
         "still_due_paise": 100000 + 120000,
         "not_fully_paid_count": 2,
         "active_student_count": 3,
