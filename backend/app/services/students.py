@@ -5,7 +5,7 @@ API's response models.
 
 Fee schedule invariant: a student's **earliest fee change is at `joined_month`**, so they always
 have a fee in effect from the month they join. Creating a student inserts that first row, and
-moving `joined_month` keeps it true (see `_align_fees_with_joined_month`).
+moving `joined_month` moves it along (see `update_student`).
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import datetime as dt
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.errors import not_found, unprocessable
 from app.models import FeeChange, Student
 from app.months import format_month, parse_month
 from app.schemas import (
@@ -28,7 +29,6 @@ from app.schemas import (
     SuggestedPayment,
 )
 from app.services import ledger
-from app.services.errors import NotFound, invalid
 
 # --------------------------------------------------------------------------- loading
 
@@ -60,7 +60,7 @@ def all_students(session: Session) -> list[Student]:
 def get_student_row(session: Session, student_id: int) -> Student:
     student = session.get(Student, student_id, options=_LEDGER_ROWS)
     if student is None:
-        raise NotFound("student", student_id)
+        raise not_found("student", student_id)
     return student
 
 
@@ -191,30 +191,36 @@ def create_student(session: Session, body: StudentCreate, current_month: dt.date
 def update_student(
     session: Session, student_id: int, body: StudentUpdate, current_month: dt.date
 ) -> StudentDetail:
-    """Partial update (only the fields that were sent change).
+    """Partial update (only the fields that were sent change). The edit rules are the ones in
+    `StudentUpdate`'s docstring and docs/data-model.md; each failure is a 422 and changes nothing.
 
-    - `left_month` is checked against the resulting `joined_month` (sent or stored): 422 if
-      earlier. `left_month: null` un-archives.
-    - Moving `joined_month` keeps the fee schedule starting at the new joined month.
-    - `monthly_fee_paise` records a fee change from `fee_effective_month`, which defaults to the
-      current month (or the joined month, if that is later). 422 if it is before the joined
-      month. Earlier months keep their fee; later fee changes are kept.
+    1. Moving `joined_month` moves the earliest fee change with it. 422 if the new joined month
+       is on or after a later fee change.
+    2. `monthly_fee_paise` records a fee change from `fee_effective_month`, which defaults to the
+       current month, or the joined month if that is later. 422 if it is before the joined
+       month. A month that already has a fee change gets its amount replaced; if the fee is
+       already in effect then, nothing is recorded. Earlier and later fee changes are kept.
+    3. `left_month` before `joined_month` (the new one if sent, else the stored one): 422.
+       `left_month: null` un-archives.
     """
     student = get_student_row(session, student_id)
     sent = body.model_fields_set
+    fees = sorted(student.fee_changes, key=lambda f: f.effective_month)
 
     joined = parse_month(body.joined_month) if body.joined_month else student.joined_month
+    if joined != student.joined_month and len(fees) > 1 and joined >= fees[1].effective_month:
+        raise unprocessable(
+            "joined_month cannot be on or after a later fee change "
+            f"({format_month(fees[1].effective_month)}); change or remove that fee first",
+            field="joined_month",
+        )
+
+    left = student.left_month
     if "left_month" in sent:
         left = parse_month(body.left_month) if body.left_month else None
-    else:
-        left = student.left_month
     if left is not None and left < joined:
         field = "left_month" if "left_month" in sent else "joined_month"
-        raise invalid(
-            field,
-            "left_month cannot be before joined_month",
-            body.left_month if field == "left_month" else body.joined_month,
-        )
+        raise unprocessable("left_month cannot be before joined_month", field=field)
 
     fee_month: dt.date | None = None
     if body.monthly_fee_paise is not None:
@@ -224,10 +230,8 @@ def update_student(
             else max(current_month, joined)
         )
         if fee_month < joined:
-            raise invalid(
-                "fee_effective_month",
-                "the new fee cannot start before joined_month",
-                body.fee_effective_month,
+            raise unprocessable(
+                "the new fee cannot start before joined_month", field="fee_effective_month"
             )
 
     for name in ("name", "phone", "guardian_name", "batch_label", "notes"):
@@ -236,7 +240,11 @@ def update_student(
     student.left_month = left
     if joined != student.joined_month:
         student.joined_month = joined
-        _align_fees_with_joined_month(session, student)
+        if fees:
+            fees[0].effective_month = joined
+        else:  # never happens through the API, but keep "a fee from joined_month" true
+            student.fee_changes.append(FeeChange(effective_month=joined, amount_paise=0))
+        session.flush()
 
     if fee_month is not None and body.monthly_fee_paise is not None:
         _set_fee_from(session, student, fee_month, body.monthly_fee_paise)
@@ -244,35 +252,6 @@ def update_student(
     session.commit()
     session.expire(student)
     return get_student(session, student.id, current_month)
-
-
-def _align_fees_with_joined_month(session: Session, student: Student) -> None:
-    """Keep the earliest fee change at `joined_month` after it moves.
-
-    - Moved earlier: the earliest fee change moves back with it.
-    - Moved later: the fee that was in effect at the new joined month moves to it, and fee
-      changes before it are dropped (they only covered months the student no longer owes).
-    """
-    joined = student.joined_month
-    fees = sorted(student.fee_changes, key=lambda f: f.effective_month)
-    if not fees:
-        student.fee_changes.append(FeeChange(effective_month=joined, amount_paise=0))
-        session.flush()
-        return
-    before = [f for f in fees if f.effective_month < joined]
-    at_joined = any(f.effective_month == joined for f in fees)
-    if at_joined:
-        drop, keep = before, None
-    elif before:
-        drop, keep = before[:-1], before[-1]
-    else:
-        drop, keep = [], fees[0]
-    for f in drop:
-        student.fee_changes.remove(f)
-    session.flush()
-    if keep is not None:
-        keep.effective_month = joined
-        session.flush()
 
 
 def _set_fee_from(session: Session, student: Student, month: dt.date, amount: int) -> None:
@@ -290,6 +269,6 @@ def delete_student(session: Session, student_id: int) -> None:
     """Hard delete; the database cascades to fee changes and payments."""
     student = session.get(Student, student_id)
     if student is None:
-        raise NotFound("student", student_id)
+        raise not_found("student", student_id)
     session.delete(student)
     session.commit()

@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.errors import not_found
 from app.models import Payment, Student
 from app.months import format_month, parse_month
 from app.schemas import (
@@ -14,7 +15,6 @@ from app.schemas import (
     PaymentUpdate,
     SortOrder,
 )
-from app.services.errors import NotFound
 
 _SORT_COLUMNS = {
     PaymentSort.paid_on: Payment.paid_on,
@@ -81,14 +81,14 @@ def list_payments(
 def _student_name(session: Session, student_id: int) -> str:
     name = session.scalar(select(Student.name).where(Student.id == student_id))
     if name is None:
-        raise NotFound("student", student_id)
+        raise not_found("student", student_id)
     return name
 
 
 def _get_row(session: Session, payment_id: int) -> Payment:
     payment = session.get(Payment, payment_id)
     if payment is None:
-        raise NotFound("payment", payment_id)
+        raise not_found("payment", payment_id)
     return payment
 
 

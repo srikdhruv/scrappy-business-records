@@ -258,28 +258,34 @@ def test_moving_joined_month_earlier_moves_the_first_fee(api: TestClient) -> Non
     assert months_of(d)["2026-01"] == (150000, 0, "unpaid")
 
 
-def test_moving_joined_month_later_keeps_the_fee_in_effect(api: TestClient) -> None:
+def test_moving_joined_month_later_moves_the_first_fee(api: TestClient) -> None:
     s = make_student(api, joined_month="2026-01", monthly_fee_paise=100000)
     url = f"/api/students/{s['id']}"
-    api.patch(url, json={"monthly_fee_paise": 150000, "fee_effective_month": "2026-02"})
     api.patch(url, json={"monthly_fee_paise": 200000, "fee_effective_month": "2026-05"})
     pay(api, s["id"], "2026-01", 100000)
 
     d = api.patch(url, json={"joined_month": "2026-03"}).json()
-    # The fee in effect in March (from February) now starts in March; January's is dropped.
     assert [(f["effective_month"], f["amount_paise"]) for f in d["fee_history"]] == [
-        ("2026-03", 150000),
+        ("2026-03", 100000),
         ("2026-05", 200000),
     ]
     # The January payment is still there; January is no longer owed, so it shows as overpaid.
     assert months_of(d)["2026-01"] == (0, 100000, "overpaid")
-    assert months_of(d)["2026-03"] == (150000, 0, "unpaid")
+    assert months_of(d)["2026-03"] == (100000, 0, "unpaid")
 
-    # Moving onto a month that already has a fee change keeps that one.
-    d = api.patch(url, json={"joined_month": "2026-05"}).json()
-    assert [(f["effective_month"], f["amount_paise"]) for f in d["fee_history"]] == [
-        ("2026-05", 200000)
-    ]
+
+@pytest.mark.parametrize("joined", ["2026-05", "2026-06"])
+def test_moving_joined_month_onto_a_later_fee_is_422(api: TestClient, joined: str) -> None:
+    s = make_student(api, joined_month="2026-01", monthly_fee_paise=100000)
+    url = f"/api/students/{s['id']}"
+    api.patch(url, json={"monthly_fee_paise": 200000, "fee_effective_month": "2026-05"})
+    response = api.patch(url, json={"joined_month": joined, "notes": "moved"})
+    assert response.status_code == 422
+    [error] = response.json()["detail"]
+    assert error["loc"] == ["body", "joined_month"]
+    assert "2026-05" in error["msg"]
+    d = api.get(url).json()  # nothing changed
+    assert (d["joined_month"], d["notes"], len(d["fee_history"])) == ("2026-01", None, 2)
 
 
 def test_moving_joined_month_and_changing_fee_together(api: TestClient) -> None:
