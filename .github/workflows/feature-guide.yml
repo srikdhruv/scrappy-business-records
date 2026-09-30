@@ -1,0 +1,30 @@
+name: Feature guide
+
+# A PR that changes what the user sees must update docs/feature-guide.md, or carry the
+# `no-guide-change` label. A separate workflow so that adding or removing the label re-runs only
+# this check, not the whole CI.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feature-guide-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  feature-guide:
+    name: Feature guide updated
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check that the feature guide changed with the UI
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: python3 scripts/ci/check_feature_guide.py --base "$BASE_SHA" --head "$HEAD_SHA"

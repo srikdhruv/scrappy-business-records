@@ -122,7 +122,7 @@ These rules decide every number the app shows.
    - Otherwise **Up to date**.
 
    Money paid ahead (for later months they're still enrolled in) is shown next to the
-   standing ("Paid ahead to November 2026"). The net
+   standing ("Paid ahead to Nov 2026"). The net
    figure `sum(all payments) − sum(expected for due months)` is still returned as
    `balance_paise`, for reference, but no headline uses it: a net 0 can hide months still owed
    (for example July paid twice instead of August).
@@ -153,7 +153,7 @@ These rules decide every number the app shows.
     for later months they are still enrolled in are "paid ahead", not credit. Payments stay
     exactly as they were typed: credit is never moved to other months or split automatically.
     Instead, wherever a student is shown as owing (*Yet to pay*, *Backlog*, the students list
-    and the profile), their credit is shown next to it ("Paid ₹X extra in July 2026"), so the
+    and the profile), their credit is shown next to it ("Paid ₹X extra in Jul 2026"), so the
     owner can fix the payment's month.
 
 ### Dashboard for a selected month M
@@ -167,6 +167,10 @@ These rules decide every number the app shows.
 
 Underpayments show as **Partial** in the *Yet to pay* and *Backlog* sections. For a future M,
 *Yet to pay* lists who hasn't paid ahead yet.
+
+On screen, *Backlog* is called **Earlier months still owed** and *Overpaid* is called **Paid too
+much** (plain words). The [feature guide](../feature-guide.md#dashboard) describes the screen in
+full.
 
 ## UX principles
 

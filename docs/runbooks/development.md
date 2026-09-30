@@ -26,6 +26,7 @@ make setup
 | `make seed` | Fill `./.devdata/` with realistic, fictional demo students and payments (`python -m app.seed`). It refuses if there are students already: to start over, run `make db-reset` first. It only runs with `SCRAPPY_HOME` set, so it can't touch a real install, and `--force` first backs up the database into `$SCRAPPY_HOME/seed-backups/` |
 | `make test` | Backend pytest and frontend vitest |
 | `make e2e` | Build, then run the Playwright end-to-end tests (`frontend/playwright.config.ts`) against the production server |
+| `make guide-screenshots` | Build, then retake the pictures in `docs/images/feature-guide/` against the real server with fresh demo data (`frontend/scripts/feature-guide-screenshots.mjs`), shrunk by `scripts/shrink_screenshots.py`. See [the feature guide](../feature-guide.md#keeping-this-guide-up-to-date) |
 | `make lint` | `ruff check` and `ruff format --check` (backend and `scripts/`), ESLint, `prettier --check` and `tsc` |
 | `make fmt` | `ruff format`, `ruff check --fix`, Prettier and `eslint --fix` |
 | `make gen-api` | Regenerate `frontend/src/api/schema.d.ts` from the backend's OpenAPI. No server needed: it runs `python -m app.openapi_dump` |
@@ -83,12 +84,17 @@ frontend/src/
   index.css          Theme tokens (CSS variables) and Tailwind setup
   styles/            theme.test.ts checks the text contrast of the theme tokens
   test/              Vitest setup and render helpers
+frontend/scripts/
+  feature-guide-screenshots.mjs  `make guide-screenshots`: the feature guide's pictures
 scripts/
   build_bundle.py    `make package`: the self-contained zip, self-tested
+  shrink_screenshots.py  256-colour PNGs for the pictures in docs/
+  guide_server.py    The real app with the date frozen, for `make guide-screenshots`
   make_icon.py       Draws the app icon (scrappy.ico / scrappy.png) at build time
   install.ps1        Windows installer and updater (`irm ... | iex`)
   install.sh         macOS installer and updater (`curl ... | sh`)
-  ci/                Install smoke tests CI runs on Windows and macOS (+ db_probe.py)
+  ci/                Install smoke tests CI runs on Windows and macOS (+ db_probe.py), and
+                     check_feature_guide.py (the *Feature guide* PR check)
 ```
 
 ## Frontend conventions
