@@ -5,7 +5,8 @@
  * scripts/guide_server.py) three times, each on a free port with its own throwaway data folder:
  * one with the fictional demo data (`app.seed`),
  * one empty (the first-run screen), and a copy of the demo data that is changed and then stopped
- * (Undo, "leaving", a payment after leaving, and the "Can't reach Scrappy Records" banner).
+ * (a fee change already scheduled, Undo, "leaving", a payment after leaving, and the "Can't reach
+ * Scrappy Records" banner). The last demo pictures mark a student who left as coming again.
  * Nothing here touches ./.devdata or a real install.
  *
  * The date is frozen at GUIDE_TODAY, on the server (scripts/guide_server.py overrides
@@ -280,15 +281,6 @@ await settle()
 await shot('edit-payment', dialog(), 0)
 await escape()
 
-await open(demo, `/students/${idOf('Kabir Mehta')}`) // a fee change
-await shot('profile-details-fee-history', section('Details'))
-await header().getByRole('button', { name: 'Edit' }).click()
-await page.waitForTimeout(400)
-await page.locator('#student-fee').fill('2100')
-await page.waitForTimeout(300)
-await shot('student-edit-fee-change', dialog(), 0)
-await escape()
-
 await open(demo, `/students/${idOf('Ananya Rao')}`)
 await page.getByRole('button', { name: 'Mark as left' }).click()
 await page.waitForTimeout(400)
@@ -302,7 +294,34 @@ await escape()
 await open(demo, `/students/${idOf('Rohan Desai')}`) // left
 await shot('profile-left', header())
 
+// Rohan comes back: which month, and the months away have no fee. (The copy was taken before.)
+await header().getByRole('button', { name: 'Mark as coming again' }).click()
+await page.waitForTimeout(400)
+await shot('come-back', dialog(), 0)
+await dialog().getByRole('button', { name: 'Mark as coming again' }).click()
+await settle()
+await shot('profile-back-month-by-month', section('Month by month'))
+
 // ---- On the copy: changes, then the server goes away ----------------------------------------
+// Kabir's fee changed in April, and a raise to ₹2,000 is already set for November.
+const kabir = idOf('Kabir Mehta')
+await api(copy, `/students/${kabir}`, {
+  method: 'PATCH',
+  body: JSON.stringify({ monthly_fee_paise: 200000, fee_effective_month: addMonths(now, 2) }),
+})
+await open(copy, `/students/${kabir}`)
+await shot('profile-details-fee-history', section('Details'))
+await page.getByRole('button', { name: /^Remove the fee change from / }).click()
+await page.waitForTimeout(400)
+await shot('fee-change-remove-confirm', page.getByRole('alertdialog'), 0)
+await escape()
+await header().getByRole('button', { name: 'Edit' }).click()
+await page.waitForTimeout(400)
+await page.locator('#student-fee').fill('2100')
+await page.waitForTimeout(300)
+await shot('student-edit-fee-change', dialog(), 0)
+await escape()
+
 await api(copy, `/students/${idOf('Zara Khan')}`, {
   method: 'PATCH',
   body: JSON.stringify({ left_month: now }),

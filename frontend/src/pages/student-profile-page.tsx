@@ -510,7 +510,6 @@ function DetailsCard({ student }: { student: StudentDetail }) {
       <dl className="grid gap-x-8 gap-y-4 px-6 pb-6 sm:grid-cols-2">
         <Detail label="Monthly fee">
           <span className="font-bold tabular-nums">{formatRupees(student.monthly_fee_paise)}</span>
-          {student.fee_history.length > 1 && <FeeHistory student={student} />}
         </Detail>
         <Detail label="Joined">
           {formatMonth(student.joined_month)}
@@ -522,6 +521,7 @@ function DetailsCard({ student }: { student: StudentDetail }) {
               : tenurePhrase(student)}
           </span>
         </Detail>
+        {student.fee_history.length > 1 && <FeeHistory student={student} />}
         <Detail label="Class or batch">{student.batch_label ?? <Muted>Not set</Muted>}</Detail>
         <Detail label="Phone">
           {student.phone ? (
@@ -556,59 +556,58 @@ function FeeHistory({ student }: { student: StudentDetail }) {
   const remove = useDeleteFeeChange()
   const rest = toRemove ? fees.filter((f) => f.id !== toRemove.id) : fees
   return (
-    <div className="mt-2">
-      <p className="text-sm font-bold text-muted-foreground" id="fee-history">
+    <div className="space-y-0.5 sm:col-span-2">
+      <dt className="text-sm font-bold text-muted-foreground" id="fee-history">
         Fee history
-      </p>
-      <ul aria-labelledby="fee-history" className="mt-1 grid gap-1 text-sm">
-        {fees.map((f, i) => {
-          const scheduled = i > 0 && f.effective_month > now
-          return (
-            <li key={f.id} className="flex min-h-8 flex-wrap items-center gap-x-2">
-              <span className={cn('tabular-nums', f.amount_paise === 0 && 'text-muted-foreground')}>
-                <span className="font-semibold">
-                  {f.amount_paise === 0 ? 'No fee' : formatRupees(f.amount_paise)}
-                </span>{' '}
-                from {formatMonthShort(f.effective_month)}
-              </span>
-              {scheduled && (
-                <>
-                  <span className="text-muted-foreground">· not started yet</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-owed hover:bg-owed-soft hover:text-owed"
-                    onClick={() => setToRemove(f)}
-                    aria-label={`Remove the fee change from ${formatMonth(f.effective_month)}`}
+      </dt>
+      <dd>
+        <ul aria-labelledby="fee-history" className="grid text-base">
+          {fees.map((f, i) => {
+            const scheduled = i > 0 && f.effective_month > now
+            return (
+              <li key={f.id} className="flex min-h-8 flex-wrap items-center gap-x-2">
+                <span className="tabular-nums">
+                  <span
+                    className={cn('font-semibold', f.amount_paise === 0 && 'text-muted-foreground')}
                   >
-                    Remove
-                  </Button>
-                </>
-              )}
-            </li>
-          )
-        })}
-      </ul>
+                    {f.amount_paise === 0 ? 'No fee' : formatRupees(f.amount_paise)}
+                  </span>{' '}
+                  <span className="text-muted-foreground">
+                    from {formatMonthShort(f.effective_month)}
+                  </span>
+                </span>
+                {scheduled && (
+                  <>
+                    <span className="text-sm text-muted-foreground">(not started yet)</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-owed hover:bg-owed-soft hover:text-owed"
+                      onClick={() => setToRemove(f)}
+                      aria-label={`Remove the fee change from ${formatMonth(f.effective_month)}`}
+                    >
+                      Remove
+                    </Button>
+                  </>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </dd>
       <ConfirmDialog
         open={toRemove !== null}
         onOpenChange={(open) => !open && setToRemove(null)}
         title={
           toRemove &&
-          `Remove the ${toRemove.amount_paise === 0 ? 'no-fee' : formatRupees(toRemove.amount_paise)} change from ${formatMonth(toRemove.effective_month)}?`
+          `Remove the ${toRemove.amount_paise === 0 ? 'no-fee change' : `${formatRupees(toRemove.amount_paise)} fee`} from ${formatMonth(toRemove.effective_month)}?`
         }
         confirmLabel="Remove fee change"
         pendingLabel="Removing…"
         description={
           toRemove && (
             <p>
-              After this:{' '}
-              {newFeeSentence(
-                rest,
-                toRemove.effective_month,
-                feeAt(rest, toRemove.effective_month),
-                now,
-              )}{' '}
-              Nothing else changes.
+              After this, {afterRemoving(rest, toRemove.effective_month, now)} Nothing else changes.
             </p>
           )
         }
@@ -622,6 +621,12 @@ function FeeHistory({ student }: { student: StudentDetail }) {
       />
     </div>
   )
+}
+
+/** "from November 2026 they'll owe ₹1,800 a month.": what's left once a fee change is gone. */
+function afterRemoving(rest: FeeChangeRead[], month: string, now: string): string {
+  const sentence = newFeeSentence(rest, month, feeAt(rest, month), now)
+  return sentence.charAt(0).toLowerCase() + sentence.slice(1)
 }
 
 function Muted({ children }: { children: ReactNode }) {

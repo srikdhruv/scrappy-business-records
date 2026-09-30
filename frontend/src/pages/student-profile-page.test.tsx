@@ -270,7 +270,7 @@ describe('student profile', () => {
       const items = history.getAllByRole('listitem')
       expect(items.map((li) => li.textContent)).toEqual([
         expect.stringMatching(/^₹1,500 from \w{3} 2025$/),
-        '₹1,800 from Dec 2026· not started yetRemove',
+        '₹1,800 from Dec 2026(not started yet)Remove',
       ])
       // The first (joining) fee can't be removed.
       expect(within(items[0]!).queryByRole('button')).not.toBeInTheDocument()
@@ -280,7 +280,7 @@ describe('student profile', () => {
       )
       const confirm = within(await screen.findByRole('alertdialog'))
       expect(confirm.getByText(/After this/)).toHaveTextContent(
-        'After this: From December 2026 they’ll owe ₹1,500 a month. Nothing else changes.',
+        'After this, from December 2026 they’ll owe ₹1,500 a month. Nothing else changes.',
       )
       await user.click(confirm.getByRole('button', { name: 'Remove fee change' }))
       expect(await screen.findByText('Fee change removed')).toBeInTheDocument()

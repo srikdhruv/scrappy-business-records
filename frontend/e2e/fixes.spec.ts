@@ -103,7 +103,7 @@ test('a scheduled fee change shows in the message and can be removed from Fee hi
     .getByRole('button', { name: `Remove the fee change from ${formatMonth(later)}` })
     .click()
   const confirm = page.getByRole('alertdialog')
-  await expect(confirm).toContainText(`From ${formatMonth(later)} they’ll owe ₹1,500 a month.`)
+  await expect(confirm).toContainText(`from ${formatMonth(later)} they’ll owe ₹1,500 a month.`)
   await confirm.getByRole('button', { name: 'Remove fee change' }).click()
   await expect(page.getByText('Fee change removed')).toBeVisible()
   await expect(history).toHaveCount(0)
