@@ -418,7 +418,9 @@ describe('student profile', () => {
       await screen.findByRole('heading', { level: 1, name: 'Advait Sinha' })
       await user.click(screen.getByRole('button', { name: 'Edit' }))
       const dialog = await findDialog('Edit Advait Sinha')
-      expect(dialog.getByText(/Came back after all\? Use Mark as coming again on their profile/)).toBeInTheDocument()
+      expect(
+        dialog.getByText(/Came back after all\? Use Mark as coming again on their profile/),
+      ).toBeInTheDocument()
       await user.click(dialog.getByLabelText(/^Left in month:/))
       await screen.findByRole('button', { name: 'July 2026' })
       expect(screen.queryByRole('button', { name: 'Still coming' })).not.toBeInTheDocument()
