@@ -3,6 +3,9 @@
 The engine is created lazily and cached per database URL, so tests that point `SCRAPPY_HOME` at
 a temporary folder get their own engine. Every connection turns on SQLite foreign keys, which
 are off by default and are needed for `ON DELETE CASCADE`.
+
+Never run migrations through this engine: rebuilding a table with foreign keys on would
+cascade-delete its children. Migrations use their own engine (`app/migrations/env.py`).
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app import config
 
 _engines: dict[str, Engine] = {}
+_factories: dict[str, sessionmaker[Session]] = {}
 _lock = threading.Lock()
 
 
@@ -50,6 +54,19 @@ def dispose_engines() -> None:
         for engine in _engines.values():
             engine.dispose()
         _engines.clear()
+        _factories.clear()
+
+
+def session_factory() -> sessionmaker[Session]:
+    """The (cached) session factory for the current database."""
+    url = config.db_url()
+    with _lock:
+        factory = _factories.get(url)
+    if factory is None:
+        factory = sessionmaker(bind=get_engine(), expire_on_commit=False)
+        with _lock:
+            factory = _factories.setdefault(url, factory)
+    return factory
 
 
 def get_session() -> Iterator[Session]:
@@ -57,7 +74,7 @@ def get_session() -> Iterator[Session]:
 
     Routers commit explicitly; anything left uncommitted is rolled back on close.
     """
-    session = sessionmaker(bind=get_engine(), expire_on_commit=False)()
+    session = session_factory()()
     try:
         yield session
     finally:

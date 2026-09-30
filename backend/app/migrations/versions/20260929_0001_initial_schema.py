@@ -2,7 +2,7 @@
 
 Revision ID: 0001
 Revises:
-Create Date: 2026-09-29 19:56:34.818058
+Create Date: 2026-09-29 20:22:32.083450
 
 """
 
@@ -43,11 +43,11 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.CheckConstraint(
-            "CAST(strftime('%d', joined_month) AS INTEGER) = 1",
+            "joined_month IS date(joined_month, 'start of month')",
             name=op.f("ck_students_joined_month_first_of_month"),
         ),
         sa.CheckConstraint(
-            "left_month IS NULL OR CAST(strftime('%d', left_month) AS INTEGER) = 1",
+            "left_month IS NULL OR left_month IS date(left_month, 'start of month')",
             name=op.f("ck_students_left_month_first_of_month"),
         ),
         sa.CheckConstraint(
@@ -73,7 +73,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.CheckConstraint(
-            "CAST(strftime('%d', effective_month) AS INTEGER) = 1",
+            "effective_month IS date(effective_month, 'start of month')",
             name=op.f("ck_fee_changes_effective_month_first_of_month"),
         ),
         sa.CheckConstraint("amount_paise >= 0", name=op.f("ck_fee_changes_amount_non_negative")),
@@ -114,13 +114,14 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.CheckConstraint(
-            "CAST(strftime('%d', for_month) AS INTEGER) = 1",
+            "for_month IS date(for_month, 'start of month')",
             name=op.f("ck_payments_for_month_first_of_month"),
         ),
         sa.CheckConstraint(
             "method IN ('upi', 'cash', 'other')", name=op.f("ck_payments_method_valid")
         ),
         sa.CheckConstraint("amount_paise > 0", name=op.f("ck_payments_amount_positive")),
+        sa.CheckConstraint("paid_on IS date(paid_on)", name=op.f("ck_payments_paid_on_valid_date")),
         sa.ForeignKeyConstraint(
             ["student_id"],
             ["students.id"],

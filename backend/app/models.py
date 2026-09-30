@@ -51,7 +51,13 @@ class PaymentMethod(enum.StrEnum):
 
 
 def _first_of_month(column: str) -> str:
-    return f"CAST(strftime('%d', {column}) AS INTEGER) = 1"
+    # `IS` (not `=`) so a value SQLite can't parse as a date (date() -> NULL) fails the CHECK
+    # instead of passing it: rejects 'garbage', '2026-10', 20261001 and '2026-10-05'.
+    return f"{column} IS date({column}, 'start of month')"
+
+
+def _valid_date(column: str) -> str:
+    return f"{column} IS date({column})"
 
 
 class TimestampMixin:
@@ -157,6 +163,11 @@ class Payment(TimestampMixin, Base):
 
     student: Mapped[Student] = relationship(back_populates="payments")
 
+    @property
+    def student_name(self) -> str:
+        """So `PaymentRead.model_validate(payment)` works straight from an ORM row."""
+        return self.student.name
+
     __table_args__ = (
         CheckConstraint(
             "method IN ({})".format(", ".join(f"'{m.value}'" for m in PaymentMethod)),
@@ -164,6 +175,7 @@ class Payment(TimestampMixin, Base):
         ),
         CheckConstraint("amount_paise > 0", name="amount_positive"),
         CheckConstraint(_first_of_month("for_month"), name="for_month_first_of_month"),
+        CheckConstraint(_valid_date("paid_on"), name="paid_on_valid_date"),
         Index("ix_payments_student_id_for_month", "student_id", "for_month"),
         Index("ix_payments_for_month", "for_month"),
         Index("ix_payments_paid_on", "paid_on"),
