@@ -168,10 +168,11 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 | `StudentReturn` (request) | `from_month`, `monthly_fee_paise` (optional) |
 | `UnassignedPaymentRead` | `id`, `student_text`, `phone`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `source`, `created_at`, `suggested_student_ids` (same name or phone first, then whoever the Students search finds for the name as written; at most 5) |
 | `UnassignedAssign` (request) | `student_id` |
-| `ImportPreview` | `filename`, `sheets` (read), `ignored_sheets`, `hidden_sheets`, `students[]` (`ImportStudentPreview`), `payments[]` (`ImportPaymentPreview`), `student_counts` and `payment_counts` (rows by status, all of them), `all_rows_shown` (false when rows that need no choice were only counted), `fee_changes` (fee-history rows restored with the new students), `current_month`. Every `similar`, `needs_student`, `follows_student` and `possible_duplicate` row is listed; of each other status the first 100 (problems: 1,000) |
+| `ImportPreview` | `filename`, `sheets` (read), `ignored_sheets`, `hidden_sheets`, `students[]` (`ImportStudentPreview`), `payments[]` (`ImportPaymentPreview`), `student_counts` and `payment_counts` (rows by status, all of them), `all_rows_shown` (false when rows that need no choice were only counted), `fee_changes` (fee-history rows restored with the new students), `current_month`,
+`file_sha256` (of the file read, for Add). Every `similar`, `needs_student`, `follows_student` and `possible_duplicate` row is listed; of each other status the first 100 (problems: 1,000) |
 | `ImportStudentPreview` | `row`, `sheet`, `name`, `phone`, `monthly_fee_paise`, `joined_month`, `status`, `reason` (plain words), `student_id` (the student already here it is, or looks like), `add_by_default` (a `similar` row added unless skipped) |
 | `ImportPaymentPreview` | `row`, `sheet`, `student_text`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `status`, `reason`, `student_id` (an existing student it goes to), `student_row` (a student in the same file it goes to), `candidate_ids` (who it may be) |
-| `ImportCommit` (request) | `file` (the .xlsx, base64), `filename`, `students[]` (`{row, add}`: `add: true` adds a `similar` row, `false` skips any row), `payments[]` (`{sheet, row, choice, student_id?}`). Rows not mentioned do what their status says; rows that aren't in the file are ignored |
+| `ImportCommit` (request) | `file` (the .xlsx, base64), `file_sha256` (the preview's), `filename`, `students[]` (`{row, add}`: `add: true` adds a `similar` row, `false` skips any row), `payments[]` (`{sheet, row, choice, student_id?}`). Rows not mentioned do what their status says; rows that aren't in the file are ignored |
 | `ImportResult` | `students_added`, `fee_changes_added`, `payments_added`, `unassigned_added`, `skipped` (rows sent but not added), `backup_file` (the `records-pre-import-…` file, or `null` when nothing was added) |
 | `HealthResponse` | `app`, `version`, `status` |
 
@@ -372,13 +373,19 @@ same phone as an earlier row of the file only (siblings), which is added unless 
 (`add_by_default`). Otherwise `new`. Nothing already here is ever changed.
 
 **Student IDs.** Rows of a Download everything file carry the student's `uid`. A student here
-with that uid *is* that row (`exists`), even if their name or phone has changed since the file
-was made (the reason says so), in this app or one the file was restored into. The database's
+with that uid is that row (`exists`) only if the row's name is theirs and its phone, where both
+have one, agrees: in this app or one the file was restored into. Otherwise (a row copied in
+Excel with a new name typed over it, a crafted row, or a phone changed since) the row is
+`similar` to them: *Skip*, or *Add as new*, which gives the new student a uid of their own. The
+same ID on two rows of the file with different names is handled the same way. The database's
 own ids are never used, so a restore where they came out different changes nothing. Two rows
 with different IDs are different people, so rows are never compared with each other (two
-*Priya S* with no phone, or siblings sharing a phone, stay apart); the same ID twice is the same
-person. A row whose ID nobody here has is matched by name and phone as usual, each student here
-being one ID'd row at most. Payments and fee history link to their student by ID.
+*Priya S* with no phone, or siblings sharing a phone, stay apart). A row whose ID nobody here has
+is matched by name and phone as usual, each student here being one ID'd row at most. Payments
+and fee history link to their student by ID, but a payment follows its ID only when its own
+name (and phone) agree with that student's row; if not, it `needs_student`, and nothing is ever
+added to a student on the strength of an ID alone. Uids are given with one `UPDATE ... WHERE uid
+IS NULL`, so two downloads at the same moment can't give a student two.
 
 **Payments** go to the student named: through the file's Student ID first (a Download
 everything file), else by name and phone among the students here and the `new`/`similar` ones in
@@ -405,8 +412,12 @@ exactly, months away included; it must start at the joined month, have one fee a
 fee for a month away (else the student is a problem). An existing student's fee history is left
 alone. Without one, a new student gets their *Monthly fee* from their joined month.
 
-**Adding** (`POST /import/commit`) never trusts the preview: the browser sends the file again
-(base64) with only the choices the owner made, and the server takes the write lock, reads the
+**Adding** (`POST /import/commit`) never trusts the preview: the browser sends the very bytes it
+previewed (read once, never from disk again) as base64, with the preview's `file_sha256` and only
+the choices the owner made. A body over 8 MB is refused before it's read (`app/limits.py`); a
+file whose SHA-256 isn't the preview's is a 422 ("The file changed since you previewed it"); a
+choice for a row or sheet that isn't in the file is a 422; and no 422 from this endpoint echoes
+what was sent. Then the server takes the write lock, reads the
 file and the records again, re-checks every row, re-classifies, applies the choices (a choice
 can't add an `exists` or `problem` row; a chosen student who no longer exists means *keep as
 unassigned*), re-checks duplicates, takes the `pre-import` backup (a failed backup is a 422 and

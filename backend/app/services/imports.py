@@ -33,6 +33,7 @@ from __future__ import annotations
 import base64
 import binascii
 import datetime as dt
+import hashlib
 import re
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
@@ -269,6 +270,14 @@ class StudentPlan:
     # Students already here it is, or may be: their payments are checked for duplicates of its
     # payments before any of them is kept as unassigned.
     look_alikes: list[int] = field(default_factory=list)
+    unlinked: bool = False  # its Student ID belongs to someone else: payments don't follow it
+
+
+def _agrees(name: str, phone: str | None, key: tuple[str, ...], digits: str) -> bool:
+    """Whether a row (`key`, `digits`) is the person called `name`: the same name, and the same
+    phone where both have one."""
+    theirs = phone_digits(phone)
+    return name_key(name) == key and (not digits or not theirs or theirs == digits)
 
 
 def _different_people(a: ImportStudent, b: ImportStudent) -> bool:
@@ -291,6 +300,7 @@ def classify_students(
     in_file: PeopleIndex[int] = PeopleIndex()  # earlier rows, by row number
     by_row: dict[int, StudentPlan] = {}
     claimed: dict[int, int] = {}  # student here -> the row (with a Student ID) that is them
+    unlink: set[int] = set()  # rows whose Student ID isn't theirs: their payments don't follow it
     every_row_has_an_id = True  # so far: then rows are only compared with what's here
 
     def add(plan: StudentPlan) -> None:
@@ -329,34 +339,53 @@ def classify_students(
         every_row_has_an_id = every_row_has_an_id and bool(data.ref)
         key, digits = name_key(data.name), phone_digits(data.phone)
 
-        # The same Student ID twice in one file: the same person.
+        # The same Student ID twice in one file: the same person, if it's the same name (and a
+        # phone, where both have one, agrees). A copied row with a new name typed over it is
+        # someone else: never merged into the first.
         if data.ref and data.ref in by_ref:
             first = by_ref[data.ref]
-            add(
-                StudentPlan(
-                    data,
-                    ImportStudentStatus.exists,
-                    f"Same Student ID as row {first.data.row} in this file",
-                    student_id=first.student_id,
-                    same_as=first.same_as or first.data.row,
+            if _agrees(first.data.name, first.data.phone, key, digits):
+                add(
+                    StudentPlan(
+                        data,
+                        ImportStudentStatus.exists,
+                        f"Same Student ID as row {first.data.row} in this file",
+                        student_id=first.student_id,
+                        same_as=first.same_as or first.data.row,
+                    )
                 )
-            )
+            else:
+                similar(
+                    data,
+                    f"Has the same Student ID as {first.data.name} (row {first.data.row}), but a "
+                    "different name or phone: a copied row?",
+                )
+                unlink.add(data.row)
             continue
 
-        # Their uid: the same student, even if their name or phone has changed since.
+        # Their uid: the student here who has it, if the name agrees (and the phone, where both
+        # have one). Otherwise the row isn't them (a copied row with a new name, say): it only
+        # looks like them, and is never added onto them.
         record = known.by_uid.get(data.ref) if data.ref else None
         if record is not None and record.id not in claimed:
-            claimed[record.id] = data.row
-            unchanged = name_key(record.name) == key and phone_digits(record.phone) == digits
-            add(
-                StudentPlan(
-                    data,
-                    ImportStudentStatus.exists,
-                    f"Already here: {_describe(record)}"
-                    + ("" if unchanged else " (changed since this file was downloaded)"),
-                    student_id=record.id,
+            if _agrees(record.name, record.phone, key, digits):
+                claimed[record.id] = data.row
+                add(
+                    StudentPlan(
+                        data,
+                        ImportStudentStatus.exists,
+                        f"Already here: {_describe(record)}",
+                        student_id=record.id,
+                    )
                 )
-            )
+            else:
+                similar(
+                    data,
+                    f"Has the Student ID of {_describe(record)}, but a different name or phone: "
+                    "a copied row, or has their name or phone changed?",
+                    [record],
+                )
+                unlink.add(data.row)
             continue
 
         same_name = [known.students[p.ident] for p in known.people.same_name(key)]
@@ -472,6 +501,8 @@ def classify_students(
             )
             continue
         add(StudentPlan(data, ImportStudentStatus.new))
+    for plan in plans:
+        plan.unlinked = plan.data.row in unlink
     return plans
 
 
@@ -524,7 +555,10 @@ def classify_payments(
     Given to a student automatically only when the name matches (with the same phone, or where
     one of them has no phone), or when the row has only a phone number and it's theirs. The
     same phone under a different name, or more than one match, needs the owner's choice."""
-    by_ref = {p.data.ref: p for p in students if p.data.ref and p.same_as is None}
+    by_ref: dict[str, StudentPlan] = {}
+    for p in students:  # the first row with each Student ID (a copied row doesn't take it)
+        if p.data.ref and p.same_as is None and p.data.ref not in by_ref and not p.unlinked:
+            by_ref[p.data.ref] = p
     by_row = {p.data.row: p for p in students}
     in_file: PeopleIndex[int] = PeopleIndex(
         Person(p.data.row, p.data.name, p.data.phone)
@@ -565,9 +599,28 @@ def classify_payments(
             plans.append(PaymentPlan(data, ImportPaymentStatus.unassigned, by_id=True))
             continue
         if data.student_ref and data.student_ref in by_ref:
-            linked = to_file_student(data, by_ref[data.student_ref], by_id=True)
-            if linked is not None:
-                plans.append(linked)
+            student = by_ref[data.student_ref]
+            text_ = data.student_text
+            if _agrees(student.data.name, student.data.phone, text_key(text_),
+                       text_digits(text_, data.phone)):  # fmt: skip
+                linked = to_file_student(data, student, by_id=True)
+                if linked is not None:
+                    plans.append(linked)
+                    continue
+            else:
+                # The ID is someone else's (a copied row?): never follow it on trust.
+                related = student.look_alikes
+                offered = list(dict.fromkeys([*related, *suggest(text_key(text_))]))[:6]
+                plans.append(
+                    PaymentPlan(
+                        data,
+                        ImportPaymentStatus.needs_student,
+                        f"Its Student ID is {student.data.name}'s (row {student.data.row}), but "
+                        f"the name is “{text_}”. Choose who paid, or keep it as unassigned",
+                        candidate_ids=_by_name(offered, known),
+                        related_ids=list(related),
+                    )
+                )
                 continue
 
         text = data.student_text
@@ -1039,6 +1092,7 @@ def preview(
             len(p.data.fees or ()) for p in plan.students if p.status is ImportStudentStatus.new
         ),
         current_month=format_month(current_month),
+        file_sha256=hashlib.sha256(data).hexdigest(),
     )
 
 
@@ -1082,11 +1136,24 @@ def commit(
     backup is taken first (only if anything is to be added). Nothing already here is
     changed."""
     data = decode_file(body.file)
+    if hashlib.sha256(data).hexdigest() != body.file_sha256:
+        raise unprocessable(
+            "The file changed since you previewed it. Please upload it again.",
+            field="file_sha256",
+        )
     lock_for_writing(session)
     plan = _plan(session, data, today, current_month)
     known = plan.known
     student_choice = {d.row: d.add for d in body.students}
     payment_choice = {(d.sheet, d.row): d for d in body.payments}
+    student_rows = {p.data.row for p in plan.students} | {r.row for r in plan.parsed.students}
+    payment_rows = {(p.data.sheet, p.data.row) for p in plan.payments}
+    payment_rows |= {(r.sheet, r.row) for r in plan.parsed.payments}
+    if not set(student_choice) <= student_rows or not set(payment_choice) <= payment_rows:
+        raise unprocessable(
+            "A choice was for a row that isn't in this file. Please upload it again.",
+            field="students" if not set(student_choice) <= student_rows else "payments",
+        )
 
     added_rows: set[int] = set()
     for p in plan.students:
@@ -1148,7 +1215,8 @@ def commit(
         if d.row not in added_rows:
             continue
         # A restored student keeps their uid, so the same file finds them again later.
-        uid = d.ref if d.ref and _UID.match(d.ref) and d.ref not in taken else None
+        fresh = d.ref and _UID.match(d.ref) and d.ref not in taken and not p.unlinked
+        uid = d.ref if fresh else None  # a copied row added as new gets a uid of its own
         if uid:
             taken.add(uid)
         student = Student(

@@ -1145,6 +1145,10 @@ class ImportPreview(_ReadModel):
         ge=0, description="Fee-history rows that come with the new students (restored exactly)."
     )
     current_month: Month
+    file_sha256: str = Field(
+        description="The SHA-256 of the file previewed (hex). Add sends it back: the file sent "
+        "with Add must be this very file."
+    )
 
 
 class ImportStudentDecision(_Model):
@@ -1175,6 +1179,11 @@ class ImportCommit(_Model):
     file: str = Field(
         max_length=MAX_UPLOAD_BASE64,
         description="The .xlsx file, base64-encoded (at most 5 MB before encoding).",
+    )
+    file_sha256: str = Field(
+        pattern=r"^[0-9a-f]{64}$",
+        description="The preview's `file_sha256`: Add is refused if the file isn't the one "
+        "previewed.",
     )
     filename: ShortText = None
     students: list[ImportStudentDecision] = Field(default=[], max_length=MAX_IMPORT_ROWS)

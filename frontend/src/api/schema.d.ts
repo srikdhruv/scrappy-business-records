@@ -766,6 +766,11 @@ export interface components {
              * @description The .xlsx file, base64-encoded (at most 5 MB before encoding).
              */
             file: string;
+            /**
+             * File Sha256
+             * @description The preview's `file_sha256`: Add is refused if the file isn't the one previewed.
+             */
+            file_sha256: string;
             /** Filename */
             filename?: string | null;
             /**
@@ -905,6 +910,11 @@ export interface components {
              * @example 2026-10
              */
             current_month: string;
+            /**
+             * File Sha256
+             * @description The SHA-256 of the file previewed (hex). Add sends it back: the file sent with Add must be this very file.
+             */
+            file_sha256: string;
         };
         /** ImportResult */
         ImportResult: {

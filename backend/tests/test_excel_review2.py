@@ -75,8 +75,11 @@ def test_an_older_download_after_a_phone_change_adds_nothing(api: TestClient) ->
 
     shown = preview(api, old)
     [row] = shown["students"]
-    assert row["status"] == "exists"
-    assert row["reason"].endswith("(changed since this file was downloaded)")
+    # The phone in the file isn't his any more: he only looks like the row, and she chooses.
+    assert row["status"] == "similar"
+    assert row["reason"].startswith("Has the Student ID of Kabir Mehta (90000 00099)")
+    # His payment in the file is his payment here: not added again, not kept as unassigned.
+    assert {p["status"] for p in shown["payments"]} == {"duplicate"}
     assert commit(api, shown)["backup_file"] is None  # nothing to add
 
     # The same without Student IDs (a list typed by hand): the payment is still recognised.

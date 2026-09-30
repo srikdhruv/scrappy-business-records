@@ -89,6 +89,7 @@ function thePreview(): Listed {
     hidden_sheets: [],
     fee_changes: 0,
     current_month: '2026-10',
+    file_sha256: 'ab'.repeat(32),
     students: [
       student(2, 'Ishaan Kapoor', 'new'),
       student(3, 'Ananya Rao', 'exists', {
@@ -209,6 +210,7 @@ describe('Upload Excel', () => {
     expect(sent!.filename).toBe('october.xlsx')
     // The file itself goes again (the server reads it once more), with only her choices.
     expect(atob(sent!.file)).toBe('PK fake xlsx')
+    expect(sent!.file_sha256).toBe('ab'.repeat(32)) // the preview's: this very file
     expect(sent!.students).toEqual([{ row: 4, add: true }])
     expect(sent!.payments).toEqual([
       { sheet: 'Payments', row: 4, choice: 'student', student_id: idOf('Kabir Mehta') },

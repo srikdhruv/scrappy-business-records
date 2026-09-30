@@ -353,17 +353,23 @@ export function useDeleteUnassigned() {
 
 // ---- Excel upload -------------------------------------------------------------------------------
 
+/** A file the owner chose, read once: Add sends these very bytes, never the file again. */
+export interface ChosenFile {
+  name: string
+  bytes: ArrayBuffer
+}
+
 export const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 /** Read an Excel file and say what adding it would do. Saves nothing. */
 export function usePreviewImport() {
   return useMutation({
-    mutationFn: async (file: File): Promise<ImportPreview> =>
+    mutationFn: async (file: ChosenFile): Promise<ImportPreview> =>
       unwrap(
         await api.POST('/api/import/preview', {
           params: { query: { filename: file.name } },
           // The file itself is the body, as it is (not JSON).
-          body: (await file.arrayBuffer()) as unknown as string,
+          body: file.bytes as unknown as string,
           bodySerializer: (body: unknown) => body as BodyInit,
           headers: { 'Content-Type': XLSX_TYPE },
         }),

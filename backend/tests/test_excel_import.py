@@ -57,6 +57,7 @@ def commit_body(
     sheets = {p["row"]: p["sheet"] for p in shown["payments"]}
     return {
         "file": base64.b64encode(shown["_file"]).decode(),
+        "file_sha256": shown["file_sha256"],
         "filename": shown["filename"],
         "students": [{"row": row, "add": add} for row, add in (students or {}).items()],
         "payments": [
@@ -390,11 +391,10 @@ def test_commit_never_trusts_the_client(api: TestClient) -> None:
     shown = preview(api, data)
     body = commit_body(
         shown,
-        students={2: True, 3: True, 99: True},
+        students={2: True, 3: True},
         payments={
             2: {"choice": "student", "student_id": 1},
             3: {"choice": "student", "student_id": 999},  # no such student
-            98: {"choice": "add"},
         },
     )
     response = api.post("/api/import/commit", json=body)
@@ -410,6 +410,9 @@ def test_commit_never_trusts_the_client(api: TestClient) -> None:
         {**body, "file": "not base64!"},
         {**body, "file": base64.b64encode(b"Name,Fee").decode()},
         {**body, "students": [{"row": 2, "add": True, "status": "new"}]},
+        {**body, "students": [{"row": 99, "add": True}]},  # no such row in the file
+        {**body, "payments": [{"sheet": "Other", "row": 2, "choice": "add"}]},  # nor sheet
+        {**body, "file_sha256": "0" * 64},  # not the file previewed
         {**body, "payments": [{"sheet": "Payments", "row": 2, "choice": "student"}]},
         {key: value for key, value in body.items() if key != "file"},
     ):

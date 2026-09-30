@@ -91,6 +91,7 @@ describe('the upload summary', () => {
         student_counts: {},
         payment_counts: {},
         all_rows_shown: true,
+        file_sha256: '',
         fee_changes: 0,
         current_month: '2026-10',
         students: [],

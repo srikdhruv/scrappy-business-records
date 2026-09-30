@@ -1471,7 +1471,7 @@ row. **Nothing is saved yet.**
 |---|---|---|---|
 | **New** | Green | Nobody like them is in the app yet | Added |
 | **Already exists** | Grey | Someone with the same name and phone is already in the app (or the same name, and neither has a phone), or it repeats an earlier row of the file. It says who: *"Already here: Ananya Rao (90000 00001)"* | Skipped. Nothing about the student already here is changed |
-| **Looks similar** | Amber | The same name but a different phone, the same phone but a different name, a name a letter or two apart (*Ananyaa Rao* and *Ananya Rao*) or shortened (*Ananya R*), as someone already here or an earlier row of the file; or more than one student here has this name and phone (the app never picks one for you); or an earlier row has the same name and neither has a phone | You choose: **Skip** (already chosen for you) or **Add as new**. When it's only the same phone as an earlier row of the file (*"perhaps a brother or sister"*), **Add as new** is chosen for you |
+| **Looks similar** | Amber | The same name but a different phone, the same phone but a different name, a name a letter or two apart (*Ananyaa Rao* and *Ananya Rao*) or shortened (*Ananya R*), as someone already here or an earlier row of the file; or more than one student here has this name and phone (the app never picks one for you); or an earlier row has the same name and neither has a phone; or the row has someone's Student ID but another name or phone (a row copied in Excel with a new name typed in: **Add as new** makes them a new student, with an ID of their own) | You choose: **Skip** (already chosen for you) or **Add as new**. When it's only the same phone as an earlier row of the file (*"perhaps a brother or sister"*), **Add as new** is chosen for you |
 | **Problem** | Red | Something in the row can't be used. The reason says what, such as *"Monthly fee is missing"* or *"Joined month “13/2026” isn't a month"* | Skipped. Fix it in the file and upload it again: the rows already added then show as *Already exists* |
 
 **…and for a payment:**
@@ -1479,7 +1479,7 @@ row. **Nothing is saved yet.**
 | Label | Colour | Why | What happens |
 |---|---|---|---|
 | **Will be added** | Green | Its student was found (*To Ananya Rao*), or is a new student in the same file (*To Kiara Sethi (new, row 3)*) | Added |
-| **Needs a student** | Amber | No student has that name, more than one does, or it has someone's phone but a different name (*"Same phone as Kabir Mehta, but the name is “Sunil Mehta”"*: perhaps a parent). A payment only goes to a student by itself when the name matches, or when the row has just a phone number | You choose: **Keep as unassigned** (already chosen), **Skip**, or who paid: the likely students are listed first, and **Another student…** lets you search |
+| **Needs a student** | Amber | No student has that name, more than one does, it has someone's Student ID but a different name, or it has someone's phone but a different name (*"Same phone as Kabir Mehta, but the name is “Sunil Mehta”"*: perhaps a parent). A payment only goes to a student by itself when the name matches, or when the row has just a phone number | You choose: **Keep as unassigned** (already chosen), **Skip**, or who paid: the likely students are listed first, and **Another student…** lets you search |
 | **Goes with its student** | Amber | Its student is a *Looks similar* row in the same file | Added to them if you choose **Add as new** for that row; otherwise kept as unassigned |
 | **Unassigned** | Grey | From the *Unassigned payments* sheet of a **Download everything** file | Kept as unassigned (you can still pick a student) |
 | **Already exists** | Grey | That student already has exactly this payment (the same amount, day, month, method and note), or an earlier row of the file does | Skipped. Choose **Add anyway** if it really was paid twice (two instalments on one day) |
@@ -1577,6 +1577,8 @@ since, and adds nothing twice.
   with an amount or a payment method, or a date and no phone, is read as payments.
 - **An older download uploaded again** adds nothing that's already here, even if a phone number
   has changed since.
+- **Add adds exactly the file you saw.** If the file is changed (or saved again) after the
+  preview, the app notices and asks you to upload it again.
 - Only Excel workbooks (`.xlsx`). An old-style `.xls` file: open it in Excel, choose **File →
   Save As → Excel Workbook**, and upload that. Google Sheets: **File → Download → Microsoft
   Excel**.

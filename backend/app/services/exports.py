@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import datetime as dt
 import io
-import uuid
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -22,7 +21,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import PaymentMethod, Student, UnassignedPayment
@@ -334,14 +333,18 @@ def everything_workbook(session: Session, current_month: dt.date) -> bytes:
 
 
 def ensure_uids(session: Session) -> dict[int, str]:
-    """Every student's uid (see `Student.uid`), giving one to anyone who hasn't got one yet."""
-    rows = list(session.scalars(select(Student)))
-    missing = [s for s in rows if not s.uid]
-    for student in missing:
-        student.uid = uuid.uuid4().hex
-    if missing:
-        session.commit()
-    return {s.id: s.uid for s in rows if s.uid}
+    """Every student's uid (see `Student.uid`), giving one to anyone who hasn't got one yet.
+
+    One UPDATE that only fills empty uids: two downloads at the same moment can't give one
+    student two different uids (the second finds them filled, and changes nothing)."""
+    session.execute(
+        update(Student)
+        .where(Student.uid.is_(None))
+        .values(uid=func.lower(func.hex(func.randomblob(16))))
+        .execution_options(synchronize_session=False)
+    )
+    session.commit()
+    return {sid: uid for sid, uid in session.execute(select(Student.id, Student.uid))}
 
 
 # --------------------------------------------------------------------------- templates

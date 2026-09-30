@@ -8,7 +8,7 @@ import { FileSpreadsheetIcon, FileUpIcon, LoaderCircleIcon, TriangleAlertIcon } 
 import { useId, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
-import { useCommitImport, usePreviewImport, useStudents } from '@/api/queries'
+import { useCommitImport, usePreviewImport, useStudents, type ChosenFile } from '@/api/queries'
 import type {
   ExportTemplateKind,
   ImportPaymentDecision,
@@ -50,7 +50,7 @@ import {
   needsChoice,
   paymentKey,
   rowCount,
-  fileToBase64,
+  toBase64,
   studentAdded,
   summarize,
   summarySentence,
@@ -95,7 +95,9 @@ export function ExcelUploadDialog({
 }) {
   const previewImport = usePreviewImport()
   const commitImport = useCommitImport()
-  const [file, setFile] = useState<File | null>(null)
+  // The file as it was previewed: Add sends these bytes (and the preview's fingerprint of
+  // them), so it can only ever add the file she saw, even if it changes on disk meanwhile.
+  const [file, setFile] = useState<ChosenFile | null>(null)
   const [preview, setPreview] = useState<ImportPreview | null>(null)
   const [choices, setChoices] = useState<Choices>(emptyChoices)
   const [filter, setFilter] = useState<Filter>('all')
@@ -117,12 +119,19 @@ export function ExcelUploadDialog({
     if (!next) reset()
   }
 
-  const read = (chosen: File) => {
-    setFile(chosen)
+  const read = async (chosen: File) => {
     setError(null)
     setPreview(null)
     setChoices(emptyChoices())
-    previewImport.mutate(chosen, {
+    let picked: ChosenFile
+    try {
+      picked = { name: chosen.name, bytes: await chosen.arrayBuffer() }
+    } catch {
+      setError('Couldn’t open this file. Please choose it again.')
+      return
+    }
+    setFile(picked)
+    previewImport.mutate(picked, {
       onSuccess: setPreview,
       onError: (e) => setError(errorMessage(e, 'Couldn’t read this file. Please try again.')),
     })
@@ -136,7 +145,8 @@ export function ExcelUploadDialog({
       // The file goes again, with only the choices she made: the server reads it and checks
       // every row once more, so nothing from the preview is taken on trust.
       const result = await commitImport.mutateAsync({
-        file: await fileToBase64(file!),
+        file: toBase64(file!.bytes),
+        file_sha256: preview.file_sha256,
         filename: preview.filename,
         students: [...choices.students].map(([row, add]) => ({ row, add })),
         payments: preview.payments.flatMap((p): ImportPaymentDecision[] => {
@@ -192,7 +202,7 @@ export function ExcelUploadDialog({
             reading={previewImport.isPending}
             fileName={file?.name}
             error={error}
-            onFile={read}
+            onFile={(chosen) => void read(chosen)}
           />
         ) : (
           <PreviewBody

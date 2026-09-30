@@ -97,8 +97,8 @@ export function rowCount(counts: Record<string, number>): number {
 }
 
 /** The file as base64, as Add sends it (the server reads it again). */
-export async function fileToBase64(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer())
+export function toBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
   let binary = ''
   for (let i = 0; i < bytes.length; i += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))

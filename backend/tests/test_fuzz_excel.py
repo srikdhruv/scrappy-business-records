@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
+import hashlib
 import json
 from typing import Any
 
@@ -77,6 +78,7 @@ def test_no_500_from_any_spreadsheet(api: TestClient, book: list[Any]) -> None:
         # Adding whatever the preview offers never fails either.
         body = {
             "file": base64.b64encode(data).decode(),
+            "file_sha256": shown["file_sha256"],
             "students": [{"row": s["row"], "add": True} for s in shown["students"]],
             "payments": [{"sheet": p["sheet"], "row": p["row"], "choice": "add"}
                          for p in shown["payments"]],
@@ -95,12 +97,15 @@ def test_no_500_from_raw_bytes(api: TestClient, raw: bytes) -> None:
     assert response.status_code < 500  # 400 or 422: not JSON, or not the right shape
 
 
-FILE = base64.b64encode(
-    xlsx(("Payments", [["Student", "Amount", "Paid on"], ["Kabir Mehta", 1500, "2026-05-02"]]))
-).decode()
+FILE_BYTES = xlsx(
+    ("Payments", [["Student", "Amount", "Paid on"], ["Kabir Mehta", 1500, "2026-05-02"]])
+)
+FILE = base64.b64encode(FILE_BYTES).decode()
+FILE_SHA = hashlib.sha256(FILE_BYTES).hexdigest()
 decisions = st.fixed_dictionaries(
     {
         "file": st.one_of(st.just(FILE), st.text(max_size=20), scalars),
+        "file_sha256": st.one_of(st.just(FILE_SHA), st.text(max_size=70), scalars),
         "students": st.lists(
             st.fixed_dictionaries({"row": scalars, "add": scalars}), max_size=3
         ),
