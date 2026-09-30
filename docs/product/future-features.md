@@ -122,6 +122,8 @@ The owner hires instructors to take some batches and pays them.
 - **Hindi (and other languages)** in the UI.
 - **Phone access on the home Wi-Fi.** The server would bind to the LAN with a PIN, so the owner can
   check from their phone.
+- **Business name setting:** the owner types in their school's name, and the app shows it in the
+  header and window title. It is stored in the local database, so it never goes in the repo.
 - A **signed `.exe` installer** (MSIX or Inno Setup) with auto-update, replacing the PowerShell
   one-liner.
 - A dark mode, and a printable monthly summary.

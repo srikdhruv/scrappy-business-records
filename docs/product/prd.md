@@ -126,6 +126,11 @@ Underpayments show as **Partial** in the *Yet to pay* and *Backlog* sections.
 
 ## UX principles
 
+- **Look and feel: warm.** A cream background with marigold as the main colour and terracotta
+  as the accent, soft rounded cards, and a friendly but uncluttered layout. Status colours are
+  green for paid, amber for partial and a muted red for owed. Text contrast must meet WCAG AA.
+- **Name:** the app is called **Scrappy Records** everywhere (Desktop shortcut, window title,
+  header).
 - Large, readable type. Plain words: "Owes", "Paid", not "arrears".
 - ₹ in Indian grouping (₹1,50,000). Dates like "5 Oct 2026". Months like "October 2026".
 - Every destructive action asks for confirmation and says what will happen.
