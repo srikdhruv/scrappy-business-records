@@ -2,10 +2,11 @@
 
 ## Problem
 
-The primary user runs a dance school. She teaches (and hires instructors to teach) several
-batches across several locations. Students pay a monthly fee, mostly over UPI. Today she tracks
-"who has paid for which month" by sending WhatsApp messages to herself. It is hard to answer
-simple questions:
+The target user runs a small class-based business, such as a dance, music or tuition school. They
+teach, and sometimes hire instructors to teach, several batches across several locations.
+Students pay a monthly fee, mostly over UPI. Today, "who has paid for which month" is tracked in
+ad-hoc notes, such as messages sent to oneself on WhatsApp. That makes simple questions hard to
+answer:
 
 - Who hasn't paid this month?
 - Who still owes for earlier months, and how much?
@@ -13,18 +14,18 @@ simple questions:
 
 ## Goal
 
-A private app on her own Windows laptop that answers those questions at a glance, and where
-recording a payment takes seconds.
+A private app on the owner's own Windows laptop that answers those questions at a glance, and
+where recording a payment takes seconds.
 
-**Success looks like:** she stops using WhatsApp-to-self for fee tracking, and at any moment she
+**Success looks like:** the owner stops keeping ad-hoc notes for fee tracking, and at any moment
 can open the app and see who is left to pay.
 
 ## Users
 
-- **Primary:** the business owner. She is non-technical, uses a Windows laptop, and is
-  comfortable with a browser and WhatsApp. She cannot be expected to use a terminal beyond
+- **Primary:** the business owner. They are non-technical, use a Windows laptop, and are
+  comfortable with a browser and WhatsApp. They cannot be expected to use a terminal beyond
   pasting one line once.
-- **Secondary:** a family member who installs and updates it for her.
+- **Secondary:** a family member or helper who installs and updates it for them.
 
 ## Scope
 

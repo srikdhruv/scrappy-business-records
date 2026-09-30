@@ -38,7 +38,7 @@ taught by a hired instructor), and each batch has several students.
 
 Most payments arrive over **UPI**. Instead of typing each one:
 
-1. The owner downloads a statement from her bank as Excel or CSV and drops it into the app.
+1. The owner downloads a statement from their bank as Excel or CSV and drops it into the app.
 2. The parser detects the header row and the date, narration, credit and reference columns, using
    **per-bank profiles** (SBI, HDFC, ICICI, Axis, Kotak…). It keeps credits only.
 3. It parses the UPI narration (e.g. `UPI/CR/412345678901/RAMESH KUMAR/SBIN/ramesh@okaxis/…`) to
@@ -50,26 +50,26 @@ Most payments arrive over **UPI**. Instead of typing each one:
      match.
    - A fuzzy name match (rapidfuzz) with an amount equal to the expected fee is a medium match,
      confirmed with one click.
-   - Anything else goes to a **"Who is this?"** queue. When she picks a student, the alias is
+   - Anything else goes to a **"Who is this?"** queue. When the owner picks a student, the alias is
      remembered, so next month it matches automatically.
 6. **Allocation:**
    - The default is the student's oldest unpaid month.
    - A payment worth several months' fees splits across them.
    - She can override any allocation.
-7. **Preview before saving.** Nothing is recorded until she confirms.
+7. **Preview before saving.** Nothing is recorded until the owner confirms.
 
 This requires a `payment_allocations` table (a payment can cover several months) and
 `payer_aliases`.
 
 ## 4. Automatic bank data (research)
 
-"Automatic bank data" means payments reach the app without her downloading a statement. This
-needs research before any build, with her explicit consent.
+"Automatic bank data" means payments reach the app without the owner downloading a statement. This
+needs research before any build, with the owner's explicit consent.
 
-- **Browser automation** of her net-banking login (Playwright), with credentials in Windows
+- **Browser automation** of the owner's net-banking login (Playwright), with credentials in Windows
   Credential Manager (`keyring`).
   - Risks: OTP or 2FA on every login, bank terms of service, and fragile page selectors.
-  - Probably limited to "log in, and she types the OTP".
+  - Probably limited to "log in, and the owner types the OTP".
 - **Emailed statements or alerts.** Many banks email monthly statements (often password-protected
   PDFs) or per-transaction alerts. We could parse them from a mailbox via IMAP or the Gmail API.
 - **UPI app exports.** GPay, PhonePe and Paytm business exports, if available.
@@ -93,7 +93,7 @@ In the MVP, reminders go to the owner only. If wanted later:
   Free, and needs no account setup.
 - **Fully automatic WhatsApp** via the WhatsApp Business Cloud API. Needs a Meta business account,
   approved templates and per-message cost, plus a small always-on hosted component.
-- A reminder log per student, so she doesn't send twice.
+- A reminder log per student, so the owner doesn't send twice.
 
 ## 7. Attendance and analytics
 
@@ -108,7 +108,7 @@ The owner hires instructors to take some batches and pays them.
 
 - `instructors`: name, phone, pay model (per class, per month, or a percentage of fees).
 - Which batches each instructor takes.
-- What she owes each instructor per month, what has been paid, and outstanding amounts.
+- What the owner owes each instructor per month, what has been paid, and outstanding amounts.
 - Profit per batch or location: fees collected minus instructor cost.
 
 ## 9. Convenience and polish
@@ -120,8 +120,8 @@ The owner hires instructors to take some batches and pays them.
 - **Import existing roster** from a spreadsheet (name, phone, fee, batch).
 - **Undo / recently deleted** instead of hard delete.
 - **Hindi (and other languages)** in the UI.
-- **Phone access on the home Wi-Fi.** The server would bind to the LAN with a PIN, so she can
-  check from her phone.
+- **Phone access on the home Wi-Fi.** The server would bind to the LAN with a PIN, so the owner can
+  check from their phone.
 - A **signed `.exe` installer** (MSIX or Inno Setup) with auto-update, replacing the PowerShell
   one-liner.
 - A dark mode, and a printable monthly summary.

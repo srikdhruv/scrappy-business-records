@@ -49,7 +49,7 @@ run from disk.
 - **Install uv at install time and let it fetch Python and the packages.**
   - For: a smaller download.
   - Against: it depends on four online services (astral.sh, GitHub, the Python mirror, PyPI) and
-    resolves packages on her machine. There are more ways to fail, and none she could debug.
+    resolves packages on the user's machine. There are more ways to fail, and none the user could debug.
 - **`git clone`, then a script.** Git isn't on stock Windows, and a user-facing clone adds
   nothing.
 - **PyInstaller single `.exe`.** Slow startup (it unpacks to temp each run), frequent antivirus
@@ -61,7 +61,7 @@ run from disk.
 
 - Downloads are larger (about 40–60 MB), and we build once per platform (windows-x64 first, macOS
   arm64 as secondary).
-- What runs on her laptop is exactly the artifact CI tested. A Windows CI job installs the bundle
+- What runs on the user's laptop is exactly the artifact CI tested. A Windows CI job installs the bundle
   on a runner with no Python on its PATH and checks it.
 - The Start Menu entry and an Edge `--app` window are deferred. The MVP has a Desktop shortcut
   only.
