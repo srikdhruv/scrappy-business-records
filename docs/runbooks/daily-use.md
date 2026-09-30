@@ -2,6 +2,9 @@
 
 Open the app by double-clicking **Scrappy Records** on your Desktop.
 
+This page is the short how-to. For every screen, button and word explained, with pictures and
+more everyday situations, see the [feature guide](../feature-guide.md).
+
 ## The Dashboard: who is left to pay?
 
 The first page shows **this month**. To look at another month, use the arrows next to the month
@@ -59,7 +62,9 @@ After that month they stop owing, and they move from the **Active** tab to the *
 the Students page. Until then their profile says "Leaving after …". Their history is kept.
 
 Changed your mind? Before that month, click **Mark as staying**. If they come back later, open
-their profile and click **Mark as coming again**.
+their profile and click **Mark as coming again**. The months while they were away then count as
+owed again; the [feature guide](../feature-guide.md#a-student-takes-a-month-off) shows how to
+clear them.
 
 ## Changing a student's fee
 
@@ -95,6 +100,6 @@ Close the browser tab and open **Scrappy Records** again from the Desktop. See
 
 Yes.
 - Everything stays on this laptop.
-- Once a day a copy is saved in `Documents\ScrappyRecords
-  Backups`. The last 30 days are kept.
+- Once a day a copy is saved in `Documents\ScrappyRecords Backups`. The last 30 days are
+  kept.
 - See [backups](backup-and-restore.md).

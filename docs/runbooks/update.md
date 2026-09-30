@@ -42,8 +42,9 @@ Run the install line from [install-mac.md](install-mac.md) again.
 
 ## Which version do I have?
 
-Open `http://127.0.0.1:8765/api/health` in the browser, or look at the bottom of the app's side
-menu. It's also in the `VERSION` file in the app folder.
+Look at the bottom of the app's side menu (*Version 0.1.0*; it's hidden when the browser window
+is very narrow, so widen it). Or open `http://127.0.0.1:8765/api/health` in the browser. It's
+also in the `VERSION` file in the app folder.
 
 ## Going back to an older version
 

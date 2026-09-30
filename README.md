@@ -31,6 +31,7 @@ To **update** later, repeat step 2 — your data is kept.
 
 More help: [Install on Windows](docs/runbooks/install-windows.md) ·
 [Using the app](docs/runbooks/daily-use.md) ·
+[Every screen explained](docs/feature-guide.md) ·
 [Backups](docs/runbooks/backup-and-restore.md) ·
 [Something's wrong](docs/runbooks/troubleshooting.md)
 
@@ -53,6 +54,7 @@ Windows).
 
 | Doc | What's in it |
 |---|---|
+| [Feature guide](docs/feature-guide.md) | Every screen, what it means and what you can do, with the code, API and tests behind each |
 | [Product requirements](docs/product/prd.md) | MVP scope, user stories, ledger rules |
 | [Future features](docs/product/future-features.md) | Everything deliberately left out of the MVP |
 | [Architecture](docs/architecture.md) | How the one-process stack works on the laptop |
