@@ -72,6 +72,10 @@ The database itself rejects bad rows, as a last line of defence behind the API's
 Indexes: `students(name)`, `payments(student_id, for_month)`, `payments(for_month)` and
 `payments(paid_on)`.
 
+Changes to these tables only ever **add** (new tables, or new columns that are nullable or have a
+default): nothing stored is dropped, renamed, retyped or rewritten by a migration. See
+[ADR 0004](adr/0004-data-is-never-lost.md).
+
 ## API (all under `/api`)
 
 FastAPI serves interactive docs at `/api/docs` and the schema at `/api/openapi.json`. The

@@ -18,6 +18,13 @@ version tag.
    ```
 4. The `release` workflow (`.github/workflows/release.yml`):
    - checks that the tag matches the version in `backend/pyproject.toml`, and stops if not;
+   - checks that **every earlier release has its saved-data sample** in
+     `backend/tests/fixtures/releases/` (step 8), and stops if not, naming the missing ones
+     (`scripts/ci/check_release_fixture.py`). The first time, that's `v0.1.0`'s sample, which
+     must be on `main` before `v0.1.1` can be released. Only `vMAJOR.MINOR.PATCH` tags are
+     releases: a tag like `v1.0.0-rc1` is refused with a message, and isn't counted as an
+     earlier release;
+   - checks that every migration only adds (`scripts/ci/check_migrations_only_add.py`);
    - runs the backend and frontend unit tests;
    - builds the UI once, and shares it with the next two jobs;
    - builds `scrappy-records-windows-x64.zip` on `windows-latest` and
@@ -45,6 +52,20 @@ version tag.
    result in its table.
 7. Update the owner's laptop: follow [update.md](update.md), or ask them to run the install line
    again. For the very first install, follow [install-windows.md](install-windows.md).
+8. **Save this release's data sample.** After releasing vX, run
+   `scripts/make_release_fixture.py vX` and commit it via a PR:
+   ```bash
+   git checkout main && git pull && git checkout -b chore/release-fixture-v0.2.0
+   python3 scripts/make_release_fixture.py v0.2.0
+   git add backend/tests/fixtures/releases/ && git commit -m "test: v0.2.0 release fixture"
+   ```
+   It checks the tag out into a temporary folder, fills a new database through *that*
+   release's own code (fictional data), and writes `v0.2.0.db` (well under 200 KB) and
+   `v0.2.0.json` (every row it holds). From then on, every PR upgrades it with the new code and
+   checks nothing was lost or changed ([ADR 0004](../adr/0004-data-is-never-lost.md)). The next
+   release can't be published until it's on `main`. If this release added a new kind of stored
+   data, first add it to `scripts/release_fixture_populate.py` (guarded, so older tags still
+   work), so the sample covers it.
 
 If the tests, a bundle or a smoke test fail, nothing is published. If a check fails, the
 release stays (or goes back to being) a prerelease that users never get. Either way: fix the
@@ -104,3 +125,9 @@ before the update (see [backup-and-restore.md](backup-and-restore.md)).
 
 Branch from `main`, fix, open a PR, merge, bump the patch version and tag. There are no
 long-lived release branches.
+
+If a hotfix ever has to be cut from an older tag instead (say `v0.3.1` from `v0.3.0` while
+`main` is ahead), that branch doesn't have the saved-data samples committed after `v0.3.0`, and
+the release stops. Cherry-pick the commits that added them onto the hotfix branch before
+tagging; on `main`, `git log --oneline -- backend/tests/fixtures/releases/` lists them. Samples
+of releases newer than the hotfix aren't needed there.

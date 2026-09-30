@@ -31,8 +31,9 @@ If you changed the API, run `make gen-api` and commit the regenerated
 `frontend/src/api/schema.d.ts`. CI fails if it is out of date.
 
 If you changed the database models, add an Alembic migration (see
-[development runbook](docs/runbooks/development.md#database-migrations)). **Never edit a migration
-that has been released** — the user's laptop has already run it.
+[development runbook](docs/runbooks/development.md#database-migrations)). It may **only add**
+(principle 2 below): `python3 scripts/ci/check_migrations_only_add.py` checks it. **Never edit a
+migration that has been released** — the user's laptop has already run it.
 
 If your PR changes what the user sees or can do, update the
 [feature guide](docs/feature-guide.md) in the same PR (see below).
@@ -41,7 +42,10 @@ Checklist (the [PR template](.github/pull_request_template.md) has the same one)
 
 - [ ] `make fmt`, `make lint` and `make test` pass
 - [ ] `make gen-api` run and `frontend/src/api/schema.d.ts` committed, if the API changed
-- [ ] A migration added, if the database models changed (never edit a released one)
+- [ ] A migration added, if the database models changed (never edit a released one). It only
+      adds, with defaults, or the owner has explicitly approved the exception
+      ([ADR 0004](docs/adr/0004-data-is-never-lost.md))
+- [ ] Nothing the owner entered is rewritten: only computed values change
 - [ ] Feature guide (`docs/feature-guide.md`) updated, with new pictures if a screen changed
       noticeably, or this PR doesn't change what the user sees
 - [ ] Other docs updated if they no longer match (`daily-use.md`, the PRD, the data model)
@@ -74,8 +78,19 @@ must never describe something that isn't built, or miss something that is.
 
 1. **The user is non-technical.** Anything they have to do must be a double-click or a single
    pasted line. If a change adds a manual step for them, rethink it.
-2. **Their data is sacred.** Installs and updates never touch the data folder. Schema changes go
-   through migrations, and a backup is taken first.
+2. **Their data is never lost** ([ADR 0004](docs/adr/0004-data-is-never-lost.md)).
+   - Installs and updates never touch the data folder.
+   - Schema changes go through migrations that **only add** (new tables, new columns that are
+     nullable or have a default, indexes), and a backup is taken first. No dropping, renaming,
+     type changes, or SQL that deletes or updates rows; the *Data safety* CI check enforces it.
+   - Any exception needs the owner's explicit approval, a backup, and a tested migration that
+     keeps the data, marked in the migration with
+     `# data-safety: approved by owner — <reason>`.
+   - Computed rules (what's owed, statuses, the dashboard) may change. What the owner entered is
+     never rewritten by a new version.
+   - Every release's data must upgrade intact: `backend/tests/test_release_upgrades.py`
+     upgrades a sample database from every release. After releasing vX, run
+     `python3 scripts/make_release_fixture.py vX` and commit the result via a PR.
 3. **Local only.** The server binds to `127.0.0.1`. No telemetry, no external calls at runtime.
 4. **Thin MVP.** New ideas go into [future-features.md](docs/product/future-features.md) first.
 
