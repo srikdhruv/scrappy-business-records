@@ -204,7 +204,8 @@ because nothing is owed until the month comes:
 
 ![The Dashboard for October 2026: 'Looking ahead: October isn't due yet. Back to September 2026'. The boxes read Expected ₹42,200, Paid ahead ₹1,500 (4% of what's expected), Not due yet ₹40,700 (Due in October), Not paid ahead 23 of 24 (Nothing to follow up yet). The list is titled Not paid ahead yet, with grey Not due yet labels and amounts marked 'due'.](images/feature-guide/dashboard-future-month.png)
 
-- **Collected** becomes **Paid ahead**: money already paid for that month in advance.
+- **Collected** becomes **Paid ahead**: money already paid for that month in advance, up to
+  each student's fee (anything paid above a fee is *Paid extra*, not paid ahead).
 - **Still due** becomes **Not due yet**, in grey.
 - **Not fully paid** becomes **Not paid ahead**, with *"Nothing to follow up yet"*.
 - **Yet to pay** becomes **Not paid ahead yet**, with grey **Not due yet** labels (or teal
@@ -855,9 +856,9 @@ Under the headline:
 - small teal notes: **Paid ahead to Oct 2026** (every month up to then is paid in full;
   otherwise **Paid ahead ₹X**), and, if they owe, **Paid ₹500 extra in Jul 2026** (so you can
   match the extra money to the month that's missing);
-- one plain sentence: *"4 months not fully paid."*, *"Paid ₹500 more than was due."*,
-  *"Everything due is paid, and ahead to October 2026."* or *"Everything due so far has been
-  paid."*;
+- one plain sentence: *"4 months not fully paid."*, *"Paid ₹500 more than the fee."*,
+  *"Everything due is paid, and ahead to October 2026."* (a month with no fee in between
+  doesn't stop the count) or *"Everything due so far has been paid."*;
 - if they owe, an **Oldest unpaid** box (*June 2026 · ₹1,200 left*) with **Log payment**;
 - if some month was paid too much, a list of those months (*July 2026 · ₹2,500 paid for a
   ₹2,000 fee*), each with **Edit payment**, and *"If it was meant for another month, change that
@@ -867,7 +868,7 @@ Under the headline:
 - at the bottom, everything they've ever paid: *"₹8,400 paid in total, across 7 payments."*, or
   *"No payments yet."*
 
-<img src="images/feature-guide/profile-credit.png" alt="A teal Balance card: 'Credit ₹500', 'Paid ₹500 more than was due.', and a box '₹500 paid extra: July 2026 · ₹2,500 paid for a ₹2,000 fee' with an Edit payment button and 'If it was meant for another month, change that payment's month.'" width="320"> <img src="images/feature-guide/profile-paid-after-leaving.png" alt="A red Balance card for a student who left after May: 'Owes ₹2,500 (May)', a teal note 'Paid ₹2,500 extra in Jul 2026', an Oldest unpaid box 'May 2026 · ₹2,500 left' with Log payment, and '₹2,500 paid extra: ₹2,500 paid for Jul 2026, after they left — was it for May?' with Edit payment." width="320">
+<img src="images/feature-guide/profile-credit.png" alt="A teal Balance card: 'Credit ₹500', 'Paid ₹500 more than the fee.', and a box '₹500 paid extra: July 2026 · ₹2,500 paid for a ₹2,000 fee' with an Edit payment button and 'If it was meant for another month, change that payment's month.'" width="320"> <img src="images/feature-guide/profile-paid-after-leaving.png" alt="A red Balance card for a student who left after May: 'Owes ₹2,500 (May)', a teal note 'Paid ₹2,500 extra in Jul 2026', an Oldest unpaid box 'May 2026 · ₹2,500 left' with Log payment, and '₹2,500 paid extra: ₹2,500 paid for Jul 2026, after they left — was it for May?' with Edit payment." width="320">
 
 **The Details card:** **Monthly fee** (this month's, and the next one if it's already set:
 *₹1,800, then ₹2,000 from November 2026*, or *No fee until December 2026, then ₹1,000*),
@@ -878,11 +879,13 @@ fee has ever changed), **Class or batch**, **Phone**, **Parent or guardian** and
 
 ![The Details card for Kabir Mehta: Monthly fee ₹1,800, then ₹2,000 from November 2026, Joined October 2025 · member for 11 mo, then Fee history: ₹1,500 from Oct 2025, ₹1,800 from Apr 2026, and ₹2,000 from Nov 2026 (not started yet) with a red Remove button; then class, phone, parent and a note.](images/feature-guide/profile-details-fee-history.png)
 
-**Fee history** lists every fee and the month it starts, oldest first. *No fee* means ₹0 (a
-month off, or the months away before they came back). A fee that starts after this month is
-marked *(not started yet)*, with a **Remove** button, in case it was set by mistake or plans
-changed. Their first fee, and any fee that has already started, can't be removed; change those
-with **Edit**.
+**Fee history** lists every fee and the month it starts, oldest first. *No fee* is a ₹0 you
+set (a month off, or a free place). **Away (no fee)** is the months away before they came back,
+which the app writes and tidies up itself (if you change their left month, or they come back
+again). A fee that starts after this month is marked *(not started yet)*, with a **Remove**
+button, in case it was set by mistake or plans changed. Their first fee, and any fee that has
+already started, can't be removed, so past months never change by accident. To undo a month
+off that has already started, **Edit** and set their usual fee from that month.
 
 **Month by month** (*"What was due each month, and what came in."*): one row per month, newest
 first, from the month they joined to this month (and any later month they've paid ahead for).
@@ -961,19 +964,32 @@ by the heading is how many there are.
    Change it if they're coming back on a different fee.
 4. Read what will happen: the months away get **no fee**, so nothing is owed for them, and
    from the month they're back they owe that fee. If they had paid for a month while they were
-   away, it says that payment will show as paid extra.
+   away, it says that payment will show as paid extra. If you'd already set a month off for
+   later, it names it and keeps it: *"No fee in November 2026 was set earlier, and stays. If
+   that's wrong, remove it in Fee history afterwards."*
 5. Click **Mark as coming again**. You'll see *"Rohan Desai is coming again — From September
    2026. Nothing is owed for June–August 2026."* Clicking twice still does it once.
 
 <img src="images/feature-guide/come-back.png" alt="The box 'Mark Rohan Desai as coming again?': 'Rohan left after May 2026. Their payments and history are kept.', 'Which month are they back from? September 2026' and 'Monthly fee from then ₹2500', 'June–August 2026: no fee, so nothing is owed for the months away.', 'From September 2026 they'll owe ₹2,500 a month.', Cancel and Mark as coming again." width="480">
 
 Afterwards, *Month by month* shows the months away as **No fee** (grey), never as unpaid, and
-*Fee history* shows *No fee from Jun 2026* and their fee again from the month they're back:
+*Fee history* shows *Away (no fee) from Jun 2026* and their fee again from the month they're
+back:
 
 ![Rohan Desai's Month by month after coming back from September: September 2026 ₹2,500 Unpaid with Log payment; June, July and August 2026 with no fee and a grey No fee label; May 2026 back to October 2025 Paid.](images/feature-guide/profile-back-month-by-month.png)
 
 If you pick the month right after they left, nothing is skipped: every month counts, as if
-they never left (use this if they were marked as left by mistake).
+they never left (use this if they were marked as left by mistake). If a month off you set
+earlier is still to come, the box says so instead of "as if they never left".
+
+**They came back after all, but left later than you'd set?** Once their last month has passed,
+*Edit* only moves **Left in month** earlier. Instead: click **Mark as coming again** and pick
+the month right after the one they left (so nothing is skipped), then click **Mark as left**
+and choose their real last month.
+
+**Got the left month wrong after they came back?** Change **Left in month** (or use **Mark as
+left** again): the months away that don't fit the new left month are tidied away, and those
+months are owed again. Then mark them as coming again from the right month.
 
 If they come back in a later month, the profile's **Monthly fee** says so until then: *"No fee
 until December 2026, then ₹1,000"*, and the Students page shows *No fee* with *₹1,000 from Dec

@@ -135,8 +135,11 @@ These rules decide every number the app shows.
    after it, if any (rule 2), and the form says so ("… until April 2026, when ₹1,800 (already
    scheduled) starts"). A fee change for a month that already has one replaces it. A fee change
    that **hasn't started yet** (its month is after the current month) can be removed, after a
-   confirmation; the fee before it then carries on. A fee change that has started, and the
-   first fee (at `joined_month`), can never be removed.
+   confirmation; the fee before it then carries on. That includes a planned month off and an
+   *away* row for a return still to come. A fee change that has started (a month off already
+   under way included), and the first fee (at `joined_month`), can never be removed, so past
+   months never change by accident: to undo a month off that has started, set their usual fee
+   from that month with *Edit*.
 8. **Active or Left.** A student is **Active** until their left month has passed: they have no
    `left_month`, or `left_month ≥ current month`. After that they are **Left** (archived). So a
    student leaving after December shows as Active through December and as Left from January.
@@ -168,30 +171,41 @@ These rules decide every number the app shows.
     owner can fix the payment's month.
 11. **Coming back after leaving.** When a student who left comes again, the owner says which
     month they're back from: any month after `left_month`, up to two years ahead (this month
-    by default). In one step, with no new kind of record:
+    by default). In one step:
     - the months in between (from the month after `left_month` to the month before they're
-      back) get a **₹0 fee**, one fee change at the month after `left_month`. They are
-      *Not applicable* (rule 4), shown as **No fee**, and are never owed;
+      back) get a **₹0 fee**: one fee change at the month after `left_month`, marked as
+      **away** (not a fee the owner set). They are *Not applicable* (rule 4), shown as
+      **No fee** and, in *Fee history*, as **Away (no fee)**. They are never owed;
     - from the month they're back, they owe the fee shown in the same step, which the owner
-      can change. It starts as the fee their schedule has for that month, **ignoring any ₹0
-      fee after `left_month`** (the months away of an earlier return must never become the fee
-      they come back on). Usually that is the fee they paid when they left; a raise set for a
-      month while they were away counts. If they're back the very next month, there is no gap;
-    - fee changes already set for a month in the gap are replaced by the ₹0 fee, and one at the
-      month they're back gets the fee shown. Fee changes after that month are kept;
+      can change. It starts as the latest fee **the owner set** on or before that month:
+      *away* rows never count, so an earlier return's months away can't become the fee they
+      come back on. Usually that is the fee they paid when they left; a raise, or a month off,
+      the owner set for a month while they were away counts. A gap always ends with a fee
+      change at the month they're back. If they're back the very next month, there is no gap;
+    - fee changes in the gap are replaced; so is every *away* fee change after `left_month`
+      (leftovers of earlier returns). A ₹0 month off the owner set for after the return month
+      is **kept**, and the step names it ("No fee in November 2026 was set earlier, and
+      stays"), so she can remove it if it's wrong. Other later fee changes are kept too;
     - `left_month` is cleared, so they are Active again.
+
+    **Changing the left month** removes the *away* runs that no longer fit: a run of months
+    away (from an *away* fee change to the next fee the owner set) that reaches the new left
+    month, or comes after it. For example: left after March, back in July (away from April),
+    then the left month is corrected to May and they come back in July again: April and May
+    are owed, June is away. An absence that ended before the new left month stays.
 
     It happens once however fast it's clicked: the second click waits and then finds they are
     no longer marked as left. A payment already logged for a month in the gap then counts as
     paid extra (rule 10), like any payment for a month with no fee. Once the left month has
     passed, *Edit* can only move it **earlier** (never empty it or move it later), because that
-    would make every month away owed: coming back is always this step.
+    would make every month away owed. If they came back after all, use this step from the
+    month after they left (so nothing is skipped), then set a new left month if needed.
 
 ### Dashboard for a selected month M
 
 | Section | Contents |
 |---|---|
-| **Summary** | Expected for M (all students active in M), and how many of them have a fee above ₹0 in M ("from N students"; a month off or a free place isn't counted) · Collected for M (payments whose `for_month = M`) · Still due for M (sum of `max(0, expected − paid)` over students active in M) · Number of students not fully paid, "of" that same N |
+| **Summary** | Expected for M (all students active in M), and how many of them have a fee above ₹0 in M ("from N students"; a month off or a free place isn't counted) · Collected for M (payments whose `for_month = M`); for a month after the current one this box is **Paid ahead** instead: what's paid for M, up to each student's fee (`paid_ahead_paise`; anything above a fee is credit) · Still due for M (sum of `max(0, expected − paid)` over students active in M) · Number of students not fully paid, "of" that same N |
 | **Yet to pay** | Students active in M whose status is Unpaid or Partial, with remaining amount and a *Log payment* button |
 | **Backlog** | Students with any Unpaid or Partial month *before* M (and not after the current month, since only those are due), with the months listed and the total still owed. Includes students who have since left |
 | **Overpaid** | Student-months up to M (and not after the current month) with paid > expected, with the excess amount |

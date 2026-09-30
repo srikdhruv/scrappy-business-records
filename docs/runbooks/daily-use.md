@@ -73,8 +73,11 @@ Changed your mind? Before that month, click **Mark as staying**.
    different now.
 5. Click **Mark as coming again**.
 
-The months they were away show **No fee**, and nothing is owed for them. They owe their fee
-again from the month they're back.
+The months they were away show **No fee** (in *Fee history*: **Away (no fee)**), and nothing is
+owed for them. They owe their fee again from the month they're back.
+
+Left later than you'd set? Mark them as coming again from the month right after the one they
+left, then **Mark as left** with their real last month.
 
 ## Changing a student's fee
 

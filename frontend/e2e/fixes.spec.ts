@@ -123,7 +123,7 @@ test('correcting the left month after coming back makes the right months owed', 
   const back = addMonths(now, 1)
   expect(
     (await request.post(`/api/students/${id}/return`, { data: { from_month: back } })).ok(),
-  ).toBe(true) // fmt
+  ).toBe(true)
   const left = await request.patch(`/api/students/${id}`, {
     data: { left_month: addMonths(now, -1) },
   })
