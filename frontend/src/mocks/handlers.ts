@@ -139,5 +139,10 @@ export function createHandlers(db: MockDb, { latency = 0 }: HandlerOptions = {})
       await wait()
       return respond(() => db.dashboard(new URL(request.url).searchParams.get('month')))
     }),
+
+    http.get(api('/report'), async ({ request }) => {
+      await wait()
+      return respond(() => db.report(new URL(request.url).searchParams.get('month')))
+    }),
   ]
 }

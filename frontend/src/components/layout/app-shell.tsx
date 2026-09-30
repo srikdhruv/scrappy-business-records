@@ -62,7 +62,7 @@ function UnreachableBanner() {
   return (
     <div
       role="alert"
-      className="mb-6 flex items-start gap-3 rounded-xl border border-owed/25 bg-owed-soft px-4 py-3 text-base text-owed"
+      className="mb-6 flex items-start gap-3 rounded-xl border border-owed/25 bg-owed-soft px-4 py-3 text-base text-owed print:hidden"
     >
       <CloudOffIcon className="mt-0.5 size-5 shrink-0" aria-hidden />
       <p>
@@ -83,7 +83,7 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-screen flex-col lg:flex-row">
-      <aside className="shrink-0 border-b border-sidebar-border bg-sidebar text-sidebar-foreground lg:w-60 lg:border-r lg:border-b-0">
+      <aside className="shrink-0 border-b border-sidebar-border bg-sidebar text-sidebar-foreground lg:w-60 lg:border-r lg:border-b-0 print:hidden">
         <div className="flex flex-col gap-3 px-4 py-3 lg:sticky lg:top-0 lg:h-screen lg:gap-8 lg:py-6">
           <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 lg:flex-col lg:items-stretch lg:gap-8">
             <NavLink
@@ -138,8 +138,8 @@ export function AppShell() {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 px-5 py-6 sm:px-8 lg:px-10 lg:py-8">
-        <div className="mx-auto w-full max-w-6xl">
+      <main className="min-w-0 flex-1 px-5 py-6 sm:px-8 lg:px-10 lg:py-8 print:p-0">
+        <div className="mx-auto w-full max-w-6xl print:max-w-none">
           {!reachable && <UnreachableBanner />}
           <Outlet />
         </div>

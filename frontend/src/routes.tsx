@@ -4,6 +4,7 @@ import { AppShell } from '@/components/layout/app-shell'
 import { DashboardPage } from '@/pages/dashboard-page'
 import { NotFoundPage } from '@/pages/not-found-page'
 import { PaymentsPage } from '@/pages/payments-page'
+import { ReportPage } from '@/pages/report-page'
 import { StudentProfilePage } from '@/pages/student-profile-page'
 import { StudentsPage } from '@/pages/students-page'
 
@@ -14,6 +15,7 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <DashboardPage /> },
       { path: 'payments', element: <PaymentsPage /> },
+      { path: 'report', element: <ReportPage /> },
       { path: 'students', element: <StudentsPage /> },
       { path: 'students/:id', element: <StudentProfilePage /> },
       { path: '*', element: <NotFoundPage /> },

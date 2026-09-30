@@ -29,6 +29,7 @@ import {
   ledgerMonths,
   owedPaise,
   paidAheadPaise,
+  report,
   standingStatus,
   MONTHS_AHEAD,
   suggestPayment,
@@ -576,6 +577,18 @@ export class MockDb {
       this.students.map((s) => this.book(s)),
       month ?? this.now(),
       this.now(),
+    )
+  }
+
+  // ---- Monthly report -------------------------------------------------------------------------
+
+  report(month?: string | null) {
+    checkMonth('month', month)
+    return report(
+      this.students.map((s) => this.book(s)),
+      month ?? this.now(),
+      this.now(),
+      today(),
     )
   }
 }
