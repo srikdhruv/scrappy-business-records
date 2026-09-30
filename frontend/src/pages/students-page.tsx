@@ -8,7 +8,9 @@
  *   Edit batch, + Add student (with its fee filled in), and its students.
  * - **No batch** (`/students/batch/none`): the students who aren't in one yet.
  *
- * `?month=YYYY-MM` picks the month for the numbers; it's kept when switching tabs.
+ * `?month=YYYY-MM` picks the month for the numbers; it's kept when switching tabs. On All
+ * batches the search box sits above the cards, which fold away while searching, so the matches
+ * are always in view. Download Excel has the students shown (the tab, Show and the search).
  */
 import { PencilIcon, PlusIcon, Trash2Icon, UserPlusIcon, UsersIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
@@ -29,8 +31,10 @@ import { BatchNav, type BatchTab } from '@/components/batches/batch-nav'
 import { ConvertLabelsButton } from '@/components/batches/convert-labels'
 import { MonthNav } from '@/components/batches/month-nav'
 import { PaidBar } from '@/components/batches/paid-bar'
-import { StudentsTable } from '@/components/batches/students-table'
+import { StudentsTable, type TableShown } from '@/components/batches/students-table'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { ExcelButtons } from '@/components/excel-buttons'
+import { ExcelUploadDialog } from '@/components/excel-upload-dialog'
 import { PageHeader } from '@/components/layout/page-header'
 import { Panel } from '@/components/panel'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
@@ -38,6 +42,7 @@ import { StudentFormDialog } from '@/components/student-form'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { batchPath, formatSchedule } from '@/lib/batches'
+import { studentsDownloadUrl } from '@/lib/downloads'
 import { formatMonth, formatRupees } from '@/lib/format'
 import { plural } from '@/lib/labels'
 
@@ -73,6 +78,9 @@ export function StudentsPage() {
     open: false,
   })
   const [deleting, setDeleting] = useState<BatchRead | null>(null)
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [searchHost, setSearchHost] = useState<HTMLDivElement | null>(null)
+  const [shownState, setShownState] = useState<TableShown>({ search: '', show: 'active' })
   const deleteBatch = useDeleteBatch()
   const navigate = useNavigate()
 
@@ -90,7 +98,21 @@ export function StudentsPage() {
     <>
       <PageHeader
         title="Students"
-        description="Everyone in your classes, by batch. Click a name to see their full history."
+        description={
+          <>
+            <p>Everyone in your classes, by batch. Click a name to see their full history.</p>
+            {/* Download: the students shown below, for this tab, Show choice and search. */}
+            <ExcelButtons
+              downloadHref={studentsDownloadUrl(
+                shownState.show,
+                shownState.search,
+                tab === 'all' || tab === -1 ? undefined : tab,
+              )}
+              onUpload={() => setUploadOpen(true)}
+              everything
+            />
+          </>
+        }
         actions={
           <Button variant="outline" size="lg" onClick={() => addStudent(null)}>
             <UserPlusIcon aria-hidden />
@@ -121,8 +143,10 @@ export function StudentsPage() {
             noBatchCount={all.filter((s) => s.is_active && s.batch_id === null).length}
             month={keepMonth}
           />
+          {tab === 'all' && <div ref={setSearchHost} className="mb-6" />}
           {tab === 'all' ? (
             <AllBatches
+              collapsed={shownState.search.trim() !== ''}
               batches={list}
               summaries={summaries}
               noBatch={overview.data?.no_batch}
@@ -140,6 +164,9 @@ export function StudentsPage() {
                   students={all}
                   batches={list}
                   autoFocusSearch
+                  searchHost={searchHost}
+                  selectable
+                  onShownChange={setShownState}
                   emptyText="No students yet."
                   emptyAction={
                     <Button size="lg" onClick={() => addStudent(null)}>
@@ -173,6 +200,8 @@ export function StudentsPage() {
                 students={all}
                 batches={list}
                 inBatch="none"
+                selectable
+                onShownChange={setShownState}
                 emptyText="Everyone is in a batch."
               />
             </BatchView>
@@ -192,6 +221,7 @@ export function StudentsPage() {
                   students={all}
                   batches={list}
                   inBatch={tab}
+                  onShownChange={setShownState}
                   emptyText="No students in this batch yet."
                   emptyAction={
                     <Button size="lg" onClick={() => addStudent(tab)}>
@@ -206,6 +236,7 @@ export function StudentsPage() {
         </>
       )}
 
+      <ExcelUploadDialog open={uploadOpen} onOpenChange={setUploadOpen} kind="students" />
       <StudentFormDialog
         open={newStudent.open}
         onOpenChange={(open) => setNewStudent((s) => ({ ...s, open }))}
@@ -229,7 +260,7 @@ export function StudentsPage() {
               <p>
                 {deleting.student_count === 0
                   ? 'No students are in it.'
-                  : `Its ${plural(deleting.student_count, 'student')} ${deleting.student_count === 1 ? 'isn’t' : 'aren’t'} deleted: ${deleting.student_count === 1 ? 'they move' : 'they all move'} to No batch.`}
+                  : `Its ${studentsWithLeft(deleting)} ${deleting.student_count === 1 ? 'isn’t' : 'aren’t'} deleted: ${deleting.student_count === 1 ? 'they move' : 'they all move'} to No batch.`}
               </p>
               <p>No fee or payment changes.</p>
             </>
@@ -253,9 +284,17 @@ export function StudentsPage() {
   )
 }
 
+/** "6 students, including 2 who have left" (everyone in it, as a delete moves them all). */
+function studentsWithLeft(batch: BatchRead): string {
+  const left = batch.student_count - batch.active_student_count
+  const all = plural(batch.student_count, 'student')
+  return left > 0 ? `${all}, including ${left} who ${left === 1 ? 'has' : 'have'} left,` : all
+}
+
 // ---- All batches --------------------------------------------------------------------------------
 
 function AllBatches({
+  collapsed,
   batches,
   summaries,
   noBatch,
@@ -269,6 +308,8 @@ function AllBatches({
   onDelete,
   children,
 }: {
+  /** While searching: the cards fold away, so the matches are right under the search box. */
+  collapsed: boolean
   batches: BatchRead[]
   summaries: Map<number | null, BatchSummary>
   noBatch: BatchSummary | undefined
@@ -284,6 +325,17 @@ function AllBatches({
 }) {
   const [showAll, setShowAll] = useState(false)
   const shown = showAll ? batches : batches.slice(0, CARDS_SHOWN)
+  if (collapsed) {
+    return (
+      <>
+        <p className="mb-4 text-base text-muted-foreground">
+          {plural(batches.length, 'batch', 'batches')} folded away while you search. Empty the
+          search box to see them.
+        </p>
+        {children}
+      </>
+    )
+  }
   return (
     <>
       <section aria-labelledby="batches-heading" className="mb-8">
@@ -331,6 +383,7 @@ function AllBatches({
                   batch={b}
                   summary={summaries.get(b.id)}
                   month={keepMonth}
+                  monthName={month && month !== now ? formatMonth(month) : undefined}
                   onEdit={() => onEdit(b)}
                   onDelete={() => onDelete(b)}
                 />
@@ -487,7 +540,14 @@ function BatchView({
           {summary ? (
             <>
               <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
-                <Stat label="Students">{summary.student_count}</Stat>
+                <Stat label={month ? `Students in ${formatMonth(month)}` : 'Students'}>
+                  {summary.student_count}
+                  {summary.active_student_count !== summary.student_count && (
+                    <span className="block text-sm font-semibold text-muted-foreground">
+                      {summary.active_student_count} with a fee due
+                    </span>
+                  )}
+                </Stat>
                 <Stat label={month ? `Fees for ${formatMonth(month)}` : 'Fees this month'}>
                   {formatRupees(summary.expected_paise)}
                 </Stat>

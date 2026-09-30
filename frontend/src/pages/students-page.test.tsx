@@ -106,13 +106,69 @@ describe('students page', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe(`/students/${id}`))
   })
 
-  it('opens someone who has left with Enter too, though the list shows Active', async () => {
+  it('highlights the row Enter opens, and never opens one the filters hide', async () => {
     const user = userEvent.setup()
     const { router } = renderApp('/students')
     await studentRows()
-    await user.type(screen.getByRole('searchbox', { name: 'Search students' }), 'malhotra{Enter}')
+    const search = screen.getByRole('searchbox', { name: 'Search students' })
+    await user.type(search, 'mehta')
+    const rows = await studentRows()
+    const kabir = rows.getByRole('link', { name: 'Kabir Mehta' }).closest('tr')!
+    expect(kabir).toHaveAttribute('data-next')
+    expect(within(kabir).getByText('Enter opens')).toBeInTheDocument()
+
+    // Dev Malhotra has left: hidden by Show: Active, so Enter does nothing.
+    await user.clear(search)
+    await user.type(search, 'malhotra{Enter}')
+    expect(router.state.location.pathname).toBe('/students')
+    await user.click(screen.getByRole('button', { name: 'Show them' }))
+    await user.type(search, '{Enter}')
     const id = mockDb.students.find((s) => s.name === 'Dev Malhotra')!.id
     await waitFor(() => expect(router.state.location.pathname).toBe(`/students/${id}`))
+  })
+
+  it('puts the search above the batch cards, and folds them away while searching', async () => {
+    const user = userEvent.setup()
+    renderApp('/students')
+    await studentRows()
+    const search = screen.getByRole('searchbox', { name: 'Search students' })
+    const cards = screen.getByRole('heading', { name: /^Batches/ })
+    // The search box comes first on the page.
+    expect(search.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    await user.type(search, 'kabir')
+    expect(screen.queryByRole('heading', { name: /^Batches/ })).not.toBeInTheDocument()
+    expect(screen.getByText(/folded away while you search/)).toBeInTheDocument()
+    await user.clear(search)
+    expect(await screen.findByRole('heading', { name: /^Batches/ })).toBeInTheDocument()
+  })
+
+  it('moves ticked students to a batch at once, shift-click ticking a run', async () => {
+    const user = userEvent.setup()
+    for (const name of ['Asha One', 'Bina Two', 'Chitra Three']) {
+      mockDb.createStudent({ name, monthly_fee_paise: 100000, joined_month: '2026-10' })
+    }
+    renderApp('/students/batch/none')
+    const rows = await studentRows()
+    await user.click(rows.getAllByRole('checkbox', { name: 'Tick Asha One' })[0]!)
+    await user.keyboard('{Shift>}')
+    await user.click(rows.getAllByRole('checkbox', { name: 'Tick Chitra Three' })[0]!)
+    await user.keyboard('{/Shift}')
+    expect(screen.getAllByText('3 students ticked')[0]).toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: 'Move to batch…' })[0]!)
+    const dialog = await findDialog(/Move 3 students to a batch/)
+    await user.click(dialog.getByRole('combobox', { name: /^Batch:/ }))
+    await user.click(await screen.findByRole('option', { name: /Sat 10am – HSR Layout/ }))
+    const sat = mockDb.batches.find((b) => b.name === 'Sat 10am – HSR Layout')!
+    const fees = ['Asha One', 'Bina Two', 'Chitra Three'].map(
+      (n) => mockDb.getStudent(mockDb.students.find((s) => s.name === n)!.id).fee_history,
+    )
+    await user.click(dialog.getByRole('button', { name: /^Move to Sat 10am/ }))
+    expect(await screen.findByText('3 students moved to Sat 10am – HSR Layout')).toBeInTheDocument()
+    ;['Asha One', 'Bina Two', 'Chitra Three'].forEach((n, i) => {
+      const s = mockDb.students.find((x) => x.name === n)!
+      expect(s.batch_id).toBe(sat.id)
+      expect(mockDb.getStudent(s.id).fee_history).toEqual(fees[i]) // fees don't change
+    })
   })
 
   it('says when the filters hide someone who matches', async () => {

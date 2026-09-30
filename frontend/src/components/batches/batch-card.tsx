@@ -19,12 +19,15 @@ export function BatchCard({
   batch,
   summary,
   month,
+  monthName,
   onEdit,
   onDelete,
 }: {
   batch: BatchRead
   summary: BatchSummary | undefined
   month?: string
+  /** The month the numbers are for, when it isn't this month ("August 2026"). */
+  monthName?: string
   onEdit: () => void
   onDelete: () => void
 }) {
@@ -76,8 +79,16 @@ export function BatchCard({
           {batch.active_student_count === 0
             ? 'No students yet'
             : plural(batch.active_student_count, 'student')}
+          {summary &&
+            batch.active_student_count > 0 &&
+            summary.active_student_count !== batch.active_student_count &&
+            ` (${summary.active_student_count} due ${monthName ? `in ${monthName}` : 'this month'})`}
           {summary && summary.expected_paise > 0 && (
-            <> · {formatRupees(summary.expected_paise)} this month</>
+            <>
+              {' '}
+              · {formatRupees(summary.expected_paise)}{' '}
+              {monthName ? `in ${monthName}` : 'this month'}
+            </>
           )}
         </Line>
       </dl>

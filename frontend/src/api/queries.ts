@@ -65,6 +65,8 @@ export const queryKeys = {
     list: ['batches', 'list'] as const,
     overview: (month: string) => ['batches', 'summary', month] as const,
     labels: ['batches', 'from-labels'] as const,
+    feePlan: (id: number, fee: number, from: string) =>
+      ['batches', 'fee-plan', id, fee, from] as const,
   },
   report: {
     all: ['report'] as const,
@@ -465,6 +467,45 @@ export function useConvertLabels() {
   return useMutation({
     mutationFn: async (): Promise<LabelConversion> =>
       unwrap(await api.POST('/api/batches/from-labels')),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+/**
+ * What "Also charge the new usual fee" would do to each student of the batch (the server's own
+ * rule, the one the change itself uses). Only while `enabled`.
+ */
+export function useFeePlan(
+  batchId: number,
+  feePaise: number | null,
+  fromMonth: string | null,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: queryKeys.batches.feePlan(batchId, feePaise ?? -1, fromMonth ?? ''),
+    queryFn: async (): Promise<FeePlan> =>
+      unwrap(
+        await api.GET('/api/batches/{batch_id}/fee-plan', {
+          params: {
+            path: { batch_id: batchId },
+            query: { fee_paise: feePaise!, from_month: fromMonth! },
+          },
+        }),
+      ),
+    enabled: enabled && feePaise !== null && fromMonth !== null,
+    placeholderData: keepPreviousData,
+    staleTime: 0,
+  })
+}
+
+/** Put students in a batch (or none), all at once. Their fees don't change. */
+export function useMoveStudents() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: {
+      student_ids: number[]
+      batch_id: number | null
+    }): Promise<MoveResult> => unwrap(await api.POST('/api/batches/move', { body })),
     onSuccess: () => invalidateRecords(queryClient),
   })
 }

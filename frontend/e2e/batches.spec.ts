@@ -17,8 +17,7 @@ async function createBatch(
 }
 
 const tabs = (page: Page) => page.getByRole('navigation', { name: 'Batches' })
-const header = (page: Page) =>
-  page.locator('section', { has: page.getByRole('heading', { level: 2 }) }).first()
+const header = (page: Page) => page.locator('section[aria-labelledby="batch-heading"]')
 
 async function choose(page: Page, label: string, option: string | RegExp) {
   await page.getByRole('combobox', { name: new RegExp(`^${label}:`) }).click()
@@ -209,4 +208,69 @@ test('create batches from existing labels', async ({ page, request }) => {
     .click()
   for (const name of names)
     await expect(page.getByRole('table').getByRole('link', { name })).toBeVisible()
+})
+
+test('with 12 batches on a 1280×800 window, what is typed and its match are in view', async ({
+  page,
+  request,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const now = await serverMonth(request)
+  const tag = uniqueName('Batch')
+  const ids: number[] = []
+  for (let i = 1; i <= 12; i++) ids.push(await createBatch(request, { name: `${tag} ${i}` }))
+  const name = uniqueName('Zoya')
+  const response = await request.post('/api/students', {
+    data: { name, monthly_fee_paise: 120000, joined_month: now, batch_id: ids[11] },
+  })
+  expect(response.status()).toBe(201)
+
+  await page.goto('/students')
+  const search = page.getByRole('searchbox', { name: 'Search students' })
+  await expect(search).toBeFocused()
+  await expect(search).toBeInViewport()
+  await page.keyboard.type(name)
+  // The batch cards fold away, so the match is right under the search box.
+  const row = page.getByRole('row').filter({ has: page.getByRole('link', { name }) })
+  await expect(row).toBeInViewport()
+  await expect(row).toHaveAttribute('data-next', 'true')
+  await expect(row.getByText('Enter opens')).toBeVisible()
+  await search.press('Enter')
+  await expect(page.getByRole('heading', { level: 1, name })).toBeVisible()
+})
+
+test('tick students and move them to a batch at once; their fees stay', async ({
+  page,
+  request,
+}) => {
+  const now = await serverMonth(request)
+  const batch = uniqueName('Move')
+  const id = await createBatch(request, { name: batch })
+  const names = [uniqueName('Ira'), uniqueName('Jai')]
+  for (const name of names) {
+    await createStudent(request, { name, monthly_fee_paise: 110000, joined_month: now })
+  }
+
+  await page.goto('/students/batch/none')
+  for (const name of names) await page.getByRole('checkbox', { name: `Tick ${name}` }).check()
+  await expect(page.getByText('2 students ticked')).toBeVisible()
+  await page.getByRole('button', { name: 'Move to batch…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Move 2 students to a batch' })
+  await dialog.getByRole('combobox', { name: /^Batch:/ }).click()
+  await page.getByPlaceholder('Type a batch, place or day…').fill(batch)
+  await page.getByRole('option', { name: new RegExp(batch) }).click()
+  await dialog.getByRole('button', { name: `Move to ${batch}` }).click()
+  await expect(page.getByText(`2 students moved to ${batch}`)).toBeVisible()
+
+  const students = (await (await request.get('/api/students?status=all')).json()) as {
+    name: string
+    batch_id: number | null
+    monthly_fee_paise: number
+  }[]
+  for (const name of names) {
+    expect(students.find((s) => s.name === name)).toMatchObject({
+      batch_id: id,
+      monthly_fee_paise: 110000,
+    })
+  }
 })

@@ -214,6 +214,24 @@ export function createHandlers(db: MockDb, { latency = 0 }: HandlerOptions = {})
       return respond(() => db.batchOverview(new URL(request.url).searchParams.get('month')))
     }),
 
+    http.post(api('/batches/move'), async ({ request }) => {
+      await wait()
+      const body = (await request.json()) as { student_ids: number[]; batch_id: number | null }
+      return respond(() => db.moveStudents(body.student_ids, body.batch_id))
+    }),
+
+    http.get(api('/batches/:id/fee-plan'), async ({ params, request }) => {
+      await wait()
+      const search = new URL(request.url).searchParams
+      return respond(() =>
+        db.feePlan(
+          idParam(params.id),
+          Number(search.get('fee_paise')),
+          search.get('from_month') ?? '',
+        ),
+      )
+    }),
+
     http.get(api('/batches/from-labels'), async () => {
       await wait()
       return respond(() => db.labelPreview())

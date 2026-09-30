@@ -1,15 +1,41 @@
 /**
  * Every student (or one batch's), to find anyone fast: type to search (it filters as you type;
- * Enter opens the first match; "/" jumps to the search box), sort by any column, filter by batch,
- * location, day, status and Active / Left, and group under headings. A click anywhere on a row
- * opens the profile.
+ * the first row is highlighted and Enter opens it; "/" jumps to the search box), sort by any
+ * column, filter by batch, location, day, status and Active / Left, and group under headings. A
+ * click anywhere on a row opens the profile.
  *
- * Search looks at everyone the Active / Left choice shows, then the other filters: if they hide
- * someone who matches, it says so, with one click to show them.
+ * The search box can sit elsewhere on the page (`searchHost`: above the batch cards on All
+ * batches), so what's typed is always in view. If the filters hide someone who matches, it says
+ * so, with one click to show them; Enter only ever opens a row that's shown.
+ *
+ * With `selectable`, each row has a tick box (shift-click ticks a run of rows) and the ticked
+ * students can be moved to a batch at once.
  */
-import { ArrowDownIcon, ArrowUpIcon, SearchIcon, XIcon } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { ArrowDownIcon, ArrowUpIcon, CornerDownLeftIcon, SearchIcon, XIcon } from 'lucide-react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router'
+import { toast } from 'sonner'
+
+import { useMoveStudents } from '@/api/queries'
+import { BatchPicker } from '@/components/batches/batch-picker'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { errorMessage } from '@/lib/errors'
 
 import type { BatchRead, StudentRead } from '@/api/types'
 import { FeeNow } from '@/components/fee-now'
@@ -74,6 +100,11 @@ const GROUPS: { value: GroupBy; label: string }[] = [
   { value: 'status', label: 'Status' },
 ]
 
+export interface TableShown {
+  search: string
+  show: ShowFilter
+}
+
 export function StudentsTable({
   students,
   batches,
@@ -82,6 +113,9 @@ export function StudentsTable({
   autoFocusSearch = false,
   emptyAction,
   emptyText,
+  searchHost,
+  selectable = false,
+  onShownChange,
 }: {
   students: readonly StudentRead[]
   batches: readonly BatchRead[]
@@ -91,9 +125,18 @@ export function StudentsTable({
   autoFocusSearch?: boolean
   emptyAction?: ReactNode
   emptyText?: ReactNode
+  /** Where to put the search box, if not above the table (it stays this table's search). */
+  searchHost?: HTMLElement | null
+  /** Tick boxes on the rows, and "Move to batch…" for the ticked students. */
+  selectable?: boolean
+  /** Told what's typed and the Show choice (for the page's Download Excel). */
+  onShownChange?: (shown: TableShown) => void
 }) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [lastTicked, setLastTicked] = useState<number | null>(null)
+  const [moving, setMoving] = useState(false)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'name', dir: 'asc' })
   const [filters, setFilters] = useState<TableFilters>(NO_FILTERS)
   const [group, setGroup] = useState<GroupBy>(initialGroup)
@@ -119,6 +162,31 @@ export function StudentsTable({
   )
   const hidden = needle ? matching.length - shown.length : 0
   const groups = groupStudents(shown, group, byId)
+  // The rows in the order they're on screen: the first is what Enter opens.
+  const onScreen = groups.flatMap((g) => g.students)
+  const first = needle ? onScreen[0] : undefined
+  const visibleIds = onScreen.map((s) => s.id)
+  const ticked = visibleIds.filter((id) => selected.has(id))
+
+  useEffect(() => {
+    onShownChange?.({ search, show: filters.show })
+  }, [onShownChange, search, filters.show])
+
+  const tick = (id: number, event: MouseEvent<HTMLInputElement>) => {
+    const on = !selected.has(id)
+    const next = new Set(selected)
+    if (event.shiftKey && lastTicked !== null && visibleIds.includes(lastTicked)) {
+      const [x, y] = [visibleIds.indexOf(lastTicked), visibleIds.indexOf(id)]
+      for (const rid of visibleIds.slice(Math.min(x, y), Math.max(x, y) + 1)) {
+        if (on) next.add(rid)
+        else next.delete(rid)
+      }
+    } else if (on) next.add(id)
+    else next.delete(id)
+    setSelected(next)
+    setLastTicked(id)
+  }
+  const tickAll = (on: boolean) => setSelected(on ? new Set(visibleIds) : new Set())
   const filtered = JSON.stringify(filters) !== JSON.stringify(NO_FILTERS)
   const counts = {
     active: own.filter((s) => s.is_active).length,
@@ -132,7 +200,7 @@ export function StudentsTable({
     if (autoFocusSearch && window.matchMedia?.('(min-width: 1024px)').matches) {
       searchRef.current?.focus({ preventScroll: true })
     }
-  }, [autoFocusSearch])
+  }, [autoFocusSearch, searchHost])
 
   // "/" anywhere on the page (outside a box you're typing in) jumps to the search.
   useEffect(() => {
@@ -150,10 +218,10 @@ export function StudentsTable({
   }, [])
 
   const onSearchKey = (event: KeyboardEvent<HTMLInputElement>) => {
-    // The first row; if the filters hide everyone who matches, the first match anyway (someone
-    // who has left, say), so Enter always finds who was typed.
-    const first = shown[0] ?? sortStudents(matching, sort.key, sort.dir, byId)[0]
-    if (event.key === 'Enter' && needle && first) {
+    // Never while a word is still being composed (an Indian-language keyboard, say), and only
+    // ever the highlighted row: one that's shown, with the filters as they are.
+    if (event.nativeEvent.isComposing) return
+    if (event.key === 'Enter' && first) {
       event.preventDefault()
       void navigate(`/students/${first.id}`)
     } else if (event.key === 'Escape' && search) {
@@ -172,38 +240,49 @@ export function StudentsTable({
     setFilters((f) => ({ ...f, [key]: value }))
 
   const showBatch = inBatch === undefined
-  const columns = showBatch ? 5 : 4
+  const columns = (showBatch ? 5 : 4) + (selectable ? 1 : 0)
   const places = locationsOf(batches)
+
+  const searchBox = (
+    <div
+      className={cn(
+        'relative w-full',
+        searchHost !== undefined ? 'lg:max-w-xl' : 'lg:max-w-sm lg:min-w-72 lg:flex-1',
+      )}
+    >
+      <SearchIcon
+        className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground"
+        aria-hidden
+      />
+      <Input
+        ref={searchRef}
+        type="search"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        onKeyDown={onSearchKey}
+        placeholder={
+          showBatch ? 'Search name, phone, parent or batch' : 'Search name, phone or parent'
+        }
+        aria-label="Search students"
+        aria-describedby="students-search-help"
+        className="h-12 pl-10 text-base"
+      />
+      <kbd
+        className="pointer-events-none absolute top-1/2 right-3 hidden -translate-y-1/2 rounded border border-border bg-muted px-1.5 text-xs text-muted-foreground md:block"
+        aria-hidden
+      >
+        /
+      </kbd>
+    </div>
+  )
 
   return (
     <>
+      {/* Given a place for it (even one not on the page yet), it's only ever there. */}
+      {searchHost && createPortal(searchBox, searchHost)}
       <div className="grid gap-3 border-b border-border/70 px-6 py-5">
         <div className="flex flex-wrap items-center gap-3">
-          <div className="relative w-full lg:max-w-sm lg:min-w-72 lg:flex-1">
-            <SearchIcon
-              className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <Input
-              ref={searchRef}
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={onSearchKey}
-              placeholder={
-                showBatch ? 'Search name, phone, parent or batch' : 'Search name, phone or parent'
-              }
-              aria-label="Search students"
-              aria-describedby="students-search-help"
-              className="h-12 pl-10 text-base"
-            />
-            <kbd
-              className="pointer-events-none absolute top-1/2 right-3 hidden -translate-y-1/2 rounded border border-border bg-muted px-1.5 text-xs text-muted-foreground md:block"
-              aria-hidden
-            >
-              /
-            </kbd>
-          </div>
+          {searchHost === undefined && searchBox}
           <FilterSelect
             label="Show"
             value={filters.show}
@@ -305,6 +384,35 @@ export function StudentsTable({
         </p>
       )}
 
+      {selectable && ticked.length > 0 && (
+        <div
+          role="region"
+          aria-label="Ticked students"
+          className="flex flex-wrap items-center gap-3 border-b border-border/70 bg-primary/10 px-6 py-3 text-base"
+        >
+          <span className="font-bold">{plural(ticked.length, 'student')} ticked</span>
+          <Button size="sm" onClick={() => setMoving(true)}>
+            Move to batch…
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+            Clear
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            Shift-click a tick box to tick every row up to it.
+          </span>
+        </div>
+      )}
+      {moving && (
+        <MoveDialog
+          ids={ticked}
+          names={onScreen.filter((s) => selected.has(s.id)).map((s) => s.name)}
+          onClose={(moved) => {
+            setMoving(false)
+            if (moved) setSelected(new Set())
+          }}
+        />
+      )}
+
       {own.length === 0 ? (
         <EmptyState
           className="py-12"
@@ -340,7 +448,24 @@ export function StudentsTable({
           <Table className={showBatch ? 'min-w-[54rem]' : 'min-w-[44rem]'}>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <SortHead className="pl-6" label="Name" col="name" sort={sort} onSort={sortBy} />
+                {selectable && (
+                  <TableHead className="w-10 pl-6">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-[var(--primary-strong)]"
+                      aria-label="Tick every student shown"
+                      checked={ticked.length > 0 && ticked.length === visibleIds.length}
+                      onChange={(e) => tickAll(e.target.checked)}
+                    />
+                  </TableHead>
+                )}
+                <SortHead
+                  className={selectable ? '' : 'pl-6'}
+                  label="Name"
+                  col="name"
+                  sort={sort}
+                  onSort={sortBy}
+                />
                 {showBatch && <SortHead label="Batch" col="batch" sort={sort} onSort={sortBy} />}
                 <SortHead
                   className="text-right"
@@ -364,7 +489,7 @@ export function StudentsTable({
                 />
               </TableRow>
             </TableHeader>
-            {groups.map((g) => (
+            {groups.map((g, gi) => (
               <TableBody key={g.key}>
                 {group !== 'none' && (
                   <TableRow className="bg-muted/50 hover:bg-muted/50">
@@ -390,12 +515,28 @@ export function StudentsTable({
                     </TableCell>
                   </TableRow>
                 )}
-                {g.students.map((s) => (
+                {g.students.map((s, si) => (
                   <StudentRow
                     key={`${g.key}-${s.id}`}
                     student={s}
                     batch={s.batch_id === null ? undefined : byId.get(s.batch_id)}
                     showBatch={showBatch}
+                    isNext={first !== undefined && gi === 0 && si === 0}
+                    tickBox={
+                      selectable ? (
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-[var(--primary-strong)]"
+                          aria-label={`Tick ${s.name}`}
+                          checked={selected.has(s.id)}
+                          onChange={() => {}}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            tick(s.id, e)
+                          }}
+                        />
+                      ) : undefined
+                    }
                   />
                 ))}
               </TableBody>
@@ -411,16 +552,30 @@ function StudentRow({
   student: s,
   batch,
   showBatch,
+  isNext,
+  tickBox,
 }: {
   student: StudentRead
   batch: BatchRead | undefined
   showBatch: boolean
+  /** The row Enter in the search box opens: highlighted. */
+  isNext: boolean
+  tickBox?: ReactNode
 }) {
   const navigate = useNavigate()
   const schedule = batch ? formatSchedule(batch) : ''
   return (
-    <TableRow className="cursor-pointer" onClick={() => void navigate(`/students/${s.id}`)}>
-      <TableCell className="max-w-80 pl-6 whitespace-normal">
+    <TableRow
+      className={cn('cursor-pointer', isNext && 'bg-primary/15 hover:bg-primary/20')}
+      data-next={isNext || undefined}
+      onClick={() => void navigate(`/students/${s.id}`)}
+    >
+      {tickBox && (
+        <TableCell className="w-10 pl-6" onClick={(e) => e.stopPropagation()}>
+          {tickBox}
+        </TableCell>
+      )}
+      <TableCell className={cn('max-w-80 whitespace-normal', !tickBox && 'pl-6')}>
         <div className="flex items-center gap-3">
           <StudentAvatar name={s.name} />
           <div className="min-w-0">
@@ -431,6 +586,12 @@ function StudentRow({
             >
               {s.name}
             </Link>
+            {isNext && (
+              <span className="ml-2 inline-flex items-center gap-1 rounded border border-primary/60 bg-card px-1.5 text-xs font-semibold text-primary-strong">
+                <CornerDownLeftIcon className="size-3" aria-hidden />
+                Enter opens
+              </span>
+            )}
             {s.guardian_name && (
               <p className="text-sm wrap-break-word text-muted-foreground">
                 Parent: {s.guardian_name}
@@ -582,5 +743,72 @@ function FilterOption({
       </SelectItem>
       {separator && <SelectSeparator />}
     </>
+  )
+}
+
+/** Move the ticked students to a batch (or none) at once. Their fees don't change. */
+function MoveDialog({
+  ids,
+  names,
+  onClose,
+}: {
+  ids: number[]
+  names: string[]
+  onClose: (moved: boolean) => void
+}) {
+  const [target, setTarget] = useState<BatchRead | null | undefined>(undefined)
+  const move = useMoveStudents()
+  const run = async () => {
+    if (target === undefined) return
+    try {
+      await move.mutateAsync({ student_ids: ids, batch_id: target?.id ?? null })
+      toast.success(
+        `${plural(ids.length, 'student')} moved to ${target ? target.name : 'No batch'}`,
+        { description: 'Their fees didn’t change.' },
+      )
+      onClose(true)
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
+  }
+  return (
+    <Dialog open onOpenChange={(open) => !open && !move.isPending && onClose(false)}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Move {plural(ids.length, 'student')} to a batch</DialogTitle>
+          <DialogDescription>
+            {names.slice(0, 8).join(', ')}
+            {names.length > 8 ? ` and ${names.length - 8} more` : ''}. Their fees don’t change.
+          </DialogDescription>
+        </DialogHeader>
+        <BatchPicker
+          id="move-to-batch"
+          value={target === undefined ? null : (target?.id ?? null)}
+          onChange={(b) => setTarget(b)}
+        />
+        <DialogFooter>
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={() => onClose(false)}
+            disabled={move.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="lg"
+            className="font-bold"
+            onClick={run}
+            disabled={move.isPending || target === undefined}
+          >
+            {move.isPending
+              ? 'Moving…'
+              : target === undefined
+                ? 'Choose a batch'
+                : `Move to ${target ? target.name : 'No batch'}`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

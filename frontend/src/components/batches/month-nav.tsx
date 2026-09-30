@@ -48,7 +48,9 @@ export function MonthNav({
       </div>
       {now && month !== now && (
         <span className="text-base text-muted-foreground">
-          {month < now ? 'An earlier month.' : 'Not due yet.'}{' '}
+          {month < now
+            ? 'An earlier month, counted by who is in each batch today.'
+            : 'Not due yet.'}{' '}
           <button
             type="button"
             onClick={() => onChange(now)}

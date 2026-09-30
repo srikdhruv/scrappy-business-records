@@ -90,7 +90,16 @@ export function ConvertLabelsDialog({
                   Also written as: {g.labels.slice(1).join(' · ')}
                 </p>
               )}
-              <p className="mt-1 text-sm wrap-break-word">{g.student_names.join(', ')}</p>
+              <p className="mt-1 text-sm wrap-break-word">
+                {g.student_names
+                  .map((n) => (g.left_student_names.includes(n) ? `${n} (left)` : n))
+                  .join(', ')}
+              </p>
+              {g.active_student_count === 0 && (
+                <p className="mt-1 text-sm font-semibold text-partial">
+                  Everyone in it has left: this batch would have nobody coming now.
+                </p>
+              )}
             </li>
           ))}
         </ul>

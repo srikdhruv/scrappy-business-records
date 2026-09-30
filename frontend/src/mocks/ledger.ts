@@ -500,6 +500,7 @@ export function report(
       student_name: student.name,
       batch_label: student.batch_label,
       batch_name: book.batchName ?? null,
+      batch_id: student.batch_id,
       phone: student.phone,
       joined_month: student.joined_month,
       left_month: student.left_month,

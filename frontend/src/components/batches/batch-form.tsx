@@ -1,9 +1,12 @@
 /**
  * New batch and Edit batch. Only the name is needed. The usual fee only fills in the fee of a
  * student added to the batch: every student keeps their own fee. So changing it here changes no
- * one's fee, unless the owner ticks "Also charge it to…", which lists exactly whose fee changes
- * and from which month (a normal fee change for each, as in Edit student). Students paying
- * their own fee (a discount) are named and left alone.
+ * one's fee, unless the owner ticks "Also charge it to…". That lists every student in the batch
+ * with a tick box, from the server's own rule (`GET /batches/{id}/fee-plan`, the one the change
+ * uses): those on the usual fee are ticked at first; anyone paying their own fee (a discount), or
+ * with a fee change already planned for a later month, starts unticked and says what would
+ * happen. Each ticked student gets a normal fee change, as in Edit student. A month already
+ * due says how much more those months would owe.
  */
 import { InfoIcon } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
@@ -12,11 +15,11 @@ import { toast } from 'sonner'
 import {
   useBatches,
   useCreateBatch,
+  useFeePlan,
   useServerMonth,
-  useStudents,
   useUpdateBatch,
 } from '@/api/queries'
-import type { BatchRead, BatchUpdate, StudentRead, Weekday } from '@/api/types'
+import type { BatchRead, BatchUpdate, FeePlan, FeePlanStudent, Weekday } from '@/api/types'
 import { MonthPicker } from '@/components/month-picker'
 import { FormField } from '@/components/student-form'
 import { Button } from '@/components/ui/button'
@@ -32,17 +35,20 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { amountProblem } from '@/lib/amount'
-import { feeChangeFor, locationsOf, WEEKDAYS } from '@/lib/batches'
+import { locationsOf, WEEKDAYS } from '@/lib/batches'
 import { errorMessage, fieldErrors } from '@/lib/errors'
 import {
   addMonths,
   currentMonth,
   formatMonth,
+  formatMonthSpan,
   formatRupees,
+  monthsBetween,
   MONTHS_AHEAD,
   paiseToRupeesInput,
   rupeesToPaise,
 } from '@/lib/format'
+import { newFeeSentence } from '@/lib/fees'
 import { plural } from '@/lib/labels'
 
 type Field = 'name' | 'location' | 'days' | 'start' | 'end' | 'fee' | 'notes' | 'apply'
@@ -93,7 +99,6 @@ function BatchForm({ batch, onDone }: { batch?: BatchRead; onDone: (saved?: Batc
   const editing = batch !== undefined
   const now = useServerMonth() ?? currentMonth()
   const { data: batches = [] } = useBatches()
-  const { data: students = [] } = useStudents('all')
   const [name, setName] = useState(batch?.name ?? '')
   const [location, setLocation] = useState(batch?.location ?? '')
   const [days, setDays] = useState<Weekday[]>(batch?.days ?? [])
@@ -104,7 +109,10 @@ function BatchForm({ batch, onDone }: { batch?: BatchRead; onDone: (saved?: Batc
   )
   const [notes, setNotes] = useState(batch?.notes ?? '')
   const [apply, setApply] = useState(false)
-  const [applyFrom, setApplyFrom] = useState<string | null>(now)
+  const [applyFrom, setApplyFrom] = useState<string | null>(null)
+  const from = applyFrom ?? now // this month until another is picked
+  // The owner's own ticks; anyone not in here is ticked as the plan says (`selected`).
+  const [ticks, setTicks] = useState<Record<number, boolean>>({})
   const [submitted, setSubmitted] = useState(false)
   const [serverErrors, setServerErrors] = useState<Partial<Record<Field, string>>>({})
   const [formError, setFormError] = useState<string | null>(null)
@@ -115,8 +123,9 @@ function BatchForm({ batch, onDone }: { batch?: BatchRead; onDone: (saved?: Batc
 
   const feePaise = fee.trim() === '' ? null : rupeesToPaise(fee, { allowZero: true })
   const feeChanged = editing && feePaise !== null && feePaise !== batch.default_fee_paise
-  const affected = feeChanged ? feeChangeFor(students, batch, feePaise) : null
-  const canApply = affected !== null && affected.change.length > 0
+  const plan = useFeePlan(batch?.id ?? 0, feePaise, from, Boolean(feeChanged && apply))
+  const planned = plan.data && plan.data.fee_paise === feePaise ? plan.data : undefined
+  const chosen = planned ? chosenOf(planned, ticks) : []
 
   const clientErrors: Partial<Record<Field, string>> = {}
   if (!name.trim()) clientErrors.name = 'Give the batch a name.'
@@ -127,7 +136,11 @@ function BatchForm({ batch, onDone }: { batch?: BatchRead; onDone: (saved?: Batc
   if (start && end && end <= start) clientErrors.end = 'The end time must be after the start time.'
   const feeError = fee.trim() ? amountProblem(fee, { allowZero: true, what: 'fee' }) : null
   if (feeError) clientErrors.fee = feeError
-  if (apply && canApply && !applyFrom) clientErrors.apply = 'Pick the month the new fee starts.'
+  if (feeChanged && apply && chosen.length === 0) {
+    clientErrors.apply = planned
+      ? 'Tick the students to charge it to, or untick “Also charge”.'
+      : 'Wait a moment: the list of students is still loading.'
+  }
 
   const errors = submitted ? { ...serverErrors, ...clientErrors } : serverErrors
   const errorId = (field: Field) => (errors[field] ? `batch-${field}-error` : undefined)
@@ -160,17 +173,18 @@ function BatchForm({ batch, onDone }: { batch?: BatchRead; onDone: (saved?: Batc
           body.default_fee_paise = fields.default_fee_paise
         }
         if (fields.notes !== batch.notes) body.notes = fields.notes
-        const charged = apply && canApply && applyFrom && feePaise !== null
+        const charged = feeChanged && apply && chosen.length > 0 && feePaise !== null
         if (charged) {
           body.apply_fee = {
-            from_month: applyFrom,
-            student_ids: affected.change.map((s) => s.id),
+            from_month: from,
+            student_ids: chosen.map((s) => s.student_id),
+            confirm_planned: chosen.filter((s) => s.status === 'planned').map((s) => s.student_id),
           }
         }
         saved = await updateBatch.mutateAsync({ id: batch.id, body })
         toast.success('Batch saved', {
           description: charged
-            ? `${saved.name}: ${formatRupees(feePaise)} a month from ${formatMonth(applyFrom)} for ${plural(affected.change.length, 'student')}`
+            ? `${saved.name}: ${formatRupees(feePaise)} a month from ${formatMonth(from)} for ${plural(chosen.length, 'student')} (${chosen.map((s) => s.student_name).join(', ')})`
             : saved.name,
         })
       } else {
@@ -332,18 +346,27 @@ function BatchForm({ batch, onDone }: { batch?: BatchRead; onDone: (saved?: Batc
         </div>
       </FormField>
 
-      {feeChanged && affected && (
+      {feeChanged && (
         <ApplyFeeBox
           fee={feePaise}
-          affected={affected}
           apply={apply}
-          onApplyChange={setApply}
-          from={applyFrom}
+          onApplyChange={(on) => {
+            setApply(on)
+            clearServer('apply')
+          }}
+          from={from}
           onFromChange={(m) => {
             setApplyFrom(m)
             clearServer('apply')
           }}
           now={now}
+          plan={planned}
+          loading={plan.isFetching && !planned}
+          ticks={ticks}
+          onTick={(id, on) => {
+            setTicks((t) => ({ ...t, [id]: on }))
+            clearServer('apply')
+          }}
           error={errors.apply}
         />
       )}
@@ -369,83 +392,163 @@ function BatchForm({ batch, onDone }: { batch?: BatchRead; onDone: (saved?: Batc
   )
 }
 
-const listNames = (students: readonly StudentRead[]) =>
-  students.map((s) => `${s.name} (${formatRupees(s.monthly_fee_paise)})`).join(', ')
+/** The students "Also charge" would change: the owner's ticks, else what the plan ticks. */
+function chosenOf(plan: FeePlan, ticks: Record<number, boolean>): FeePlanStudent[] {
+  return plan.students.filter((s) => CAN_TICK.has(s.status) && (ticks[s.student_id] ?? s.selected))
+}
+
+const CAN_TICK = new Set(['usual', 'own_fee', 'planned'])
+
+const GROUPS: { status: FeePlanStudent['status']; title: string; hint?: string }[] = [
+  { status: 'usual', title: 'On the usual fee' },
+  {
+    status: 'own_fee',
+    title: 'Their own fee',
+    hint: 'A discount or a fee of their own: not changed unless you tick them.',
+  },
+  {
+    status: 'planned',
+    title: 'Has a planned fee change — not changed unless you tick them',
+  },
+]
 
 function ApplyFeeBox({
   fee,
-  affected,
   apply,
   onApplyChange,
   from,
   onFromChange,
   now,
+  plan,
+  loading,
+  ticks,
+  onTick,
   error,
 }: {
   fee: number
-  affected: { change: StudentRead[]; ownFee: StudentRead[] }
   apply: boolean
   onApplyChange: (apply: boolean) => void
-  from: string | null
+  from: string
   onFromChange: (month: string | null) => void
   now: string
+  plan: FeePlan | undefined
+  loading: boolean
+  ticks: Record<number, boolean>
+  onTick: (studentId: number, on: boolean) => void
   error?: string
 }) {
-  const { change, ownFee } = affected
+  const chosen = plan ? chosenOf(plan, ticks) : []
+  const past = from < now
+  const dueChange = chosen.reduce((sum, s) => sum + s.due_change_paise, 0)
+  const pastMonths = past ? monthsBetween(from, now) + 1 : 0
+  const already = plan?.students.filter((s) => s.status === 'already') ?? []
+  const gone = plan?.students.filter((s) => s.status === 'not_affected') ?? []
   return (
     <div className="grid gap-3 rounded-xl border border-primary/40 bg-primary/10 p-4 text-base">
       <p className="flex items-start gap-2">
         <InfoIcon className="mt-1 size-4 shrink-0 text-primary-strong" aria-hidden />
-        <span>
-          Changing the usual fee doesn’t change what anyone in this batch pays.
-          {change.length === 0 && ' Everyone in it already pays their own fee.'}
-        </span>
+        <span>Changing the usual fee doesn’t change what anyone in this batch pays.</span>
       </p>
-      {change.length > 0 && (
-        <>
-          <label className="flex items-start gap-2.5 font-bold">
-            <input
-              type="checkbox"
-              className="mt-1 size-4 accent-current"
-              checked={apply}
-              onChange={(e) => onApplyChange(e.target.checked)}
+      <label className="flex items-start gap-2.5 font-bold">
+        <input
+          type="checkbox"
+          className="mt-1 size-4 accent-current"
+          checked={apply}
+          onChange={(e) => onApplyChange(e.target.checked)}
+        />
+        <span>Also charge {formatRupees(fee)} to students in this batch</span>
+      </label>
+      {apply && (
+        <div className="grid gap-3 pl-6">
+          <FormField
+            id="batch-apply-from"
+            label="From"
+            error={error}
+            errorId={error ? 'batch-apply-error' : undefined}
+          >
+            <MonthPicker
+              id="batch-apply-from"
+              label="New fee from"
+              current={now}
+              max={addMonths(now, MONTHS_AHEAD)}
+              value={from}
+              onChange={onFromChange}
+              invalid={Boolean(error)}
+              className="sm:max-w-64"
             />
-            <span>
-              Also charge {formatRupees(fee)} to {plural(change.length, 'student')} in this batch
-            </span>
-          </label>
-          {apply && (
-            <div className="grid gap-3 pl-6">
-              <FormField
-                id="batch-apply-from"
-                label="From"
-                error={error}
-                errorId={error ? 'batch-apply-error' : undefined}
-              >
-                <MonthPicker
-                  id="batch-apply-from"
-                  label="New fee from"
-                  current={now}
-                  max={addMonths(now, MONTHS_AHEAD)}
-                  value={from}
-                  onChange={onFromChange}
-                  invalid={Boolean(error)}
-                  className="sm:max-w-64"
-                />
-              </FormField>
-              <p>
-                <strong>Changes:</strong> {listNames(change)}.{' '}
-                {from &&
-                  `Their fee is ${formatRupees(fee)} from ${formatMonth(from)}; months before it don’t change.`}
-              </p>
-            </div>
-          )}
-          {ownFee.length > 0 && (
-            <p className="text-muted-foreground">
-              <strong className="text-foreground">Keep their own fee:</strong> {listNames(ownFee)}.
+          </FormField>
+          {past && chosen.length > 0 && (
+            <p
+              role="alert"
+              className="rounded-lg border border-partial/40 bg-partial-soft px-3 py-2 text-partial"
+            >
+              {formatMonth(from)} is before this month: {plural(pastMonths, 'month')} already due (
+              {formatMonthSpan(from, now)}) change.{' '}
+              {dueChange === 0
+                ? 'They owe the same for them.'
+                : `The ticked students will owe ${formatRupees(Math.abs(dueChange))} ${dueChange > 0 ? 'more' : 'less'} for them in total.`}
             </p>
           )}
-        </>
+          {!plan ? (
+            <p className="text-muted-foreground">{loading ? 'Finding its students…' : ' '}</p>
+          ) : plan.students.length === 0 ? (
+            <p className="text-muted-foreground">Nobody in this batch yet.</p>
+          ) : (
+            <>
+              {GROUPS.map(({ status, title, hint }) => {
+                const group = plan.students.filter((s) => s.status === status)
+                if (group.length === 0) return null
+                return (
+                  <fieldset key={status} className="grid gap-1.5">
+                    <legend className="mb-1 font-bold">{title}</legend>
+                    {hint && <p className="text-sm text-muted-foreground">{hint}</p>}
+                    {group.map((s) => (
+                      <label key={s.student_id} className="flex items-start gap-2.5">
+                        <input
+                          type="checkbox"
+                          className="mt-1 size-4 accent-current"
+                          checked={ticks[s.student_id] ?? s.selected}
+                          onChange={(e) => onTick(s.student_id, e.target.checked)}
+                        />
+                        <span>
+                          <span className="font-semibold">{s.student_name}</span>{' '}
+                          <span className="text-muted-foreground">
+                            ({formatRupees(s.current_fee_paise)} now
+                            {s.start_month && s.start_month !== from
+                              ? `; from ${formatMonth(s.start_month)}`
+                              : ''}
+                            )
+                          </span>
+                          {status === 'planned' && s.start_month && (
+                            <span className="block text-sm">
+                              {newFeeSentence(s.fee_history, s.start_month, fee, now)}
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    ))}
+                  </fieldset>
+                )
+              })}
+              {already.length > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Already pay {formatRupees(fee)}: {already.map((s) => s.student_name).join(', ')}.
+                </p>
+              )}
+              {gone.length > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Leave before {formatMonth(from)}, so not changed:{' '}
+                  {gone.map((s) => s.student_name).join(', ')}.
+                </p>
+              )}
+              <p className="font-semibold">
+                {chosen.length === 0
+                  ? 'Nobody ticked: no fee changes.'
+                  : `${plural(chosen.length, 'student')} will pay ${formatRupees(fee)} from ${formatMonth(from)} (or when they join); months before don’t change.`}
+              </p>
+            </>
+          )}
+        </div>
       )}
     </div>
   )

@@ -214,6 +214,49 @@ describe('monthly report', () => {
     print.mockRestore()
   })
 
+  it('filters by batch and groups by batch, on screen, in print and in Excel', async () => {
+    const user = userEvent.setup()
+    const { router } = renderApp('/report?month=2026-10')
+    await screen.findByRole('table')
+    const sat = mockDb.batches.find((b) => b.name === 'Sat 10am – HSR Layout')!
+    const inSat = mockDb
+      .report('2026-10')
+      .rows.filter((r) => r.batch_id === sat.id)
+      .map((r) => r.student_name)
+    expect(inSat.length).toBeGreaterThan(0)
+
+    await user.click(screen.getByRole('combobox', { name: 'Batch' }))
+    await user.click(await screen.findByRole('option', { name: `${sat.name} (${inSat.length})` }))
+    expect(router.state.location.search).toBe(`?month=2026-10&batch=${sat.id}`)
+    await waitFor(async () => expect(await rowsShown()).toEqual(inSat))
+    expect(screen.getAllByText(/Showing \d+ of \d+ students/).length).toBeGreaterThan(0)
+    expect(screen.getByText(new RegExp(`Printed on .*${sat.name}`))).toBeInTheDocument()
+
+    await user.click(screen.getByRole('combobox', { name: 'Group by' }))
+    await user.click(await screen.findByRole('option', { name: 'Grouped by batch' }))
+    expect(router.state.location.search).toBe(`?month=2026-10&batch=${sat.id}&group=batch`)
+    const groupHeadings = () =>
+      within(screen.getByRole('table'))
+        .getAllByRole('rowheader')
+        .map((h) => h.textContent)
+    expect(groupHeadings()).toEqual([`${sat.name} · ${inSat.length} students`])
+    expect(screen.getByText(/Grouped by batch/, { selector: 'p' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Download Excel' })).toHaveAttribute(
+      'href',
+      `/api/report.xlsx?month=2026-10&batch=${sat.id}&group=batch`,
+    )
+
+    // Clear filters: every batch again, still grouped, "No batch" last if anyone has none.
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(router.state.location.search).toBe('?month=2026-10&group=batch')
+    const everyone = mockDb.report('2026-10').rows
+    await waitFor(() => expect(groupHeadings().length).toBeGreaterThan(1))
+    const named = mockDb.batches.filter((x) => everyone.some((r) => r.batch_id === x.id))
+    const labels = groupHeadings().map((h) => h!.replace(/ · .*$/, ''))
+    expect(labels.slice(0, named.length).toSorted()).toEqual(named.map((b) => b.name).toSorted())
+    if (everyone.some((r) => r.batch_id === null)) expect(labels.at(-1)).toBe('No batch')
+  })
+
   it('opens on this month without a month in the address', async () => {
     renderApp('/report')
     expect(

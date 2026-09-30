@@ -2,6 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { mockDb } from '@/mocks/node'
+import { plural } from '@/lib/labels'
 import { findDialog, renderApp, withMockApi } from '@/test/render'
 
 withMockApi()
@@ -136,16 +137,23 @@ describe('batches on the Students page', () => {
     expect(await screen.findByText('No students in this batch yet.')).toBeInTheDocument()
   })
 
-  it('changes a batch’s fee for no one, unless ticked, and then only for those on it', async () => {
+  it('changes a batch’s fee for no one, unless ticked, and then only for those ticked', async () => {
     const user = userEvent.setup()
     const sat = batchId(SAT)
-    // One student in the batch pays their own (lower) fee.
+    // One pays their own (lower) fee; one has a discount planned for December.
     const own = mockDb.createStudent({
       name: 'Kiran Bose',
       monthly_fee_paise: 100000,
       joined_month: '2026-01',
       batch_id: sat,
     })
+    const planned = mockDb.createStudent({
+      name: 'Pia Planned',
+      monthly_fee_paise: 180000,
+      joined_month: '2026-01',
+      batch_id: sat,
+    })
+    mockDb.updateStudent(planned.id, { monthly_fee_paise: 90000, fee_effective_month: '2026-12' })
     renderApp(`/students/batch/${sat}`)
     await screen.findByRole('heading', { level: 2, name: SAT })
     await user.click(screen.getByRole('button', { name: 'Edit batch' }))
@@ -156,41 +164,93 @@ describe('batches on the Students page', () => {
     expect(
       dialog.getByText('Changing the usual fee doesn’t change what anyone in this batch pays.'),
     ).toBeInTheDocument()
-    expect(dialog.getByText(/Keep their own fee:/).parentElement).toHaveTextContent(
-      'Kiran Bose (₹1,000)',
-    )
-    const onFee = mockDb.students.filter(
-      (s) =>
-        s.batch_id === sat && !s.left_month && mockDb.getStudent(s.id).monthly_fee_paise === 180000,
-    )
     await user.click(
-      dialog.getByRole('checkbox', {
-        name: `Also charge ₹2,000 to ${onFee.length} students in this batch`,
-      }),
+      dialog.getByRole('checkbox', { name: 'Also charge ₹2,000 to students in this batch' }),
     )
     expect(dialog.getByLabelText(/^New fee from:/)).toHaveTextContent('October 2026')
+    // Ticked at first: only those on the usual ₹1,800.
+    const kiran = await dialog.findByRole('checkbox', { name: /Kiran Bose/ })
+    expect(kiran).not.toBeChecked()
+    const pia = dialog.getByRole('checkbox', { name: /Pia Planned/ })
+    expect(pia).not.toBeChecked()
+    expect(
+      dialog.getByText(/until December 2026, when ₹900 \(already scheduled\) starts/),
+    ).toBeInTheDocument()
+    const onFee = mockDb.students.filter(
+      (s) =>
+        s.batch_id === sat &&
+        !s.left_month &&
+        s.id !== planned.id &&
+        mockDb.getStudent(s.id).monthly_fee_paise === 180000,
+    )
+    for (const s of onFee) {
+      expect(dialog.getByRole('checkbox', { name: new RegExp(s.name) })).toBeChecked()
+    }
+    // Untick one of them: exactly the ticked ones change.
+    const [skipped, ...charged] = onFee
+    await user.click(dialog.getByRole('checkbox', { name: new RegExp(skipped!.name) }))
+    expect(
+      dialog.getByText(`${plural(charged.length, 'student')} will pay ₹2,000 from October 2026`, {
+        exact: false,
+      }),
+    ).toBeInTheDocument()
     await user.click(dialog.getByRole('button', { name: 'Save changes' }))
     expect(await screen.findByText('Batch saved')).toBeInTheDocument()
 
-    for (const s of onFee) {
+    for (const s of charged) {
       expect(mockDb.getStudent(s.id).fee_history.at(-1)).toMatchObject({
         effective_month: '2026-10',
         amount_paise: 200000,
       })
     }
+    expect(mockDb.getStudent(skipped!.id).monthly_fee_paise).toBe(180000)
     expect(mockDb.getStudent(own.id).fee_history).toHaveLength(1)
+    expect(mockDb.getStudent(planned.id).fee_history.map((f) => f.amount_paise)).toEqual([
+      180000, 90000,
+    ])
+  })
+
+  it('warns what a month already due would owe', async () => {
+    const user = userEvent.setup()
+    const sat = batchId(SAT)
+    renderApp(`/students/batch/${sat}`)
+    await screen.findByRole('heading', { level: 2, name: SAT })
+    await user.click(screen.getByRole('button', { name: 'Edit batch' }))
+    const dialog = await findDialog(`Edit ${SAT}`)
+    const fee = dialog.getByLabelText(/Usual monthly fee/)
+    await user.clear(fee)
+    await user.type(fee, '2000')
+    await user.click(
+      dialog.getByRole('checkbox', { name: 'Also charge ₹2,000 to students in this batch' }),
+    )
+    await dialog.findAllByRole('checkbox', { checked: true })
+    await user.click(dialog.getByRole('button', { name: /^New fee from:/ }))
+    await user.click(await screen.findByRole('button', { name: 'August 2026' }))
+    const ticked = mockDb.students.filter(
+      (s) =>
+        s.batch_id === sat && !s.left_month && mockDb.getStudent(s.id).monthly_fee_paise === 180000,
+    )
+    // August to October: 3 months already due, ₹200 more each for every ticked student.
+    const warning = await dialog.findByRole('alert')
+    expect(warning).toHaveTextContent('3 months already due (August–October 2026) change')
+    expect(warning).toHaveTextContent(
+      `owe ₹${(ticked.length * 3 * 200).toLocaleString('en-IN')} more for them in total`,
+    )
   })
 
   it('deletes a batch after saying what happens to its students', async () => {
     const user = userEvent.setup()
     const sat = batchId(SAT)
     const members = mockDb.students.filter((s) => s.batch_id === sat)
+    const left = members.filter((s) => s.left_month && s.left_month < '2026-10').length
     const { router } = renderApp(`/students/batch/${sat}`)
     await screen.findByRole('heading', { level: 2, name: SAT })
     await user.click(screen.getByRole('button', { name: `Delete ${SAT}` }))
     const dialog = within(await screen.findByRole('alertdialog', { name: `Delete ${SAT}?` }))
     expect(
-      dialog.getByText(`Its ${members.length} students aren’t deleted: they all move to No batch.`),
+      dialog.getByText(
+        `Its ${members.length} students${left ? `, including ${left} who ${left === 1 ? 'has' : 'have'} left,` : ''} aren’t deleted: they all move to No batch.`,
+      ),
     ).toBeInTheDocument()
     await user.click(dialog.getByRole('button', { name: 'Delete batch' }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/students'))
@@ -224,6 +284,7 @@ describe('batches on the Students page', () => {
     const dialog = await findDialog('Create batches from existing labels')
     expect(dialog.getByText(/1 new batch from 3 students/)).toBeInTheDocument()
     expect(dialog.getByText('Leela Das, Mohan Rao, Ravi Kumar')).toBeInTheDocument()
+    expect(dialog.queryByText(/nobody coming now/)).not.toBeInTheDocument()
     expect(mockDb.batches.some((b) => b.name === 'Thu 7pm Adults')).toBe(false) // not yet
     await user.click(dialog.getByRole('button', { name: 'Create 1 batch' }))
     expect(await screen.findByText('1 batch created')).toBeInTheDocument()
@@ -274,7 +335,7 @@ describe('batches on the Students page', () => {
     const fees = table
       .getAllByRole('row')
       .slice(1)
-      .map((row) => within(row).getAllByRole('cell')[2]!.textContent!)
+      .map((row) => within(row).getAllByRole('cell')[3]!.textContent!) // after the tick box
       .map((text) => Number(text.replace(/[^\d]/g, '').slice(0, 4)))
     expect(fees).toEqual([...fees].sort((a, b) => b - a))
   })

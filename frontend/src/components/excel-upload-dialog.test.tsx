@@ -357,4 +357,124 @@ describe('Upload Excel', () => {
     const table = within(screen.getByRole('table'))
     expect(await table.findByRole('link', { name: 'Ishaan Kapoor' })).toBeInTheDocument()
   })
+
+  it('lists the file’s batches, and creates a not-found one only when ticked', async () => {
+    const commits: ImportCommit[] = []
+    server.use(
+      http.post('*/api/import/preview', () =>
+        HttpResponse.json(
+          counted({
+            ...thePreview(),
+            students: [
+              student(2, 'Ishaan Kapoor', 'new', { batch_name: 'Evening' }),
+              student(3, 'Tara Singh', 'new', { batch_name: 'Thu 7pm Adults' }),
+            ],
+            payments: [],
+            batches: [
+              {
+                name: 'Evening',
+                status: 'new',
+                reason: null,
+                row: 2,
+                student_count: 1,
+                batch_id: null,
+              },
+              {
+                name: 'Thu 7pm Adults',
+                status: 'not_found',
+                reason: 'Batch not found, will be left without a batch',
+                row: null,
+                student_count: 1,
+                batch_id: null,
+              },
+              {
+                name: 'Broken',
+                status: 'problem',
+                reason: 'Days “Someday” isn’t a list of days. Write it like Mon, Wed',
+                row: 3,
+                student_count: 0,
+                batch_id: null,
+              },
+            ],
+          }),
+        ),
+      ),
+      http.post('*/api/import/commit', async ({ request }) => {
+        commits.push((await request.clone().json()) as ImportCommit)
+        return HttpResponse.json({
+          students_added: 2,
+          fee_changes_added: 2,
+          payments_added: 0,
+          unassigned_added: 0,
+          skipped: 0,
+          backup_file: 'records-pre-import-20261015-100000.db',
+          batches_added: 2,
+        })
+      }),
+    )
+    const { user, dialog } = await openUpload('/payments')
+    await user.upload(dialog.getByLabelText('Excel file to upload'), file())
+    const batches = within(await dialog.findByRole('region', { name: 'Batches (3)' }))
+    expect(batches.getByText('Will be added')).toBeInTheDocument()
+    expect(
+      batches.getByText(
+        'Batch not found, will be left without a batch (the name is kept as their old class label).',
+      ),
+    ).toBeInTheDocument()
+    expect(batches.getByText(/isn’t a list of days/)).toBeInTheDocument()
+    // Each student's batch, as written.
+    expect(dialog.getByRole('columnheader', { name: 'Batch' })).toBeInTheDocument()
+
+    const create = batches.getByRole('checkbox', { name: 'Create it' })
+    expect(create).not.toBeChecked()
+    await user.click(create)
+    expect(batches.getByText(/It will be created/)).toBeInTheDocument()
+    await user.click(dialog.getByRole('button', { name: 'Add' }))
+    expect(await screen.findByText('Added 2 students')).toBeInTheDocument()
+    expect(screen.getByText(/2 batches created\./)).toBeInTheDocument()
+    expect(commits[0]!.create_batches).toEqual(['Thu 7pm Adults'])
+  })
+
+  it('never asks to create a batch that wasn’t ticked', async () => {
+    const commits: ImportCommit[] = []
+    server.use(
+      http.post('*/api/import/preview', () =>
+        HttpResponse.json(
+          counted({
+            ...thePreview(),
+            students: [student(2, 'Tara Singh', 'new', { batch_name: 'Thu 7pm' })],
+            payments: [],
+            batches: [
+              {
+                name: 'Thu 7pm',
+                status: 'not_found',
+                reason: 'Batch not found, will be left without a batch',
+                row: null,
+                student_count: 1,
+                batch_id: null,
+              },
+            ],
+          }),
+        ),
+      ),
+      http.post('*/api/import/commit', async ({ request }) => {
+        commits.push((await request.clone().json()) as ImportCommit)
+        return HttpResponse.json({
+          students_added: 1,
+          fee_changes_added: 1,
+          payments_added: 0,
+          unassigned_added: 0,
+          skipped: 0,
+          backup_file: null,
+          batches_added: 0,
+        })
+      }),
+    )
+    const { user, dialog } = await openUpload('/payments')
+    await user.upload(dialog.getByLabelText('Excel file to upload'), file())
+    await dialog.findByRole('region', { name: 'Batches (1)' })
+    await user.click(dialog.getByRole('button', { name: 'Add' }))
+    expect(await screen.findByText('Added 1 student')).toBeInTheDocument()
+    expect(commits[0]!.create_batches).toEqual([])
+  })
 })

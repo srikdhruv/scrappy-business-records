@@ -2,7 +2,6 @@ import type { BatchRead, LabelPreview, StudentRead } from '@/api/types'
 import {
   batchMatches,
   batchPath,
-  feeChangeFor,
   formatDays,
   formatSchedule,
   formatTime,
@@ -186,23 +185,6 @@ describe('the students table', () => {
 })
 
 describe('forms', () => {
-  it('charges a new usual fee only to those paying the old one', () => {
-    const b = batch(1, { default_fee_paise: 150000 })
-    const list = [
-      student(1, { batch_id: 1, monthly_fee_paise: 150000 }),
-      student(2, { batch_id: 1, monthly_fee_paise: 120000 }), // their own fee
-      student(3, { batch_id: 1, monthly_fee_paise: 180000 }), // already on it
-      student(4, { batch_id: 1, monthly_fee_paise: 150000, is_active: false }), // left
-      student(5, { batch_id: 2, monthly_fee_paise: 150000 }), // another batch
-    ]
-    const { change, ownFee } = feeChangeFor(list, b, 180000)
-    expect(change.map((s) => s.id)).toEqual([1])
-    expect(ownFee.map((s) => s.id)).toEqual([2])
-    // No usual fee before: everyone in it is offered the change.
-    const none = feeChangeFor(list, batch(1), 180000)
-    expect(none.change.map((s) => s.id)).toEqual([1, 2])
-  })
-
   it('sums up the label conversion', () => {
     const preview = (newCount: number, groups: number, students: number): LabelPreview => ({
       groups: Array.from({ length: groups }, (_, i) => ({
@@ -210,6 +192,8 @@ describe('forms', () => {
         labels: [`G${i}`],
         student_count: 1,
         student_names: ['x'],
+        left_student_names: [],
+        active_student_count: 1,
         existing_batch_id: i < groups - newCount ? 9 : null,
       })),
       student_count: students,

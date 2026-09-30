@@ -261,24 +261,6 @@ export function groupStudents(
 
 // ---- Forms --------------------------------------------------------------------------------------
 
-/** Who "Also charge the new fee" would change, and who keeps their own fee. */
-export function feeChangeFor(
-  students: readonly StudentRead[],
-  batch: BatchRead,
-  newFee: number,
-): { change: StudentRead[]; ownFee: StudentRead[] } {
-  const members = students.filter((s) => s.batch_id === batch.id && s.is_active)
-  const old = batch.default_fee_paise
-  const change: StudentRead[] = []
-  const ownFee: StudentRead[] = []
-  for (const s of members) {
-    if (s.monthly_fee_paise === newFee) continue // already pays it
-    if (old === null || s.monthly_fee_paise === old) change.push(s)
-    else ownFee.push(s)
-  }
-  return { change, ownFee }
-}
-
 /** Every word typed appears in the batch's name, location, days or times. */
 export function batchMatches(batch: BatchRead, typed: string): boolean {
   const words = fold(typed).split(/\s+/).filter(Boolean)

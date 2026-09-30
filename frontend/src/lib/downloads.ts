@@ -13,9 +13,17 @@ function url(path: string, params: Record<string, string | number | undefined | 
   return text ? `${path}?${text}` : path
 }
 
-/** The students on the Students page: this tab, and what's typed in the search. */
-export function studentsDownloadUrl(tab: 'active' | 'left' | 'all', search: string): string {
-  return url('/api/export/students.xlsx', { status: tab, q: search.trim() || undefined })
+/** The students on the Students page: the batch tab, the Show choice, and the search. */
+export function studentsDownloadUrl(
+  show: 'active' | 'left' | 'all',
+  search: string,
+  batch?: number | 'none',
+): string {
+  return url('/api/export/students.xlsx', {
+    status: show,
+    q: search.trim() || undefined,
+    batch: batch ?? undefined,
+  })
 }
 
 export interface PaymentsShown {
