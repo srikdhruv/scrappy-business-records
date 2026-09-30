@@ -33,8 +33,10 @@ click *Don't Allow*, the app still works, and keeps its backups next to your dat
 
 ## Update
 
-Run the same line again. Your data is kept, and a backup is taken first. To install a specific
-version: `curl -fsSL <the same address> | sh -s -- --version v0.1.0`.
+From version 0.2.0, the app offers new versions itself: click **Update now** when it says "A new
+version is ready" ([update.md](update.md)). Or run the same line again. Your data is kept, and a
+backup is taken first. To install a specific version:
+`curl -fsSL <the same address> | sh -s -- --version v0.1.0`.
 
 ## If something goes wrong
 

@@ -44,6 +44,28 @@ Another program is using the app's port.
 
 Press **Ctrl + F5** in the browser to force a full reload.
 
+## The update didn't finish
+
+After **Update now**, the page says **"The update didn't finish"** (or **"The update is taking
+too long"**).
+
+- **Your records are safe.** An update never touches them, and a backup was taken first.
+- **The old version is still there.** If the new one couldn't be put in place, the installer
+  put the old one back and opened it again. Click **Back to the app** and carry on.
+- If the page says the app isn't answering, double-click **Scrappy Records** on the Desktop (on
+  a Mac, open it from Applications), then click **Check again**.
+- **Try again later** from **⚙ Settings → About → Update now**. The most common cause is the
+  internet dropping during the download.
+- If it keeps failing, update with the pasted line instead ([update.md](update.md#the-pasted-line-the-first-install-and-the-fallback)),
+  and send the log to whoever set this up: `%LOCALAPPDATA%\ScrappyRecords\logs\update.log`
+  (the page shows the exact path; on a Mac,
+  `~/Library/Application Support/ScrappyRecords/logs/update.log`). Its last lines say what went
+  wrong, in the same words as the pasted line would (see the table below).
+
+**About says "Couldn't check just now"**: the laptop is offline, or GitHub didn't answer. It
+tries again by itself; nothing else is affected. "GitHub asked the app to wait" means it checked
+too often (GitHub allows 60 checks an hour per internet connection): it waits and tries later.
+
 ## The install line shows an error
 
 The installer ends with **"Sorry, Scrappy Records was NOT installed. Your data has not been

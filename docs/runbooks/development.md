@@ -195,7 +195,12 @@ searching, the Excel download (read back with openpyxl through `uv run`), the pr
 already there, one new), and gives a payment whose student wasn't found to another student.
 `e2e/feedback.spec.ts` sends feedback with a picture to a fake relay (`e2e/fake-relay.mjs`, a
 second web server in `playwright.config.ts`, which also points `SCRAPPY_FEEDBACK_URL` at it), and
-checks what arrived. Each test sets up its own students through the API, relative to
+checks what arrived. `e2e/update.spec.ts` points the update check at the same fake relay's
+stand-in for GitHub's latest release (`SCRAPPY_UPDATE_FEED_URL`, `POST /feed` sets the release):
+the real server reads it and refuses other websites' start requests; then, with the start and
+the restart faked in the browser (this server runs from source, so it can't really update
+itself), the banner, See what's new, Update now, Updating… and the reload onto the new version.
+Each test sets up its own students through the API, relative to
 the server's current month. The first run needs a browser: `cd frontend && npx playwright install
 chromium`. CI's `e2e` job runs the same thing, with the browser cached.
 
@@ -290,6 +295,24 @@ letters. It checks, in order:
    bind".
 11. A failing one-line install prints the friendly message and throws a catchable error, but
     doesn't end the PowerShell session (it never calls `exit`).
+
+Then **the in-app update** (`scripts/ci/smoke_in_app_update.py`, run with uv's Python, the same
+script on both OSes): it installs a copy of the bundle whose `VERSION` says 0.0.1, opens it with
+the launcher (no developer tools on PATH), adds a student and a payment, and serves a fake
+"latest release" (this bundle's version) and this commit's installer from 127.0.0.1
+(`SCRAPPY_UPDATE_FEED_URL`, `SCRAPPY_UPDATE_INSTALLER_URL`, and `SCRAPPY_UPDATE_ZIP` = the real
+bundle). It checks that the app offers the update and refuses other websites' requests; that a
+missing installer gives a plain 424 and changes nothing; that an installer failing after its
+backup (`SCRAPPY_TEST_FAIL_AFTER_BACKUP`, a test-only hook) closes the app, reopens the old
+version and reports "didn't finish"; and then the real update through `/api/update/start`
+(installer detached, from the app): a second start is refused, the new version answers, the
+data and a pre-update backup are there, `update-attempt.json` says it succeeded, nothing is
+left behind, and the launcher saw the waiting page (no second tab). Run it locally after
+`make package`:
+
+```bash
+uv run --project backend python scripts/ci/smoke_in_app_update.py dist/scrappy-records-macos-arm64.zip
+```
 
 **`post-release-verify.yml`** installs a published release on a fresh `windows-latest`
 (`scripts/ci/verify_release_windows.ps1`). `release.yml` calls it twice: mode `tagged`

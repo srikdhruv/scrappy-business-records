@@ -2,6 +2,7 @@ import {
   addMonths,
   currentMonth,
   formatDate,
+  formatDateTime,
   formatMonth,
   formatMonthShort,
   formatMonthSpan,
@@ -136,6 +137,12 @@ describe('dates and months', () => {
   it('formats dates', () => {
     expect(formatDate('2026-10-05')).toBe('5 Oct 2026')
     expect(formatDate('2026-01-31')).toBe('31 Jan 2026')
+  })
+
+  it('formats a moment in local time', () => {
+    const local = new Date(2026, 8, 30, 9, 5) // 30 Sep 2026, 09:05 on this machine
+    expect(formatDateTime(local.toISOString())).toBe('30 Sep 2026, 09:05')
+    expect(formatDateTime('not a date')).toBe('not a date')
   })
 
   it('formats months', () => {

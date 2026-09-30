@@ -742,11 +742,12 @@ class Updater:
             return UpdateReason.check_failed if self.checker.error else UpdateReason.not_checked_yet
         if not available:
             return UpdateReason.up_to_date
+        # A copy running from source says so first (whatever the computer), so dev and CI agree.
+        if self.installed() is None:
+            return UpdateReason.not_installed
         kind = self.kind()
         if kind is None:
             return UpdateReason.unsupported
-        if self.installed() is None:
-            return UpdateReason.not_installed
         if ASSETS[kind] not in result.assets:
             return UpdateReason.no_download
         return None
