@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import enum
+from typing import Any, ClassVar
 
 from sqlalchemy import (
     CheckConstraint,
@@ -61,6 +62,10 @@ def _valid_date(column: str) -> str:
 
 
 class TimestampMixin:
+    # Read the database-set timestamps back in the INSERT/UPDATE itself (RETURNING), so they are
+    # loaded before a response is built and never lazy-loaded later.
+    __mapper_args__: ClassVar[dict[str, Any]] = {"eager_defaults": True}
+
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.current_timestamp()
     )
@@ -161,11 +166,14 @@ class Payment(TimestampMixin, Base):
     )
     note: Mapped[str | None] = mapped_column(Text)
 
-    student: Mapped[Student] = relationship(back_populates="payments")
+    # `raise`: reading `payment.student` without loading it first (joinedload/selectinload) is
+    # an error, not a hidden query per row.
+    student: Mapped[Student] = relationship(back_populates="payments", lazy="raise")
 
     @property
     def student_name(self) -> str:
-        """So `PaymentRead.model_validate(payment)` works straight from an ORM row."""
+        """So `PaymentRead.model_validate(payment)` works straight from an ORM row. Load the
+        student with the payment (`joinedload(Payment.student)`) first."""
         return self.student.name
 
     __table_args__ = (

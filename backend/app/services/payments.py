@@ -111,7 +111,6 @@ def create_payment(session: Session, body: PaymentCreate) -> PaymentRead:
     )
     session.add(payment)
     session.commit()
-    session.refresh(payment)
     return get_payment(session, payment.id)
 
 
@@ -133,7 +132,6 @@ def update_payment(session: Session, payment_id: int, body: PaymentUpdate) -> Pa
     if "note" in sent:
         payment.note = body.note
     session.commit()
-    session.refresh(payment)
     return get_payment(session, payment.id)
 
 

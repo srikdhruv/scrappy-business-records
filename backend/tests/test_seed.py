@@ -68,9 +68,8 @@ def test_seed_mix(session: Session) -> None:
     ]
 
     # One advance payment (for next month).
-    assert [(p.student.name, p.for_month) for p in payments if p.for_month > NOW] == [
-        ("Aarav Bhat", add_months(NOW, 1))
-    ]
+    ahead = [(s.name, p.for_month) for s in students for p in s.payments if p.for_month > NOW]
+    assert ahead == [("Aarav Bhat", add_months(NOW, 1))]
 
     # The dashboard for this month.
     board = ledger.build_dashboard(records, NOW, NOW)
