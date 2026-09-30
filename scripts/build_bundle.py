@@ -71,6 +71,7 @@ class Target:
     python: str  # interpreter, relative to the bundle root
     site_packages: str
     pth_to_root: str  # the bundle root, relative to site-packages (.pth lines are relative)
+    prune: tuple[str, ...]  # globs under python/ for parts the app never uses
 
 
 TARGETS = {
@@ -80,6 +81,19 @@ TARGETS = {
         python="python/python.exe",
         site_packages="python/Lib/site-packages",
         pth_to_root="../../..",
+        prune=(
+            "include",
+            "libs",  # import libraries, for compiling extensions
+            "tcl",  # Tcl/Tk
+            "DLLs/_tkinter.pyd",
+            "DLLs/tcl*.dll",
+            "DLLs/tk*.dll",
+            "DLLs/_test*.pyd",
+            "DLLs/_ctypes_test.pyd",
+            "DLLs/xxlimited*.pyd",
+            "**/*.pdb",  # debug symbols
+            "Scripts",
+        ),
     ),
     "macos-arm64": Target(
         triple="aarch64-apple-darwin",
@@ -87,36 +101,27 @@ TARGETS = {
         python="python/bin/python3",
         site_packages="python/lib/python3.12/site-packages",
         pth_to_root="../../../..",
+        prune=(
+            "include",
+            "share",
+            "lib/tcl*",  # Tcl/Tk
+            "lib/tk*",
+            "lib/itcl*",
+            "lib/thread*",
+            "lib/libtcl*",
+            "lib/libtk*",
+            "lib/python3.12/lib-dynload/_tkinter*",
+            "bin/idle*",
+            "bin/pip*",
+            "bin/2to3*",
+            "bin/pydoc*",
+        ),
     ),
 }
 
-# Parts of Python the app never uses (tests, IDLE, Tk, pip, C headers). Dropping them makes the
-# download smaller. Standard-library folders, then globs relative to the bundle's python/ folder.
+# Standard-library folders the app never uses. Dropping them (and each target's `prune` list)
+# makes the download smaller.
 PRUNE_STDLIB = ("test", "idlelib", "turtledemo", "tkinter", "lib2to3", "ensurepip")
-PRUNE_GLOBS = (
-    "include",
-    "share",
-    "libs",  # Windows import libraries, for compiling extensions
-    "tcl",  # Windows Tcl/Tk
-    "DLLs/_tkinter.pyd",
-    "DLLs/tcl*.dll",
-    "DLLs/tk*.dll",
-    "lib/tcl*",  # macOS Tcl/Tk
-    "lib/tk*",
-    "lib/itcl*",
-    "lib/thread*",
-    "lib/libtcl*",
-    "lib/libtk*",
-    "lib/python3.12/lib-dynload/_tkinter*",
-    "bin/idle*",
-    "bin/pip*",
-    "bin/2to3*",
-    "bin/pydoc*",
-    "**/*.pdb",  # Windows debug symbols
-    "DLLs/_test*.pyd",
-    "DLLs/_ctypes_test.pyd",
-    "DLLs/xxlimited*.pyd",
-)
 
 WINDOWS_CMD = r"""@echo off
 rem Starts Scrappy Records like the Desktop shortcut does, but in a console so errors show.
@@ -205,7 +210,9 @@ def install_python(archive: Path, bundle: Path, target: Target) -> None:
         marker.unlink()
     lib = stdlib_dir(bundle, target)
     doomed = [lib / name for name in PRUNE_STDLIB]
-    doomed += [p for pattern in PRUNE_GLOBS for p in (bundle / "python").glob(pattern)]
+    # Per platform: Windows paths are case-insensitive, so a macOS pattern like lib/thread*
+    # would also match Lib/threading.py there.
+    doomed += [p for pattern in target.prune for p in (bundle / "python").glob(pattern)]
     doomed += list((bundle / target.site_packages).glob("pip*"))
     remove(doomed)
 

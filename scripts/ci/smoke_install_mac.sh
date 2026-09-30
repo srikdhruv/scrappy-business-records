@@ -86,13 +86,15 @@ import socket, time
 s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 s.bind(('127.0.0.1', $PORT)); s.listen(); time.sleep(30)" &
 BLOCKER=$!
-sleep 1
+for _ in $(seq 1 40); do /usr/bin/nc -z 127.0.0.1 "$PORT" 2>/dev/null && break; sleep 0.25; done
+/usr/bin/nc -z 127.0.0.1 "$PORT" || { echo "the dummy listener didn't start" >&2; exit 1; }
 if (cd / && py -m app.launcher); then
     kill $BLOCKER
     echo "the launcher should have failed" >&2
     exit 1
 fi
 kill $BLOCKER
-grep -q "Something else is using port $PORT" "$ROOT/logs/server.log"
+grep -q "Something else is using port $PORT" "$ROOT/logs/server.log" ||
+    { tail -20 "$ROOT/logs/server.log"; echo "server.log does not explain the clash" >&2; exit 1; }
 
 printf '\nSMOKE TEST PASSED\n'

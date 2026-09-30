@@ -50,11 +50,11 @@ e2e: build ## Build, then run the Playwright end-to-end tests against the produc
 	cd frontend && npx playwright test
 
 lint: ## Lint and type-check everything (ruff, eslint, prettier --check, tsc)
-	cd backend && uv run ruff check . && uv run ruff format --check .
+	cd backend && uv run ruff check . ../scripts && uv run ruff format --check . ../scripts
 	cd frontend && npm run lint && npm run typecheck
 
 fmt: ## Auto-format everything (ruff, prettier, eslint --fix)
-	cd backend && uv run ruff format . && uv run ruff check --fix .
+	cd backend && uv run ruff format . ../scripts && uv run ruff check --fix . ../scripts
 	cd frontend && npm run fmt
 
 gen-api: ## Regenerate frontend/src/api/schema.d.ts from the backend's OpenAPI (no server needed)
