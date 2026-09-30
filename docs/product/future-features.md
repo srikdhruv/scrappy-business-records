@@ -34,6 +34,18 @@ taught by a hired instructor), and each batch has several students.
   payments.
 - Filter by location, batch and status.
 
+## 2b. Smarter handling of extra money
+
+In the MVP, payments are recorded exactly as typed. Credit (money in overpaid months) is shown
+next to the student ("has ₹X credit"), and the owner fixes it by editing the payment's month.
+Options considered for later:
+
+- **Offer to split:** when the amount is more than that month's fee, the form offers "Split
+  ₹3,000 across August and September?" and records one payment per month. This needs
+  `payment_allocations` (see §3).
+- **Automatic carry-forward:** extra money automatically covers the next unpaid months. Less
+  manual work, but what she typed and what she sees can differ.
+
 ## 3. Bank statement import (Excel/CSV)
 
 Most payments arrive over **UPI**. Instead of typing each one:
