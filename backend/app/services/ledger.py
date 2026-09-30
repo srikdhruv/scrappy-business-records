@@ -313,26 +313,25 @@ def _after_leaving(student: StudentRecord, month: dt.date) -> bool:
 
 def paid_ahead(student: StudentRecord, current_month: dt.date) -> int:
     """Money paid for months after the current month that the student is still enrolled in
-    (rule 5: not due yet, not credit). A payment for a month after they leave isn't paying
-    ahead: it is credit (see `credit`)."""
+    (rule 5: not due yet, not credit), up to each month's fee. Anything above a month's fee (all
+    of it, in a month with a 0 fee, such as a month away) is credit, not paid ahead (see
+    `credit`). So is a payment for a month after they leave."""
     return sum(
-        paid
+        min(paid, student.expected(m))
         for m, paid in student.paid_by_month.items()
         if m > current_month and not _after_leaving(student, m)
     )
 
 
 def credit(student: StudentRecord, current_month: dt.date) -> int:
-    """Money in overpaid months: the sum of max(0, paid - expected) over months up to and
-    including the current month, including months the student isn't enrolled in (before
-    joining, after leaving). Plus anything paid for a month after they leave, even a later
-    one: they owe nothing then, so it was most likely meant for another month. Payments for
-    later months they are still enrolled in are "paid ahead", not credit."""
-    return sum(
-        max(0, paid - student.expected(m))
-        for m, paid in student.paid_by_month.items()
-        if m <= current_month or _after_leaving(student, m)
-    )
+    """Money in overpaid months: the sum of max(0, paid - expected) over every month with a
+    payment, including months the student isn't enrolled in (before joining, after leaving)
+    and months still to come. A later month they're enrolled in is "paid ahead" up to its fee
+    (`paid_ahead`); only what's above the fee is credit, and in a month with a 0 fee (a month
+    away) that's all of it. They owe nothing then, so it was most likely meant for another
+    month. `current_month` is unused; it's kept so every rule has the same signature."""
+    del current_month
+    return sum(max(0, paid - student.expected(m)) for m, paid in student.paid_by_month.items())
 
 
 def tenure_months(student: StudentRecord, current_month: dt.date) -> int:
@@ -475,7 +474,8 @@ def build_dashboard(
         line = month_line(s, month, current_month)
         collected += line.paid_paise
         if s.is_active(month):
-            active_count += 1
+            if line.expected_paise > 0:  # a ₹0 month (a month off, a free place) isn't counted
+                active_count += 1
             expected_total += line.expected_paise
             still_due += line.remaining_paise
             if line.is_owing:

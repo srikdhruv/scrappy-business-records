@@ -318,7 +318,7 @@ export interface components {
             not_fully_paid_count: number;
             /**
              * Active Student Count
-             * @description Students active in M.
+             * @description Students with a fee due in M: active in M, with a fee above 0.
              */
             active_student_count: number;
         };
@@ -631,6 +631,8 @@ export interface components {
              * @description Money in overpaid months up to this month: the sum of max(0, paid - expected) over months up to and including the current month. Payments for later months (paid ahead) are not credit.
              */
             credit_paise: number;
+            /** @description The first fee change after the month monthly_fee_paise is for, if any (so the UI can say "No fee until December 2026, then ₹1,000"). */
+            next_fee_change: components["schemas"]["FeeChangeRead"] | null;
             /**
              * Tenure Months
              * @description How long they have been a student, in months. Still coming: whole months since joined_month (0 in the joining month or before). Left (left_month before the current month): the months enrolled, both ends counted (left_month - joined_month + 1).
@@ -735,6 +737,8 @@ export interface components {
              * @description Money in overpaid months up to this month: the sum of max(0, paid - expected) over months up to and including the current month. Payments for later months (paid ahead) are not credit.
              */
             credit_paise: number;
+            /** @description The first fee change after the month monthly_fee_paise is for, if any (so the UI can say "No fee until December 2026, then ₹1,000"). */
+            next_fee_change: components["schemas"]["FeeChangeRead"] | null;
             /**
              * Tenure Months
              * @description How long they have been a student, in months. Still coming: whole months since joined_month (0 in the joining month or before). Left (left_month before the current month): the months enrolled, both ends counted (left_month - joined_month + 1).
@@ -772,6 +776,11 @@ export interface components {
              * @example 2026-10
              */
             from_month: string;
+            /**
+             * Monthly Fee Paise
+             * @description Their fee from from_month. Defaults to the fee their schedule has for that month, ignoring ₹0 fees left by an earlier return.
+             */
+            monthly_fee_paise?: number | null;
         };
         /**
          * StudentUpdate

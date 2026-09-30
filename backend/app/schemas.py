@@ -367,6 +367,17 @@ class StudentReturn(_Model):
         description="The first month they owe again: after left_month, at most 24 months "
         "after the current month."
     )
+    monthly_fee_paise: FeePaise | None = Field(
+        default=None,
+        description="Their fee from from_month. Defaults to the fee their schedule has for that "
+        "month, ignoring ₹0 fees left by an earlier return.",
+    )
+
+
+class FeeChangeRead(_ReadModel):
+    id: int
+    effective_month: Month
+    amount_paise: NonNegativePaise
 
 
 class StudentRead(_ReadModel):
@@ -407,6 +418,10 @@ class StudentRead(_ReadModel):
         "expected) over months up to and including the current month. Payments for later "
         "months (paid ahead) are not credit."
     )
+    next_fee_change: FeeChangeRead | None = Field(
+        description="The first fee change after the month monthly_fee_paise is for, if any "
+        '(so the UI can say "No fee until December 2026, then ₹1,000").'
+    )
     tenure_months: int = Field(
         ge=0,
         description="How long they have been a student, in months. Still coming: whole months "
@@ -418,12 +433,6 @@ class StudentRead(_ReadModel):
     )
     created_at: UtcDatetime
     updated_at: UtcDatetime
-
-
-class FeeChangeRead(_ReadModel):
-    id: int
-    effective_month: Month
-    amount_paise: NonNegativePaise
 
 
 class LedgerMonth(_ReadModel):
@@ -516,7 +525,9 @@ class DashboardSummary(_ReadModel):
     collected_paise: NonNegativePaise = Field(description="Payments whose for_month is M.")
     still_due_paise: NonNegativePaise = Field(description="Sum of max(0, expected - paid).")
     not_fully_paid_count: int = Field(ge=0, description="Students unpaid or partial for M.")
-    active_student_count: int = Field(ge=0, description="Students active in M.")
+    active_student_count: int = Field(
+        ge=0, description="Students with a fee due in M: active in M, with a fee above 0."
+    )
 
 
 class YetToPayItem(_ReadModel):

@@ -165,11 +165,12 @@ def test_future_payment_is_paid_ahead_not_overpaid() -> None:
     assert by_month[JUN].is_due and not by_month[JUL].is_due
     assert by_month[JUL].status is PAID
     assert by_month[AUG].status is UNPAID and not by_month[AUG].is_due
-    # Paid ahead counts towards the net balance, but it isn't credit: nothing is owed or
-    # overpaid, so they're up to date, with money paid ahead ...
-    assert (led.balance_paise, led.status) == (3500_00, BalanceStatus.up_to_date)
-    assert (led.owed_paise, led.credit_paise, led.paid_ahead_paise) == (0, 0, 3500_00)
-    # ... but never shows up as overpaid or backlog, even on a future dashboard.
+    # Paid ahead counts towards the net balance, but it isn't credit, up to each month's fee.
+    assert led.balance_paise == 3500_00
+    # September: ₹2,000 against a ₹1,500 fee is ₹1,500 paid ahead and ₹500 extra (credit).
+    assert (led.owed_paise, led.credit_paise, led.paid_ahead_paise) == (0, 500_00, 3000_00)
+    assert led.status is BalanceStatus.credit
+    # ... but a future month never shows up in the dashboard's overpaid or backlog lists.
     for m in (JUN, JUL, SEP, DEC):
         board = ledger.build_dashboard([s], m, NOW)
         assert board.overpaid == ()
@@ -252,7 +253,7 @@ def test_zero_fee() -> None:
     assert set(statuses(led).values()) == {NA}
     assert (led.balance_paise, led.status) == (0, BalanceStatus.up_to_date)
     board = ledger.build_dashboard([s], NOW, NOW)
-    assert board.summary.active_student_count == 1
+    assert board.summary.active_student_count == 0  # nobody with a fee due that month
     assert board.summary.expected_paise == 0
     assert board.yet_to_pay == ()
     # Nothing is ever owed, so nothing is suggested: a 0-fee month is never "next due".
@@ -576,10 +577,19 @@ def test_student_invariants(s: StudentRecord, current: dt.date) -> None:
     owed_lines = [ln for ln in due if s.is_active(ln.month)]
     assert led.owed_paise == sum(ln.remaining_paise for ln in owed_lines)
     # Paid ahead: later months they're still enrolled in (not after leaving).
+    # Paid ahead: later months they're still enrolled in (not after leaving), up to the fee.
     assert led.paid_ahead_paise == sum(
-        ln.paid_paise
+        min(ln.paid_paise, ln.expected_paise)
         for ln in led.months
         if not ln.is_due and not (s.left_month and ln.month > s.left_month)
+    )
+    # Credit: everything above the fee, in any month (all of it where the fee is 0).
+    assert led.credit_paise == sum(ln.excess_paise for ln in led.months)
+    # Every rupee paid is exactly one of: counted against a due month, paid ahead, or credit.
+    assert led.total_paid_paise == (
+        sum(min(ln.paid_paise, ln.expected_paise) for ln in led.months if ln.is_due)
+        + led.paid_ahead_paise
+        + led.credit_paise
     )
     assert led.status is ledger.standing_status(led.owed_paise, led.credit_paise)
     if led.owed_paise:
@@ -636,7 +646,7 @@ def test_dashboard_invariants(
     lines = {s.id: ledger.month_line(s, month, current) for s in students}
     active = [s for s in students if s.is_active(month)]
     assert summary.still_due_paise >= 0
-    assert summary.active_student_count == len(active)
+    assert summary.active_student_count == len([s for s in active if lines[s.id].expected_paise])
     assert summary.expected_paise == sum(lines[s.id].expected_paise for s in active)
     assert summary.collected_paise == sum(s.paid(month) for s in students)
     assert summary.still_due_paise == sum(e.line.remaining_paise for e in board.yet_to_pay)

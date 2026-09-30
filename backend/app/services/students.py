@@ -13,10 +13,12 @@ months after `left_month`.
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Iterable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.db import lock_for_writing
 from app.errors import not_found, unprocessable
 from app.models import FeeChange, Student
 from app.months import add_months, format_month, parse_month
@@ -92,10 +94,27 @@ def _read_fields(student: Student, led: ledger.StudentLedger) -> dict[str, objec
         "paid_ahead_paise": led.paid_ahead_paise,
         "credit_paise": led.credit_paise,
         "tenure_months": led.tenure_months,
+        "next_fee_change": _next_fee_change(student, led.current_month),
         "current_month": led.current_month,
         "created_at": student.created_at,
         "updated_at": student.updated_at,
     }
+
+
+def _next_fee_change(student: Student, current_month: dt.date) -> FeeChangeRead | None:
+    """The first fee change after the month `monthly_fee_paise` is for (this month, or the joining
+    month for someone who hasn't joined yet), so "No fee until December 2026, then ₹1,000"."""
+    after = max(current_month, student.joined_month)
+    later = sorted(
+        (f for f in student.fee_changes if f.effective_month > after),
+        key=lambda f: f.effective_month,
+    )
+    if not later:
+        return None
+    f = later[0]
+    return FeeChangeRead(
+        id=f.id, effective_month=format_month(f.effective_month), amount_paise=f.amount_paise
+    )
 
 
 def student_read(student: Student, current_month: dt.date) -> StudentRead:
@@ -220,6 +239,7 @@ def update_student(
     3. `left_month` before `joined_month` (the new one if sent, else the stored one): 422.
        `left_month: null` un-archives.
     """
+    lock_for_writing(session)
     student = get_student_row(session, student_id)
     sent = body.model_fields_set
     fees = sorted(student.fee_changes, key=lambda f: f.effective_month)
@@ -241,6 +261,20 @@ def update_student(
     left = student.left_month
     if "left_month" in sent:
         left = parse_month(body.left_month) if body.left_month else None
+    # Once their last month has passed, it can only move earlier here. Moving it later (or
+    # emptying it) would make every month away owed; coming back is `return_student`.
+    stored_left = student.left_month
+    if (
+        "left_month" in sent
+        and stored_left is not None
+        and stored_left < current_month
+        and (left is None or left > stored_left)
+    ):
+        raise unprocessable(
+            f"They left after {stored_left:%B %Y}. To say they've come back, use "
+            "Mark as coming again on their profile.",
+            field="left_month",
+        )
     if left is not None and left < joined:
         field = "left_month" if "left_month" in sent else "joined_month"
         raise unprocessable("Left month can't be before the joined month", field=field)
@@ -292,20 +326,22 @@ def return_student(
     session: Session, student_id: int, body: StudentReturn, current_month: dt.date
 ) -> StudentDetail:
     """A student who left is coming again from `from_month` (PRD ledger rule 11), in one
-    transaction. The months they were away are never owed:
+    transaction that holds the database's write lock from the start (so two clicks can't both
+    apply it). The months they were away are never owed:
 
     - the months between `left_month` and `from_month` get a 0 fee (one fee change at the month
       after `left_month`; none if they're back straight away);
-    - from `from_month` their fee carries on: the fee their schedule already had for that month
-      (usually the fee they paid when they left);
-    - fee changes already set for a month in the gap are replaced by the 0 fee (the latest of
-      them is the fee they come back on); fee changes from `from_month` on are kept;
+    - from `from_month` they owe `monthly_fee_paise` if it was sent, else `return_fee`: the fee
+      their schedule has for that month, ignoring ₹0 rows left by an earlier return;
+    - every fee change after `left_month` and before `from_month` is removed (replaced by the
+      0 fee), and one at `from_month` gets that fee; fee changes after `from_month` are kept;
     - `left_month` is cleared.
 
     422 (on `from_month`) if they haven't been marked as left, if `from_month` isn't after
     `left_month`, or if it is more than 24 months ahead. The first fee (at `joined_month`) is
     never touched: it is always on or before `left_month`.
     """
+    lock_for_writing(session)
     student = get_student_row(session, student_id)
     left = student.left_month
     if left is None:
@@ -319,7 +355,11 @@ def return_student(
         )
     check_month("from_month", back, current_month)
 
-    fee_back = to_record(student).fee_in_effect(back)
+    fee_back = (
+        body.monthly_fee_paise
+        if body.monthly_fee_paise is not None
+        else return_fee(student.fee_changes, left, back)
+    )
     for change in [f for f in student.fee_changes if left < f.effective_month < back]:
         student.fee_changes.remove(change)  # delete-orphan: the row is deleted
     session.flush()  # delete before inserting, so a change at `first_away` can't clash
@@ -334,6 +374,20 @@ def return_student(
     return get_student(session, student.id, current_month)
 
 
+def return_fee(fee_changes: Iterable[FeeChange], left: dt.date, back: dt.date) -> int:
+    """The fee someone coming back from `back` owes: the latest fee change on or before `back`,
+    skipping ₹0 ones after `left` (the months away of an earlier return, which must never become
+    the fee they come back on). Usually that's the fee they paid when they left; a raise set
+    for a month while they were away counts. The first fee is always on or before `left`, so
+    there is always one."""
+    eligible = [
+        f
+        for f in fee_changes
+        if f.effective_month <= back and not (f.effective_month > left and f.amount_paise == 0)
+    ]
+    return max(eligible, key=lambda f: f.effective_month).amount_paise
+
+
 def delete_fee_change(
     session: Session, student_id: int, fee_change_id: int, current_month: dt.date
 ) -> None:
@@ -345,6 +399,7 @@ def delete_fee_change(
     started (its month is the current month or earlier), since that would rewrite what past
     months were owed.
     """
+    lock_for_writing(session)
     student = get_student_row(session, student_id)
     fees = sorted(student.fee_changes, key=lambda f: f.effective_month)
     change = next((f for f in fees if f.id == fee_change_id), None)

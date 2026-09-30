@@ -248,8 +248,31 @@ def test_archive_and_unarchive(api: TestClient) -> None:
     url = f"/api/students/{s['id']}"
     d = api.patch(url, json={"left_month": "2026-02"}).json()
     assert (d["is_active"], d["balance_paise"]) == (False, -300000)
+    # Their last month has passed: it can't be emptied or moved later here (that would make
+    # the months away owed); coming back is POST /return. Moving it earlier is fine.
+    for later in (None, "2026-03", "2026-09"):
+        response = api.patch(url, json={"left_month": later})
+        assert response.status_code == 422, later
+        [item] = response.json()["detail"]
+        assert item["loc"] == ["body", "left_month"]
+        assert item["msg"] == (
+            "They left after February 2026. To say they've come back, use Mark as coming "
+            "again on their profile."
+        )
+    d = api.patch(url, json={"left_month": "2026-01"}).json()
+    assert (d["left_month"], d["balance_paise"]) == ("2026-01", -150000)
+    d = api.patch(url, json={"left_month": "2026-01", "notes": "same month is fine"}).json()
+    assert d["notes"] == "same month is fine"
+
+
+def test_staying_before_the_left_month_has_passed(api: TestClient) -> None:
+    s = make_student(api)
+    url = f"/api/students/{s['id']}"
+    api.patch(url, json={"left_month": "2026-06"})  # leaving after this month
     d = api.patch(url, json={"left_month": None}).json()
     assert (d["is_active"], d["left_month"], d["balance_paise"]) == (True, None, -900000)
+    api.patch(url, json={"left_month": "2026-07"})
+    assert api.patch(url, json={"left_month": "2026-09"}).json()["left_month"] == "2026-09"
 
 
 def test_moving_joined_month_earlier_moves_the_first_fee(api: TestClient) -> None:

@@ -81,5 +81,16 @@ def get_session() -> Iterator[Session]:
         session.close()
 
 
+def lock_for_writing(session: Session) -> None:
+    """Start this request's transaction with SQLite's write lock (`BEGIN IMMEDIATE`), before
+    reading anything. A change that reads, decides, then writes (coming back, a fee change)
+    then can't interleave with a second copy of itself (a double click): the second waits for
+    the first to commit, and then sees what it did. Call it first thing in the service."""
+    connection = session.connection()
+    dbapi = connection.connection.dbapi_connection
+    if dbapi is not None and not dbapi.in_transaction:  # type: ignore[attr-defined]
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+
+
 SessionDep = Annotated[Session, Depends(get_session)]
 """Use as a router parameter type: `def handler(session: SessionDep): ...`."""

@@ -17,6 +17,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse
+from sqlalchemy.exc import IntegrityError
 
 from app import __version__, backup, config, errors, migrate
 from app.db import dispose_engines
@@ -88,6 +89,7 @@ def create_app(static_dir: Path | None = None) -> FastAPI:
         separate_input_output_schemas=False,
     )
     app.add_exception_handler(RequestValidationError, errors.validation_error_handler)
+    app.add_exception_handler(IntegrityError, errors.integrity_error_handler)
     app.include_router(api_router)
     _add_spa(app, static_dir or config.static_dir())
     return app
