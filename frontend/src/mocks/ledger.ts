@@ -16,7 +16,7 @@ import type {
   PaymentMethod,
   SuggestedPayment,
   YetToPayItem,
-} from '@/api/schema'
+} from '@/api/types'
 import { addMonths } from '@/lib/format'
 
 export interface StudentRow {
@@ -145,31 +145,51 @@ export function balanceStatus(balancePaise: number): BalanceStatus {
 }
 
 /**
- * Prefill for Log payment: the oldest due month that is Unpaid or Partial, and what's left on it.
- * Otherwise the first month from now on that isn't fully paid (so a student who already paid
- * this month is offered next month, not an overpayment), otherwise this month and its fee.
+ * Prefill for Log payment (PRD ledger rule 9, as in the backend PR): the oldest due month that
+ * is Unpaid or Partial, with what's left on it. Otherwise the first month after the current one
+ * (within the months they're enrolled for, and at most two years ahead) that isn't fully paid.
+ * Otherwise nothing: both values are null.
  */
 export function suggestPayment(book: StudentBook, now: string): SuggestedPayment {
   const paid = paidByMonth(book.payments)
-  const { joined_month } = book.student
+  const { joined_month, left_month } = book.student
+  const owed = (month: string) => expectedFor(book, month) - (paid.get(month) ?? 0)
   if (joined_month <= now) {
     for (const month of monthRange(joined_month, now)) {
-      const expected = expectedFor(book, month)
-      const remaining = expected - (paid.get(month) ?? 0)
-      if (expected > 0 && remaining > 0) return { for_month: month, amount_paise: remaining }
+      if (expectedFor(book, month) > 0 && owed(month) > 0) {
+        return { for_month: month, amount_paise: owed(month), reason: 'oldest_unpaid' }
+      }
     }
   }
   const start = joined_month > now ? joined_month : addMonths(now, 1)
-  for (const month of monthRange(start, addMonths(start, 24))) {
-    const expected = expectedFor(book, month)
-    const remaining = expected - (paid.get(month) ?? 0)
-    if (expected > 0 && remaining > 0) return { for_month: month, amount_paise: remaining }
+  let end = addMonths(now, 24)
+  if (left_month !== null && left_month < end) end = left_month
+  if (start <= end) {
+    for (const month of monthRange(start, end)) {
+      if (expectedFor(book, month) > 0 && owed(month) > 0) {
+        return { for_month: month, amount_paise: owed(month), reason: 'next_unpaid' }
+      }
+    }
   }
-  return { for_month: now, amount_paise: feeFor(book.fees, now) }
+  return { for_month: null, amount_paise: null, reason: 'all_paid' }
+}
+
+/** Money paid in overpaid due months (paid > expected, up to the current month). */
+export function creditPaise(book: StudentBook, now: string): number {
+  let credit = 0
+  for (const [month, p] of paidByMonth(book.payments)) {
+    if (month <= now) credit += Math.max(0, p - expectedFor(book, month))
+  }
+  return credit
+}
+
+/** Active until the left month has passed (PRD ledger rule 8). */
+export function isStillActive(student: StudentRow, now: string): boolean {
+  return student.left_month === null || student.left_month >= now
 }
 
 const byName = (a: { student_name: string }, b: { student_name: string }) =>
-  a.student_name.localeCompare(b.student_name)
+  a.student_name.localeCompare(b.student_name, 'en', { sensitivity: 'base' })
 
 /** The PRD's "Dashboard for a selected month M". */
 export function dashboard(books: StudentBook[], month: string, now: string): DashboardResponse {
@@ -203,6 +223,7 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
           student_name: student.name,
           batch_label: student.batch_label,
           phone: student.phone,
+          credit_paise: creditPaise(book, now),
           expected_paise: expected,
           paid_paise: paidInMonth,
           remaining_paise: expected - paidInMonth,
@@ -238,6 +259,7 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
         phone: student.phone,
         months: owed,
         total_owed_paise: owed.reduce((sum, m) => sum + m.remaining_paise, 0),
+        credit_paise: creditPaise(book, now),
       })
     }
 
@@ -249,6 +271,8 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
         overpaid.push({
           student_id: student.id,
           student_name: student.name,
+          batch_label: student.batch_label,
+          phone: student.phone,
           month: m,
           expected_paise: expected,
           paid_paise: p,
@@ -260,6 +284,6 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
 
   yetToPay.sort(byName)
   backlog.sort(byName)
-  overpaid.sort((a, b) => b.month.localeCompare(a.month) || byName(a, b))
+  overpaid.sort((a, b) => byName(a, b) || a.month.localeCompare(b.month))
   return { month, summary, yet_to_pay: yetToPay, backlog, overpaid }
 }

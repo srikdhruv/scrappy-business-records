@@ -15,12 +15,16 @@ import {
 
 import { api, unwrap } from './client'
 import type {
+  DashboardResponse,
   PaymentCreate,
   PaymentUpdate,
   StudentCreate,
+  StudentDetail,
   StudentListFilter,
+  StudentRead,
   StudentUpdate,
-} from './schema'
+  SuggestedPayment,
+} from './types'
 
 export interface PaymentFilters {
   student_id?: number
@@ -68,7 +72,8 @@ export function useHealth() {
 export function useDashboard(month: string) {
   return useQuery({
     queryKey: queryKeys.dashboard.month(month),
-    queryFn: async () => unwrap(await api.GET('/api/dashboard', { params: { query: { month } } })),
+    queryFn: async (): Promise<DashboardResponse> =>
+      unwrap(await api.GET('/api/dashboard', { params: { query: { month } } })),
     placeholderData: keepPreviousData,
   })
 }
@@ -79,14 +84,15 @@ export function useDashboard(month: string) {
 export function useStudents(status: StudentListFilter = 'all') {
   return useQuery({
     queryKey: queryKeys.students.list(status),
-    queryFn: async () => unwrap(await api.GET('/api/students', { params: { query: { status } } })),
+    queryFn: async (): Promise<StudentRead[]> =>
+      unwrap(await api.GET('/api/students', { params: { query: { status } } })),
   })
 }
 
 export function useStudent(id: number | undefined) {
   return useQuery({
     queryKey: queryKeys.students.detail(id ?? 0),
-    queryFn: async () =>
+    queryFn: async (): Promise<StudentDetail> =>
       unwrap(
         await api.GET('/api/students/{student_id}', { params: { path: { student_id: id! } } }),
       ),
@@ -97,7 +103,7 @@ export function useStudent(id: number | undefined) {
 export function useSuggestedPayment(id: number | undefined) {
   return useQuery({
     queryKey: queryKeys.students.suggestion(id ?? 0),
-    queryFn: async () =>
+    queryFn: async (): Promise<SuggestedPayment> =>
       unwrap(
         await api.GET('/api/students/{student_id}/suggest-payment', {
           params: { path: { student_id: id! } },
@@ -111,7 +117,8 @@ export function useSuggestedPayment(id: number | undefined) {
 export function useCreateStudent() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (body: StudentCreate) => unwrap(await api.POST('/api/students', { body })),
+    mutationFn: async (body: StudentCreate): Promise<StudentDetail> =>
+      unwrap(await api.POST('/api/students', { body })),
     onSuccess: () => invalidateRecords(queryClient),
   })
 }
@@ -119,7 +126,7 @@ export function useCreateStudent() {
 export function useUpdateStudent() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, body }: { id: number; body: StudentUpdate }) =>
+    mutationFn: async ({ id, body }: { id: number; body: StudentUpdate }): Promise<StudentDetail> =>
       unwrap(
         await api.PATCH('/api/students/{student_id}', {
           params: { path: { student_id: id } },

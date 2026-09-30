@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { useUpdateStudent } from '@/api/queries'
-import type { StudentDetail } from '@/api/schema'
+import type { StudentDetail } from '@/api/types'
 import { MonthPicker } from '@/components/month-picker'
 import { Button } from '@/components/ui/button'
 import {
@@ -60,8 +60,8 @@ export function MarkLeftDialog({
           <DialogHeader>
             <DialogTitle>Mark {student.name} as left?</DialogTitle>
             <DialogDescription>
-              {firstName(student.name)} will stop appearing in “Yet to pay” after this month. Their
-              payments and history are kept, and you can find them under the Left tab.
+              {firstName(student.name)} won’t owe anything after this month, and will then move to
+              the Left tab. Their payments and history are kept.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">

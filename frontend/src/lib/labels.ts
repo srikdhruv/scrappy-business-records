@@ -1,4 +1,4 @@
-import type { PaymentMethod } from '@/api/schema'
+import type { PaymentMethod } from '@/api/types'
 
 export const METHOD_LABELS: Record<PaymentMethod, string> = {
   upi: 'UPI',

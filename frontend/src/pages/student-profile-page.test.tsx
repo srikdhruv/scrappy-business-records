@@ -11,9 +11,7 @@ function idOf(name: string): number {
 }
 
 function monthRow(label: string) {
-  const table = within(
-    screen.getByRole('heading', { name: 'Month by month' }).closest('section')!,
-  )
+  const table = within(screen.getByRole('heading', { name: 'Month by month' }).closest('section')!)
   return within(table.getByRole('cell', { name: label }).closest('tr')!)
 }
 
@@ -34,6 +32,20 @@ describe('student profile', () => {
     await screen.findByRole('heading', { level: 1, name: 'Meera Iyer' })
     expect(monthRow('November 2026').getByText('Paid ahead')).toBeInTheDocument()
     expect(monthRow('October 2026').getByText('Paid')).toBeInTheDocument()
+  })
+
+  it('points out a month that was paid too much, and opens its payment to fix it', async () => {
+    const user = userEvent.setup()
+    renderApp(`/students/${idOf('Arjun Nair')}`)
+    await screen.findByRole('heading', { level: 1, name: 'Arjun Nair' })
+    const balance = within(screen.getByRole('region', { name: 'Balance' }))
+    expect(balance.getByText('₹300 paid extra')).toBeInTheDocument()
+    expect(monthRow('August 2026').getByText('Paid extra')).toBeInTheDocument()
+
+    await user.click(balance.getByRole('button', { name: 'Edit payment' }))
+    const dialog = await findDialog('Edit payment')
+    expect(dialog.getByLabelText('Amount')).toHaveValue('1500')
+    expect(dialog.getByLabelText('For month')).toHaveTextContent('August 2026')
   })
 
   it('changes the fee from a chosen month, keeping earlier months', async () => {
@@ -81,8 +93,8 @@ describe('student profile', () => {
       'October 2026',
     )
     await user.click(dialog.getByRole('button', { name: 'Mark as left' }))
-    expect(await screen.findByText('Left after October 2026')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Mark as coming again' })).toBeInTheDocument()
+    expect(await screen.findByText('Leaving after October 2026')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Mark as staying' })).toBeInTheDocument()
   })
 
   it('deletes a student only after confirming, saying how many payments go with them', async () => {
@@ -101,7 +113,9 @@ describe('student profile', () => {
 
     await user.click(screen.getByRole('button', { name: 'Delete' }))
     await user.click(
-      within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete student' }),
+      within(await screen.findByRole('alertdialog')).getByRole('button', {
+        name: 'Delete student',
+      }),
     )
     await waitFor(() => expect(router.state.location.pathname).toBe('/students'))
     expect(mockDb.students.some((s) => s.id === id)).toBe(false)

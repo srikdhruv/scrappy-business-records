@@ -11,7 +11,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import type { BalanceStatus, MonthStatus } from '@/api/schema'
+import type { BalanceStatus, MonthStatus } from '@/api/types'
+import { formatRupees } from '@/lib/format'
 import { balanceLabel, balanceTone, type Tone } from '@/lib/status'
 import { cn } from '@/lib/utils'
 
@@ -105,5 +106,22 @@ export function BalanceChip({
     <StatusPill tone={balanceTone(status)} icon={icon} className={className}>
       {balanceLabel(status, balancePaise)}
     </StatusPill>
+  )
+}
+
+/**
+ * "has ₹300 credit": money paid in an overpaid month, which might have been meant for another
+ * month. Shown next to a student who also owes, so the two can be matched up.
+ */
+export function CreditNote({ paise, className }: { paise: number; className?: string }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full bg-credit-soft px-2 py-0.5 text-xs font-bold text-credit',
+        className,
+      )}
+    >
+      has {formatRupees(paise)} credit
+    </span>
   )
 }

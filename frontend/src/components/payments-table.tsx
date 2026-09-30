@@ -17,7 +17,7 @@ import { Link } from 'react-router'
 import { toast } from 'sonner'
 
 import { useDeletePayment } from '@/api/queries'
-import type { PaymentRead } from '@/api/schema'
+import type { PaymentRead } from '@/api/types'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { useLogPayment } from '@/components/log-payment'
 import { Button } from '@/components/ui/button'

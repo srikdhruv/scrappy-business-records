@@ -3,11 +3,11 @@
  * fix mistakes with Edit or Delete. Filters live in the address bar, so Back keeps them.
  */
 import { ReceiptIndianRupeeIcon, SearchIcon, XIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
 import { usePayments } from '@/api/queries'
-import type { PaymentMethod } from '@/api/schema'
+import type { PaymentMethod } from '@/api/types'
 import { PageHeader } from '@/components/layout/page-header'
 import { MonthPicker } from '@/components/month-picker'
 import { Panel } from '@/components/panel'
@@ -29,6 +29,16 @@ import { cn } from '@/lib/utils'
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/
 const METHODS = Object.keys(METHOD_LABELS) as PaymentMethod[]
 
+/** `value`, but only after it has stopped changing for `ms`. */
+function useDebouncedValue<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), ms)
+    return () => clearTimeout(timer)
+  }, [value, ms])
+  return debounced
+}
+
 export function PaymentsPage() {
   const [params, setParams] = useSearchParams()
   const studentParam = Number(params.get('student'))
@@ -37,17 +47,11 @@ export function PaymentsPage() {
   const month = monthParam && MONTH_RE.test(monthParam) ? monthParam : undefined
   const methodParam = params.get('method') as PaymentMethod | null
   const method = methodParam && METHODS.includes(methodParam) ? methodParam : undefined
-  const q = params.get('q') ?? ''
-
-  const [search, setSearch] = useState(q)
-  // Search as you type, a moment after the last key.
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (search.trim() !== q) update({ q: search.trim() || null })
-    }, 250)
-    return () => clearTimeout(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search])
+  // The search box filters as you type, a moment after the last key. It lives in the page, not
+  // the address bar, so a late keystroke can never undo a filter picked meanwhile. A link can
+  // still start with a search (?q=...).
+  const [search, setSearch] = useState(() => params.get('q') ?? '')
+  const q = useDebouncedValue(search.trim(), 250)
 
   function update(changes: Record<string, string | null>) {
     setParams(
@@ -64,8 +68,12 @@ export function PaymentsPage() {
   }
 
   const payments = usePayments({ student_id: studentId, month, q: q || undefined })
-  const shown = (payments.data ?? []).filter((p) => !method || p.method === method)
-  const filtered = Boolean(studentId || month || method || q)
+  // Memoized: the table must get the same array until something really changes.
+  const shown = useMemo(
+    () => (payments.data ?? []).filter((p) => !method || p.method === method),
+    [payments.data, method],
+  )
+  const filtered = Boolean(studentId || month || method || search.trim())
 
   const clearAll = () => {
     setSearch('')

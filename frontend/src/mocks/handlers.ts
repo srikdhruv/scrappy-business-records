@@ -13,7 +13,7 @@ import type {
   StudentCreate,
   StudentListFilter,
   StudentUpdate,
-} from '@/api/schema'
+} from '@/api/types'
 
 import { MockHttpError, type MockDb } from './db'
 

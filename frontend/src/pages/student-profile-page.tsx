@@ -10,13 +10,13 @@ import {
   Trash2Icon,
   UndoIcon,
 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 
 import { ApiError } from '@/api/client'
 import { useDeleteStudent, usePayments, useStudent, useUpdateStudent } from '@/api/queries'
-import type { LedgerMonth, StudentDetail } from '@/api/schema'
+import type { LedgerMonth, StudentDetail } from '@/api/types'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PageHeader } from '@/components/layout/page-header'
 import { useLogPayment } from '@/components/log-payment'
@@ -39,7 +39,13 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { errorMessage } from '@/lib/errors'
-import { formatMonth, formatMonthShort, formatRupees, formatTenure } from '@/lib/format'
+import {
+  currentMonth,
+  formatMonth,
+  formatMonthShort,
+  formatRupees,
+  formatTenure,
+} from '@/lib/format'
 import { firstName, plural } from '@/lib/labels'
 import { cn } from '@/lib/utils'
 
@@ -118,22 +124,43 @@ export function StudentProfilePage() {
 
 function Profile({ student }: { student: StudentDetail }) {
   const navigate = useNavigate()
-  const { openLogPayment } = useLogPayment()
+  const { openLogPayment, openEditPayment } = useLogPayment()
   const payments = usePayments({ student_id: student.id })
   const deleteStudent = useDeleteStudent()
   const updateStudent = useUpdateStudent()
   const [editOpen, setEditOpen] = useState(false)
   const [leftOpen, setLeftOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  // When a month was overpaid and has several payments, the Payments list shows just those.
+  const [paymentsMonth, setPaymentsMonth] = useState<string | null>(null)
+  const leaving = student.left_month !== null && student.is_active
 
   const comeBack = async () => {
     try {
       await updateStudent.mutateAsync({ id: student.id, body: { left_month: null } })
-      toast.success(`${student.name} is active again`)
+      toast.success(leaving ? `${student.name} is staying` : `${student.name} is active again`)
     } catch (error) {
       toast.error(errorMessage(error))
     }
   }
+
+  const logFor = (m: LedgerMonth) =>
+    openLogPayment({ studentId: student.id, forMonth: m.month, amountPaise: m.remaining_paise })
+
+  // An overpaid month is fixed by editing its payment (usually its month or amount).
+  const fixMonth = (month: string) => {
+    const forMonth = (payments.data ?? []).filter((p) => p.for_month === month)
+    if (forMonth.length === 1) {
+      openEditPayment(forMonth[0]!)
+    } else {
+      setPaymentsMonth(month)
+      document.getElementById('student-payments')?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }
+  const shownPayments = useMemo(
+    () => (payments.data ?? []).filter((p) => !paymentsMonth || p.for_month === paymentsMonth),
+    [payments.data, paymentsMonth],
+  )
 
   return (
     <>
@@ -146,7 +173,9 @@ function Profile({ student }: { student: StudentDetail }) {
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <h1 className="text-3xl font-extrabold tracking-tight">{student.name}</h1>
                 {student.left_month && (
-                  <StatusPill tone="muted">Left after {formatMonth(student.left_month)}</StatusPill>
+                  <StatusPill tone="muted">
+                    {leaving ? 'Leaving after' : 'Left after'} {formatMonth(student.left_month)}
+                  </StatusPill>
                 )}
               </div>
               {student.batch_label && (
@@ -170,7 +199,7 @@ function Profile({ student }: { student: StudentDetail }) {
                 disabled={updateStudent.isPending}
               >
                 <UndoIcon aria-hidden />
-                Mark as coming again
+                {leaving ? 'Mark as staying' : 'Mark as coming again'}
               </Button>
             ) : (
               <Button variant="outline" size="lg" onClick={() => setLeftOpen(true)}>
@@ -195,13 +224,8 @@ function Profile({ student }: { student: StudentDetail }) {
         <div className="grid items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)]">
           <BalanceCard
             student={student}
-            onLog={(m) =>
-              openLogPayment({
-                studentId: student.id,
-                forMonth: m.month,
-                amountPaise: m.remaining_paise,
-              })
-            }
+            onLog={logFor}
+            onFix={payments.data ? fixMonth : undefined}
           />
           <DetailsCard student={student} />
         </div>
@@ -209,17 +233,26 @@ function Profile({ student }: { student: StudentDetail }) {
         <Panel title="Month by month" description="What was due each month, and what came in.">
           <MonthHistory
             student={student}
-            onLog={(m) =>
-              openLogPayment({
-                studentId: student.id,
-                forMonth: m.month,
-                amountPaise: m.remaining_paise,
-              })
-            }
+            onLog={logFor}
+            onFix={payments.data ? fixMonth : undefined}
           />
         </Panel>
 
-        <Panel title="Payments" count={student.payment_count}>
+        <Panel
+          id="student-payments"
+          title="Payments"
+          count={student.payment_count}
+          actions={
+            paymentsMonth && (
+              <Button variant="outline" onClick={() => setPaymentsMonth(null)}>
+                Show all
+              </Button>
+            )
+          }
+          description={
+            paymentsMonth ? `Showing payments for ${formatMonth(paymentsMonth)}.` : undefined
+          }
+        >
           {payments.error && !payments.data ? (
             <div className="p-6">
               <ErrorState error={payments.error} onRetry={() => void payments.refetch()} />
@@ -230,7 +263,7 @@ function Profile({ student }: { student: StudentDetail }) {
             </div>
           ) : (
             <PaymentsTable
-              payments={payments.data}
+              payments={shownPayments}
               showStudent={false}
               empty={
                 <EmptyState
@@ -294,10 +327,15 @@ function Profile({ student }: { student: StudentDetail }) {
 function BalanceCard({
   student,
   onLog,
+  onFix,
 }: {
   student: StudentDetail
   onLog: (month: LedgerMonth) => void
+  /** Undefined while the payments are still loading. */
+  onFix?: (month: string) => void
 }) {
+  const overpaid = student.months.filter((m) => m.is_due && m.status === 'overpaid')
+  const credit = student.credit_paise ?? overpaid.reduce((sum, m) => sum + m.excess_paise, 0)
   const tone = balanceTone(student.status)
   const owed = student.months.filter(
     (m) => m.is_due && (m.status === 'unpaid' || m.status === 'partial'),
@@ -351,6 +389,35 @@ function BalanceCard({
           </Button>
         </div>
       )}
+      {credit > 0 && overpaid.length > 0 && (
+        <div className="grid gap-2 rounded-xl bg-card/80 px-4 py-3">
+          <p className="text-sm font-bold text-credit">{formatRupees(credit)} paid extra</p>
+          <ul className="grid gap-1.5">
+            {overpaid.map((m) => (
+              <li key={m.month} className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-base">
+                  <span className="font-bold">{formatMonth(m.month)}</span>{' '}
+                  <span className="text-muted-foreground tabular-nums">
+                    · {formatRupees(m.paid_paise)} paid for a {formatRupees(m.expected_paise)} fee
+                  </span>
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!onFix}
+                  onClick={() => onFix?.(m.month)}
+                >
+                  <PencilIcon aria-hidden />
+                  Edit payment
+                </Button>
+              </li>
+            ))}
+          </ul>
+          <p className="text-sm text-muted-foreground">
+            If it was meant for another month, change that payment’s month.
+          </p>
+        </div>
+      )}
       <p className="text-sm text-muted-foreground">
         {formatRupees(student.total_paid_paise)} paid in total, across{' '}
         {plural(student.payment_count, 'payment')}.
@@ -393,7 +460,7 @@ function DetailsCard({ student }: { student: StudentDetail }) {
             ·{' '}
             {student.left_month
               ? `left after ${formatMonth(student.left_month)}`
-              : `member for ${formatTenure(student.joined_month).toLowerCase()}`}
+              : `member for ${formatTenure(student.joined_month, student.current_month ?? currentMonth()).toLowerCase()}`}
           </span>
         </Detail>
         <Detail label="Class or batch">{student.batch_label ?? <Muted>Not set</Muted>}</Detail>
@@ -426,9 +493,12 @@ function Muted({ children }: { children: ReactNode }) {
 function MonthHistory({
   student,
   onLog,
+  onFix,
 }: {
   student: StudentDetail
   onLog: (month: LedgerMonth) => void
+  /** Undefined while the payments are still loading. */
+  onFix?: (month: string) => void
 }) {
   // Newest first. Months after they left, with nothing paid, are just noise.
   const rows = student.months
@@ -459,8 +529,9 @@ function MonthHistory({
       <TableBody>
         {rows.map((m) => {
           const owes = m.is_due && (m.status === 'unpaid' || m.status === 'partial')
+          const extra = m.is_due && m.status === 'overpaid'
           return (
-            <TableRow key={m.month}>
+            <TableRow key={m.month} className={cn(extra && 'bg-credit-soft/40')}>
               <TableCell className="pl-6 font-semibold">{formatMonth(m.month)}</TableCell>
               <TableCell className="text-right tabular-nums">
                 {m.expected_paise > 0 ? formatRupees(m.expected_paise) : '—'}
@@ -493,6 +564,18 @@ function MonthHistory({
                   >
                     <PlusIcon aria-hidden />
                     Log payment
+                  </Button>
+                )}
+                {extra && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!onFix}
+                    onClick={() => onFix?.(m.month)}
+                    aria-label={`Edit the payment for ${formatMonth(m.month)}`}
+                  >
+                    <PencilIcon aria-hidden />
+                    Edit payment
                   </Button>
                 )}
               </TableCell>

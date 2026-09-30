@@ -15,6 +15,7 @@ globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObse
 Element.prototype.scrollIntoView ??= function () {}
 Element.prototype.hasPointerCapture ??= () => false
 Element.prototype.releasePointerCapture ??= function () {}
+Element.prototype.setPointerCapture ??= function () {}
 window.scrollTo = () => {}
 
 // Every test talks to the in-memory mock API (src/mocks). Tests that need specific data call

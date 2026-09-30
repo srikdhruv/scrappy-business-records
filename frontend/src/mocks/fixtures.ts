@@ -6,7 +6,7 @@
  *
  * Every name and phone number here is made up.
  */
-import type { PaymentMethod } from '@/api/schema'
+import type { PaymentMethod } from '@/api/types'
 import { addMonths, currentMonth, today } from '@/lib/format'
 
 import type { Fixture } from './db'

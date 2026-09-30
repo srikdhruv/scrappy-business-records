@@ -1,5 +1,5 @@
 /** Status words and colours, shared by every screen (see components/status.tsx). */
-import type { BalanceStatus } from '@/api/schema'
+import type { BalanceStatus } from '@/api/types'
 import { formatRupees } from '@/lib/format'
 
 export type Tone = 'paid' | 'partial' | 'owed' | 'credit' | 'muted'

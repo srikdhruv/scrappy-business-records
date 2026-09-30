@@ -49,6 +49,8 @@ export default defineConfig({
     // The backend serves the built UI from its package, so it ships inside the bundle.
     outDir: path.resolve(here, '../backend/app/static'),
     emptyOutDir: true,
+    // One bundle is fine: the app is served from the same laptop, never over the internet.
+    chunkSizeWarningLimit: 1000,
   },
   test: {
     environment: 'jsdom',

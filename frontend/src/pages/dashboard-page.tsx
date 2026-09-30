@@ -17,12 +17,12 @@ import { useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 
 import { useDashboard, useStudents } from '@/api/queries'
-import type { BacklogItem, DashboardResponse, OverpaidItem, YetToPayItem } from '@/api/schema'
+import type { BacklogItem, DashboardResponse, OverpaidItem, YetToPayItem } from '@/api/types'
 import { PageHeader } from '@/components/layout/page-header'
 import { useLogPayment } from '@/components/log-payment'
 import { Panel } from '@/components/panel'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
-import { StatusPill } from '@/components/status'
+import { CreditNote, StatusPill } from '@/components/status'
 import { TONE_TEXT } from '@/lib/status'
 import { StudentAvatar } from '@/components/student-avatar'
 import { StudentFormDialog } from '@/components/student-form'
@@ -305,6 +305,7 @@ function YetToPayRow({ item, onLog }: { item: YetToPayItem; onLog: () => void })
           <StatusPill tone={partial ? 'partial' : 'owed'} className="h-6 px-2.5 text-xs">
             {partial ? 'Partial' : 'Unpaid'}
           </StatusPill>
+          {(item.credit_paise ?? 0) > 0 && <CreditNote paise={item.credit_paise!} />}
         </div>
         {item.batch_label && (
           <p className="truncate text-sm text-muted-foreground">{item.batch_label}</p>
@@ -360,7 +361,10 @@ function Backlog({ items, month }: { items: BacklogItem[]; month: string }) {
               >
                 <div className="flex items-center gap-3">
                   <StudentAvatar name={item.student_name} size="sm" />
-                  <span className="min-w-0 flex-1 truncate font-bold">{item.student_name}</span>
+                  <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                    <span className="truncate font-bold">{item.student_name}</span>
+                    {(item.credit_paise ?? 0) > 0 && <CreditNote paise={item.credit_paise!} />}
+                  </span>
                   <span className={cn('font-extrabold tabular-nums', TONE_TEXT.owed)}>
                     {formatRupees(item.total_owed_paise)}
                   </span>

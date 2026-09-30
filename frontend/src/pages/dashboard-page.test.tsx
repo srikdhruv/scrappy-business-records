@@ -41,7 +41,9 @@ describe('dashboard', () => {
       ).toBeInTheDocument()
       expect(backlog.getByText('Jul 2026')).toBeInTheDocument()
 
-      const overpaid = within(screen.getByRole('heading', { name: /Paid too much/ }).closest('section')!)
+      const overpaid = within(
+        screen.getByRole('heading', { name: /Paid too much/ }).closest('section')!,
+      )
       expect(overpaid.getByText('+₹300')).toBeInTheDocument()
     })
 
@@ -87,9 +89,7 @@ describe('dashboard', () => {
       renderApp('/')
       await yetToPay()
       await user.click(screen.getByRole('button', { name: /Previous month/ }))
-      expect(
-        screen.getByRole('heading', { level: 1, name: 'September 2026' }),
-      ).toBeInTheDocument()
+      expect(screen.getByRole('heading', { level: 1, name: 'September 2026' })).toBeInTheDocument()
       await user.click(await screen.findByRole('button', { name: 'Back to October 2026' }))
       expect(screen.getByRole('heading', { level: 1, name: 'October 2026' })).toBeInTheDocument()
     })

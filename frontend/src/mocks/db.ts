@@ -13,14 +13,16 @@ import type {
   StudentListFilter,
   StudentRead,
   StudentUpdate,
-} from '@/api/schema'
-import { currentMonth } from '@/lib/format'
+} from '@/api/types'
+import { addMonths, currentMonth, monthsBetween, today } from '@/lib/format'
 
 import {
   balance,
   balanceStatus,
+  creditPaise,
   dashboard,
   feeFor,
+  isStillActive,
   ledgerMonths,
   suggestPayment,
   type FeeChangeRow,
@@ -47,7 +49,8 @@ export class MockHttpError extends Error {
   }
 }
 
-const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/
+// Years 2000-2099 only, like the backend.
+const MONTH_RE = /^20\d{2}-(0[1-9]|1[0-2])$/
 const DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/
 const METHODS = ['upi', 'cash', 'other']
 
@@ -127,10 +130,13 @@ export class MockDb {
     const bal = balance(book, now)
     return {
       ...student,
-      is_active: student.left_month === null,
+      is_active: isStillActive(student, now),
       monthly_fee_paise: feeFor(book.fees, now < student.joined_month ? student.joined_month : now),
       balance_paise: bal,
       status: balanceStatus(bal),
+      credit_paise: creditPaise(book, now),
+      tenure_months: Math.max(0, monthsBetween(student.joined_month, now)),
+      current_month: now,
     }
   }
 
@@ -149,10 +155,11 @@ export class MockDb {
 
   listStudents(status: StudentListFilter = 'active', q?: string | null): StudentRead[] {
     const needle = q?.trim().toLowerCase()
+    const now = this.now()
     return this.students
       .filter((s) => {
-        if (status === 'active' && s.left_month !== null) return false
-        if (status === 'left' && s.left_month === null) return false
+        if (status === 'active' && !isStillActive(s, now)) return false
+        if (status === 'left' && isStillActive(s, now)) return false
         if (!needle) return true
         return [s.name, s.phone, s.guardian_name].some((v) => v?.toLowerCase().includes(needle))
       })
@@ -332,7 +339,13 @@ export class MockDb {
       invalid('amount_paise', 'Amount must be more than 0')
     }
     if (!DATE_RE.test(p.paid_on)) invalid('paid_on', 'Enter a valid date')
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    if (p.paid_on > today(tomorrow)) invalid('paid_on', 'The payment date can’t be in the future')
     checkMonth('for_month', p.for_month)
+    if (p.for_month > addMonths(this.now(), 24)) {
+      invalid('for_month', 'Pick a month within the next two years')
+    }
     if (!METHODS.includes(p.method)) invalid('method', "Input should be 'upi', 'cash' or 'other'")
   }
 

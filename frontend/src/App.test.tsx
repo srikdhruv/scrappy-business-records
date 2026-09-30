@@ -29,9 +29,7 @@ describe('app shell', () => {
 
   it('opens a student profile', async () => {
     renderApp('/students/1')
-    expect(
-      await screen.findByRole('heading', { level: 1, name: 'Ananya Rao' }),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Ananya Rao' })).toBeInTheDocument()
   })
 
   it('has a Log payment button on every page', async () => {

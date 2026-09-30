@@ -77,7 +77,9 @@ describe('payments page', () => {
     await waitFor(() => expect(column('Student').every((n) => n === 'Zara Khan')).toBe(true))
     const before = mockDb.payments.length
 
-    await user.click(t.getAllByRole('button', { name: /^Delete payment: ₹1,500 from Zara Khan/ })[0]!)
+    await user.click(
+      t.getAllByRole('button', { name: /^Delete payment: ₹1,500 from Zara Khan/ })[0]!,
+    )
     const confirm = within(await screen.findByRole('alertdialog'))
     expect(confirm.getByText(/will be deleted/)).toHaveTextContent(
       /₹1,500 from Zara Khan for (September|October) 2026, paid on .* by (UPI|Cash), will be deleted/,

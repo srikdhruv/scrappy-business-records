@@ -7,7 +7,7 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
 import { useCreateStudent, useUpdateStudent } from '@/api/queries'
-import type { StudentDetail, StudentUpdate } from '@/api/schema'
+import type { StudentDetail, StudentUpdate } from '@/api/types'
 import { MonthPicker } from '@/components/month-picker'
 import { Button } from '@/components/ui/button'
 import {

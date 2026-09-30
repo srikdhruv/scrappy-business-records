@@ -33,7 +33,7 @@ import {
   useSuggestedPayment,
   useUpdatePayment,
 } from '@/api/queries'
-import type { PaymentMethod, PaymentRead } from '@/api/schema'
+import type { PaymentMethod, PaymentRead } from '@/api/types'
 import { MonthPicker } from '@/components/month-picker'
 import { StudentCombobox } from '@/components/student-combobox'
 import { Button } from '@/components/ui/button'
@@ -50,6 +50,7 @@ import { Label } from '@/components/ui/label'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { errorMessage, fieldErrors } from '@/lib/errors'
 import {
+  addMonths,
   currentMonth,
   formatMonth,
   formatRupees,
@@ -230,12 +231,12 @@ function PaymentForm({
   ) {
     const prefilledFor = studentId === prefill?.studentId
     setSuggestedFor(studentId)
+    // Nothing owed (null) leaves the field empty rather than guessing.
+    const { amount_paise: suggestedAmount, for_month: suggestedMonth } = suggestion.data
     const keepAmount = amountEdited || (prefilledFor && prefill?.amountPaise !== undefined)
-    if (!keepAmount && suggestion.data.amount_paise > 0) {
-      setAmount(paiseToRupeesInput(suggestion.data.amount_paise))
-    }
+    if (!keepAmount) setAmount(suggestedAmount ? paiseToRupeesInput(suggestedAmount) : '')
     const keepMonth = monthEdited || (prefilledFor && prefill?.forMonth !== undefined)
-    if (!keepMonth) setForMonth(suggestion.data.for_month)
+    if (!keepMonth) setForMonth(suggestedMonth)
   }
 
   const createPayment = useCreatePayment()
@@ -305,6 +306,7 @@ function PaymentForm({
   const hint = (() => {
     if (!suggested) return null
     const m = suggested.for_month
+    if (m === null) return 'All paid up. Nothing is owed right now.'
     if (forMonth === m) {
       if (m < now) return `Oldest unpaid: ${formatMonth(m)}`
       if (m > now) return `All paid up. Next due: ${formatMonth(m)}`
@@ -314,12 +316,13 @@ function PaymentForm({
     if (m < now && forMonth !== null && m < forMonth) return `Oldest unpaid: ${formatMonth(m)}`
     return null
   })()
-  const canSwitch = suggested !== undefined && hint !== null && forMonth !== suggested.for_month
+  const switchMonth = suggested?.for_month ?? null
+  const canSwitch = hint !== null && switchMonth !== null && forMonth !== switchMonth
 
   const switchToSuggested = () => {
-    if (!suggested) return
+    if (!suggested?.for_month) return
     setForMonth(suggested.for_month)
-    if (suggested.amount_paise > 0) setAmount(paiseToRupeesInput(suggested.amount_paise))
+    if (suggested.amount_paise) setAmount(paiseToRupeesInput(suggested.amount_paise))
     setMonthEdited(true)
     setAmountEdited(true)
   }
@@ -391,6 +394,8 @@ function PaymentForm({
               setMonthEdited(true)
               setServerErrors((s) => ({ ...s, forMonth: undefined }))
             }}
+            min="2000-01"
+            max={addMonths(currentMonth(), 24)}
             invalid={Boolean(errors.forMonth)}
             aria-describedby={errorId('forMonth') ?? (hint ? 'payment-month-hint' : undefined)}
             className="h-12"
@@ -411,7 +416,7 @@ function PaymentForm({
                 <LightbulbIcon className="size-4" aria-hidden />
                 {hint}
               </span>
-              {canSwitch && suggested && (
+              {canSwitch && switchMonth && (
                 <Button
                   type="button"
                   variant="outline"
@@ -419,7 +424,7 @@ function PaymentForm({
                   onClick={switchToSuggested}
                   className="bg-card"
                 >
-                  Pay {formatMonth(suggested.for_month).split(' ')[0]} instead
+                  Pay {formatMonth(switchMonth).split(' ')[0]} instead
                 </Button>
               )}
             </div>

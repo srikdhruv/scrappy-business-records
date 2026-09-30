@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 
 /** A soft, rounded card with a titled header: the main building block of every page. */
 export function Panel({
+  id,
   title,
   description,
   actions,
@@ -12,6 +13,7 @@ export function Panel({
   className,
   bodyClassName,
 }: {
+  id?: string
   title?: ReactNode
   description?: ReactNode
   actions?: ReactNode
@@ -24,8 +26,12 @@ export function Panel({
   const headingId = useId()
   return (
     <section
+      id={id}
       aria-labelledby={title ? headingId : undefined}
-      className={cn('rounded-2xl border border-border/80 bg-card shadow-soft', className)}
+      className={cn(
+        'scroll-mt-6 rounded-2xl border border-border/80 bg-card shadow-soft',
+        className,
+      )}
     >
       {title && (
         <header className="flex flex-wrap items-start justify-between gap-3 px-6 pt-5 pb-4">

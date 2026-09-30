@@ -7,11 +7,11 @@ import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 
 import { useStudents } from '@/api/queries'
-import type { StudentRead } from '@/api/schema'
+import type { StudentRead } from '@/api/types'
 import { PageHeader } from '@/components/layout/page-header'
 import { Panel } from '@/components/panel'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
-import { BalanceChip } from '@/components/status'
+import { BalanceChip, CreditNote } from '@/components/status'
 import { StudentAvatar } from '@/components/student-avatar'
 import { StudentFormDialog } from '@/components/student-form'
 import { Button } from '@/components/ui/button'
@@ -25,7 +25,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { formatMonthShort, formatRupees, formatTenure } from '@/lib/format'
+import { currentMonth, formatMonthShort, formatRupees, formatTenure } from '@/lib/format'
 
 type Tab = 'active' | 'left' | 'all'
 const TABS: { value: Tab; label: string }[] = [
@@ -181,15 +181,27 @@ export function StudentsPage() {
                     {formatRupees(s.monthly_fee_paise)}
                   </TableCell>
                   <TableCell>
-                    <BalanceChip status={s.status} balancePaise={s.balance_paise} />
+                    <div className="flex flex-col items-start gap-1">
+                      <BalanceChip status={s.status} balancePaise={s.balance_paise} />
+                      {s.status !== 'credit' && (s.credit_paise ?? 0) > 0 && (
+                        <CreditNote paise={s.credit_paise!} />
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="pr-6">
-                    {s.left_month ? (
+                    {!s.is_active && s.left_month ? (
                       <span className="text-muted-foreground">
                         Left {formatMonthShort(s.left_month)}
                       </span>
                     ) : (
-                      formatTenure(s.joined_month)
+                      <>
+                        {formatTenure(s.joined_month, s.current_month ?? currentMonth())}
+                        {s.left_month && (
+                          <span className="block text-sm text-muted-foreground">
+                            Leaving after {formatMonthShort(s.left_month)}
+                          </span>
+                        )}
+                      </>
                     )}
                   </TableCell>
                 </TableRow>
