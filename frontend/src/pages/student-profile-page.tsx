@@ -46,7 +46,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { paysUntil } from '@/lib/allocation'
+import { CHECK_MONTHS_AHEAD, paysUntil } from '@/lib/allocation'
 import { checkText, monthNotes } from '@/lib/credit'
 import { errorMessage } from '@/lib/errors'
 import { feeAt, newFeeSentence } from '@/lib/fees'
@@ -237,7 +237,11 @@ function Profile({ student }: { student: StudentDetail }) {
             student={student}
             onLog={logFor}
             onFix={payments.data ? fixMonth : undefined}
-            toCheck={(payments.data ?? []).filter((p) => p.needs_check)}
+            // Money kept as credit already has its own box below; here, only payments that
+            // may be a slip for another reason (far ahead), so nothing is said twice.
+            toCheck={(payments.data ?? []).filter(
+              (p) => p.needs_check && p.months_ahead >= CHECK_MONTHS_AHEAD,
+            )}
             onEdit={openEditPayment}
           />
           <DetailsCard student={student} />
@@ -355,7 +359,8 @@ function BalanceCard({
   onLog: (month: LedgerMonth) => void
   /** Undefined while the payments are still loading. */
   onFix?: (month: string) => void
-  /** Payments that may be typos (`needs_check`): they pay many months, or far above the fee. */
+  /** Payments that may be typos (`needs_check`): they pay 4+ months ahead, or some of
+   * their money isn't needed by any month. */
   toCheck: PaymentRead[]
   onEdit: (payment: PaymentRead) => void
 }) {
@@ -434,9 +439,9 @@ function BalanceCard({
               <span className="text-base font-semibold text-partial">
                 {checkText({
                   amount_paise: p.amount_paise,
-                  for_month: p.for_month,
                   paysUntil: paysUntil(p),
-                  fee: feeAt(student.fee_history, p.for_month),
+                  monthsAhead: p.months_ahead,
+                  unused_paise: p.extra_unused_paise,
                 })}
               </span>
               <Button variant="outline" size="sm" onClick={() => onEdit(p)}>

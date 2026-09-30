@@ -3,7 +3,7 @@
  * screen, so the same thing is always said the same way.
  */
 import type { CreditMoveItem, CreditSource, ExtraSent } from '@/api/types'
-import type { PaymentPreview } from '@/lib/allocation'
+import { CHECK_MONTHS_AHEAD, type PaymentPreview } from '@/lib/allocation'
 import { addMonths, formatDate, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
 
 /** "a", "a and b", "a, b and c". */
@@ -99,22 +99,30 @@ export function paymentUseText(p: {
 }
 
 /**
- * "Check: this ₹15,000 payment pays up to Jun 2027", else "… is much more than the ₹1,500 fee",
- * else "Check: is this ₹15,000 payment right?": a payment that may be a typo (`needs_check`).
+ * Why a payment may be a slip of the finger (`needs_check`), always with its reason: "Check:
+ * this ₹15,000 payment pays up to Jun 2027 — 9 months ahead", "Check: this ₹2,500 payment —
+ * ₹500 isn't needed by any month", or both.
  */
 export function checkText(p: {
   amount_paise: number
-  for_month: string
   paysUntil: string
-  fee: number
+  monthsAhead: number
+  unused_paise: number
+  /** More than one payment (made the same day, for the same month). */
+  several?: boolean
 }): string {
-  const amount = formatRupees(p.amount_paise)
-  if (p.paysUntil > p.for_month) {
-    return `Check: this ${amount} payment pays up to ${formatMonthShort(p.paysUntil)}`
-  }
-  return p.fee > 0
-    ? `Check: this ${amount} payment is much more than the ${formatRupees(p.fee)} fee`
-    : `Check: is this ${amount} payment right?`
+  const reasons = [
+    p.monthsAhead >= CHECK_MONTHS_AHEAD &&
+      `pays up to ${formatMonthShort(p.paysUntil)} — ${p.monthsAhead} months ahead`,
+    p.unused_paise > 0 && `${formatRupees(p.unused_paise)} isn’t needed by any month`,
+  ].filter(Boolean) as string[]
+  const what = p.several
+    ? `these payments (${formatRupees(p.amount_paise)})`
+    : `this ${formatRupees(p.amount_paise)} payment`
+  if (reasons.length === 0) return `Check: ${what}`
+  const [first, ...rest] = reasons
+  const joined = [first!.startsWith('pays') ? first : `— ${first}`, ...rest].join('; ')
+  return `Check: ${what} ${joined}`
 }
 
 /** Dashboard "Extra money used" rows: one per payment (payments made the same day for the same
@@ -130,6 +138,8 @@ export interface MoveGroup {
   payment_ids: number[]
   payment_amount_paise: number
   pays_until: string
+  months_ahead: number
+  unused_paise: number
   needs_check: boolean
 }
 
@@ -150,6 +160,8 @@ export function groupMoves(items: readonly CreditMoveItem[]): MoveGroup[] {
         payment_ids: [],
         payment_amount_paise: 0,
         pays_until: item.payment_pays_until,
+        months_ahead: 0,
+        unused_paise: 0,
         needs_check: false,
       }
       groups.set(key, g)
@@ -159,7 +171,9 @@ export function groupMoves(items: readonly CreditMoveItem[]): MoveGroup[] {
     if (!g.payment_ids.includes(item.payment_id)) {
       g.payment_ids.push(item.payment_id)
       g.payment_amount_paise += item.payment_amount_paise
+      g.unused_paise += item.payment_extra_unused_paise
     }
+    g.months_ahead = Math.max(g.months_ahead, item.payment_months_ahead)
     if (item.payment_pays_until > g.pays_until) g.pays_until = item.payment_pays_until
     g.needs_check ||= item.payment_needs_check
   }

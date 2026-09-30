@@ -46,20 +46,24 @@ _SORT_KEYS: dict[PaymentSort, Callable[[_Row], object]] = {
 
 def _uses(
     students: Iterable[Student], current_month: dt.date
-) -> dict[int, tuple[ledger.PaymentUse, bool]]:
-    """Where each payment's money went, and whether it's worth a glance, by payment id."""
-    out: dict[int, tuple[ledger.PaymentUse, bool]] = {}
+) -> dict[int, tuple[ledger.PaymentUse, int, bool]]:
+    """Where each payment's money went, how many months ahead it pays, and whether it's worth a
+    glance, by payment id."""
+    out: dict[int, tuple[ledger.PaymentUse, int, bool]] = {}
     for student in students:
-        record = to_record(student)
-        for use in ledger.payment_uses(record, current_month):
-            out[use.payment.id] = (use, ledger.needs_check(record, use))
+        for use in ledger.payment_uses(to_record(student), current_month):
+            out[use.payment.id] = (
+                use,
+                ledger.months_ahead(use, current_month),
+                ledger.needs_check(use, current_month),
+            )
     return out
 
 
 def payment_read(
-    payment: Payment, student_name: str, use: tuple[ledger.PaymentUse, bool]
+    payment: Payment, student_name: str, use: tuple[ledger.PaymentUse, int, bool]
 ) -> PaymentRead:
-    use_, check = use
+    use_, ahead, check = use
     return PaymentRead(
         id=payment.id,
         student_id=payment.student_id,
@@ -71,6 +75,7 @@ def payment_read(
         note=payment.note,
         paid_direct_paise=use_.direct_paise,
         needs_check=check,
+        months_ahead=ahead,
         extra_sent=extra_sent_read(use_.sent),
         extra_unused_paise=use_.unused_paise,
         created_at=payment.created_at,

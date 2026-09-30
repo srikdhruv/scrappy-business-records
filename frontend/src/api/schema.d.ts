@@ -334,6 +334,16 @@ export interface components {
              * @description See PaymentRead.needs_check.
              */
             payment_needs_check: boolean;
+            /**
+             * Payment Months Ahead
+             * @description See PaymentRead.months_ahead.
+             */
+            payment_months_ahead: number;
+            /**
+             * Payment Extra Unused Paise
+             * @description The part of the payment no month needed (credit).
+             */
+            payment_extra_unused_paise: number;
         };
         /**
          * CreditSource
@@ -703,9 +713,14 @@ export interface components {
             paid_direct_paise: number;
             /**
              * Needs Check
-             * @description Worth a glance, in case of a typo: it pays 3 or more other months, or it's 3 times its month's fee or more.
+             * @description Worth a glance, in case of a typo: it pays 4 or more months after the current one (months_ahead), or some of it is kept as credit (extra_unused_paise > 0). Paying months owed never flags.
              */
             needs_check: boolean;
+            /**
+             * Months Ahead
+             * @description How many months after the current one it pays (its own, and where its extra went).
+             */
+            months_ahead: number;
             /**
              * Extra Sent
              * @description The rest, covering other unpaid months, oldest first.

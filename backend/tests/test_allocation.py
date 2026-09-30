@@ -254,34 +254,51 @@ def test_a_month_typed_for_keeps_its_own_payment_before_extra_from_elsewhere() -
 # --------------------------------------------------------------------------- a typo stands out
 
 
-def test_a_payment_that_pays_many_months_or_is_far_above_the_fee_needs_a_check() -> None:
-    # ₹15,000 on a ₹1,500 fee: pays 9 months ahead. Up to date, but worth a glance.
+def flags(s: StudentRecord, current: dt.date = SEP) -> dict[int, tuple[bool, int]]:
+    """By payment id: (needs a check, months ahead it pays)."""
+    return {
+        u.payment.id: (ledger.needs_check(u, current), ledger.months_ahead(u, current))
+        for u in ledger.payment_uses(s, current)
+    }
+
+
+def test_the_typo_check_flags_a_payment_far_ahead_or_with_money_no_month_needs() -> None:
+    # The ₹15,000 typo on a ₹1,500 fee: September and 9 months ahead. Up to date, but odd.
     typo = record(p(1, JUN, FEE), p(2, JUL, FEE), p(3, AUG, FEE), p(4, SEP, 10 * FEE))
-    uses = {u.payment.id: u for u in ledger.payment_uses(typo, SEP)}
-    assert ledger.needs_check(typo, uses[4])
-    assert ledger.pays_until(uses[4]) == dt.date(2027, 6, 1)
-    assert not ledger.needs_check(typo, uses[1])
-    assert ledger.pays_until(uses[1]) == JUN
-    # Its own month counts: a September payment whose extra paid August pays up to September.
-    double_sep = record(p(1, JUN, FEE), p(2, JUL, FEE), p(3, SEP, 2 * FEE))
-    assert ledger.pays_until(ledger.payment_uses(double_sep, SEP)[2]) == SEP
-    # Two months at once is ordinary.
-    double = record(p(1, JUN, FEE), p(2, JUL, FEE), p(3, SEP, 2 * FEE))
-    assert not any(ledger.needs_check(double, u) for u in ledger.payment_uses(double, SEP))
-    # Three months' worth pays only two others, but it's 3x the fee.
-    triple = record(p(1, JUN, FEE), p(2, JUL, FEE), p(3, SEP, 3 * FEE))
-    assert [ledger.needs_check(triple, u) for u in ledger.payment_uses(triple, SEP)] == [
-        False,
-        False,
-        True,
-    ]
-    # Three other months paid, though each is small: after a long gap, still worth a look.
-    gap = record(p(1, SEP, FEE + 3 * 500_00), fees=((JUL, 500_00),))
-    [use] = ledger.payment_uses(gap, SEP)
-    assert len(use.sent) == 3 and ledger.needs_check(gap, use)
+    assert flags(typo)[4] == (True, 9)
+    [use] = [u for u in ledger.payment_uses(typo, SEP) if u.payment.id == 4]
+    assert ledger.pays_until(use) == dt.date(2027, 6, 1)
     # The dashboard carries it on each move.
     board = ledger.build_dashboard([typo], SEP, SEP)
     assert {e.needs_check for e in board.credit_moves} == {True}
+
+    # A quarterly payment: ₹4,500 for September pays September, October and November. Fine.
+    quarterly = record(p(1, JUN, FEE), p(2, JUL, FEE), p(3, AUG, FEE), p(4, SEP, 3 * FEE))
+    assert flags(quarterly)[4] == (False, 2)
+    # A catch-up: ₹6,000 for September pays it and June to August, all owed. Fine.
+    catch_up = record(p(4, SEP, 4 * FEE))
+    assert flags(catch_up)[4] == (False, 0)
+    # A top-up of a part-paid month from another month's extra. Fine.
+    top_up = record(p(1, JUN, FEE), p(2, JUL, 500_00), p(3, AUG, FEE), p(4, SEP, FEE + 1000_00))
+    assert flags(top_up)[4] == (False, 0)
+    # Up to 3 months ahead is fine; 4 is flagged.
+    paid_up = (p(1, JUN, FEE), p(2, JUL, FEE), p(3, AUG, FEE))
+    assert flags(record(*paid_up, p(4, SEP, 4 * FEE)))[4] == (False, 3)
+    assert flags(record(*paid_up, p(4, SEP, 5 * FEE)))[4] == (True, 4)
+
+    # A ₹0 fee (a free place): money logged for it isn't needed by any month. Flagged.
+    free = StudentRecord(
+        id=1,
+        name="Ananya Rao",
+        joined_month=JUN,
+        fee_changes=(FeeChange(JUN, 0),),
+        payments=(p(1, SEP, 500_00),),
+    )
+    [use] = ledger.payment_uses(free, SEP)
+    assert use.unused_paise == 500_00 and ledger.needs_check(use, SEP)
+    # So is money left over after leaving.
+    left = record(p(1, JUN, FEE), p(2, JUL, FEE + 700_00), left=JUL)
+    assert flags(left)[2] == (True, 0)
 
 
 def test_the_dashboard_summary_explains_collected() -> None:

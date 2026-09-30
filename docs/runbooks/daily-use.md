@@ -43,8 +43,9 @@ When everyone has paid, you'll see **Everyone's paid for** the month 🎉.
 If the amount is more than what's left of that month's fee, the form says where the extra will
 go, for example "₹1,500 more than the September fee: it will pay August 2026 (unpaid)". If
 it's much more than their fee, it asks "Is it right?" first, in case of an extra zero. You can
-still save it; the student's profile then says "Check: this ₹15,000 payment pays up to …" so you
-can look again.
+still save it; if it pays 4 or more months ahead, the student's profile then says "Check: this
+₹15,000 payment pays up to Jun 2027 — 9 months ahead" so you can look again. Paying months
+they owe never gets a "Check".
 
 That's it. The dashboard updates straight away. If you saved by mistake, click **Undo** in the
 message that appears.

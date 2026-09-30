@@ -7,6 +7,7 @@ import {
   allocationMonths,
   expectedFrom,
   monthShare,
+  monthsAhead,
   needsCheck,
   paysUntil,
   previewPayment,
@@ -157,19 +158,38 @@ describe('previewPayment', () => {
   })
 })
 
-describe('needsCheck and paysUntil', () => {
-  it('flag a payment that pays 3 or more months, or is 3 times the fee', () => {
-    const use = (months: number, rupees: number) => ({
-      payment: { amount_paise: rupees * 100 },
-      extra_sent: Array.from({ length: months }, (_, i) => ({
-        to_month: `2026-1${i}`,
-        amount_paise: 1,
-      })),
+describe('needsCheck, monthsAhead and paysUntil', () => {
+  it('flag only a payment far ahead, or with money no month needs', () => {
+    const now = '2026-09'
+    const pay = (months: string[], unused = 0, forMonth = '2026-09') => ({
+      for_month: forMonth,
+      paid_direct_paise: 150000,
+      extra_sent: months.map((to_month) => ({ to_month, amount_paise: 150000 })),
+      extra_unused_paise: unused,
     })
-    expect(needsCheck(use(1, 3000), 150000)).toBe(false)
-    expect(needsCheck(use(2, 4500), 150000)).toBe(true)
-    expect(needsCheck(use(3, 1800), 150000)).toBe(true)
-    expect(needsCheck(use(0, 9000), 0)).toBe(false)
+    // The ₹15,000 typo: nine months ahead.
+    const typo = pay([
+      '2026-10',
+      '2026-11',
+      '2026-12',
+      '2027-01',
+      '2027-02',
+      '2027-03',
+      '2027-04',
+      '2027-05',
+      '2027-06',
+    ])
+    expect([monthsAhead(typo, now), needsCheck(typo, now)]).toEqual([9, true])
+    // A quarterly payment (two months ahead) and a catch-up of months owed: fine.
+    expect(needsCheck(pay(['2026-10', '2026-11']), now)).toBe(false)
+    expect(needsCheck(pay(['2026-06', '2026-07', '2026-08']), now)).toBe(false)
+    // Three ahead is fine; four is flagged. A future month paid directly counts too.
+    expect(needsCheck(pay(['2026-10', '2026-11', '2026-12']), now)).toBe(false)
+    expect(needsCheck(pay(['2026-11', '2026-12', '2027-01'], 0, '2026-10'), now)).toBe(true)
+    // Money no month needs (a ₹0 fee, or after leaving).
+    expect(needsCheck({ ...pay([]), paid_direct_paise: 0, extra_unused_paise: 50000 }, now)).toBe(
+      true,
+    )
   })
 
   it('name the latest month a payment pays', () => {

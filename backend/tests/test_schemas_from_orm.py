@@ -60,6 +60,7 @@ def test_payment_read(session: Session) -> None:
         student_name=payment.student_name,
         paid_direct_paise=payment.amount_paise,
         needs_check=False,
+        months_ahead=0,
         extra_sent=[],
         extra_unused_paise=0,
     )

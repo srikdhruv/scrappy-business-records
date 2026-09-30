@@ -159,6 +159,8 @@ def test_dashboard_sections(api: TestClient) -> None:
             "payment_amount_paise": 200000,
             "payment_pays_until": "2026-05",
             "payment_needs_check": False,
+            "payment_months_ahead": 0,
+            "payment_extra_unused_paise": 0,
         }
     ]
     # Collected for May counts only what pays May: ₹1,500 of Ananya's ₹2,000, and Kabir's. The

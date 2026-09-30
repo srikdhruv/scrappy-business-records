@@ -52,6 +52,13 @@ Still open:
   now; it would need `payment_allocations` (see §3).
 - **Choose where it goes:** let the owner send one payment's extra to a particular month
   instead of the oldest one owed.
+- **Say when a new payment moves another payment's extra.** Logging a payment for a month that
+  another payment's extra already paid pays that month directly, so the older extra moves on
+  (usually to a later month). The *Log payment* preview only describes the new payment's own
+  money; it could add "the ₹1,500 from the 5 Sep payment will then pay October instead".
+- **Show part-paid months inside ranges.** Notes and the Dashboard collapse months in a row into
+  a range ("Oct 2026 to Sep 2028") without saying that the last one is only partly paid; the
+  range could say so ("…, Sep 2028 in part").
 
 ## 3. Bank statement import (Excel/CSV)
 

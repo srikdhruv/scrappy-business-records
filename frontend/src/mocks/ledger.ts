@@ -18,7 +18,14 @@ import type {
   SuggestedPayment,
   YetToPayItem,
 } from '@/api/types'
-import { allocate, monthShare, needsCheck, paysUntil, type Allocation } from '@/lib/allocation'
+import {
+  allocate,
+  monthShare,
+  monthsAhead,
+  needsCheck,
+  paysUntil,
+  type Allocation,
+} from '@/lib/allocation'
 import { addMonths, monthsBetween, MONTHS_AHEAD } from '@/lib/format'
 
 export interface StudentRow {
@@ -380,7 +387,9 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
         amount_paise: mv.amount_paise,
         payment_amount_paise: mv.payment.amount_paise,
         payment_pays_until: paysUntil({ ...use, for_month: mv.payment.for_month }),
-        payment_needs_check: needsCheck(use, feeFor(book.fees, mv.payment.for_month)),
+        payment_needs_check: needsCheck({ ...use, for_month: mv.payment.for_month }, now),
+        payment_months_ahead: monthsAhead({ ...use, for_month: mv.payment.for_month }, now),
+        payment_extra_unused_paise: use.extra_unused_paise,
       })
     }
   }

@@ -89,7 +89,7 @@ describe('student profile', () => {
     const balance = within(await screen.findByRole('region', { name: 'Balance' }))
     expect(balance.getByText('Up to date')).toBeInTheDocument()
     expect(
-      await balance.findByText('Check: this ₹15,000 payment pays up to Jul 2027'),
+      await balance.findByText('Check: this ₹15,000 payment pays up to Jul 2027 — 9 months ahead'),
     ).toBeInTheDocument()
     await user.click(balance.getByRole('button', { name: 'Edit payment' }))
     const dialog = await findDialog('Edit payment')

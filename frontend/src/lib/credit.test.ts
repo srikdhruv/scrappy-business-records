@@ -76,13 +76,28 @@ describe('the words for extra money', () => {
     ).toBe('₹2,000 went to Jul 2026 to Aug 2026; ₹200 kept as credit')
   })
 
-  it('flags a payment that may be a typo', () => {
+  it('flags a payment that may be a typo, always with the reason', () => {
     expect(
-      checkText({ amount_paise: 1500000, for_month: '2026-09', paysUntil: '2027-06', fee: 150000 }),
-    ).toBe('Check: this ₹15,000 payment pays up to Jun 2027')
+      checkText({ amount_paise: 1500000, paysUntil: '2027-06', monthsAhead: 9, unused_paise: 0 }),
+    ).toBe('Check: this ₹15,000 payment pays up to Jun 2027 — 9 months ahead')
     expect(
-      checkText({ amount_paise: 500000, for_month: '2026-05', paysUntil: '2026-05', fee: 150000 }),
-    ).toBe('Check: this ₹5,000 payment is much more than the ₹1,500 fee')
+      checkText({
+        amount_paise: 250000,
+        paysUntil: '2026-07',
+        monthsAhead: 0,
+        unused_paise: 50000,
+      }),
+    ).toBe('Check: this ₹2,500 payment — ₹500 isn’t needed by any month')
+    expect(
+      checkText({
+        amount_paise: 6000000,
+        paysUntil: '2028-09',
+        monthsAhead: 24,
+        unused_paise: 1500000,
+      }),
+    ).toBe(
+      'Check: this ₹60,000 payment pays up to Sep 2028 — 24 months ahead; ₹15,000 isn’t needed by any month',
+    )
   })
 
   it('groups the dashboard’s moves by payment', () => {
@@ -99,6 +114,8 @@ describe('the words for extra money', () => {
       payment_amount_paise: id === 7 ? 4500000 : 300000,
       payment_pays_until: id === 7 ? '2028-09' : '2026-10',
       payment_needs_check: id === 7,
+      payment_months_ahead: id === 7 ? 24 : 1,
+      payment_extra_unused_paise: 0,
     })
     const groups = groupMoves([move('2026-10'), move('2026-11'), move('2026-10', 8)])
     expect(groups).toHaveLength(1)
@@ -108,6 +125,7 @@ describe('the words for extra money', () => {
       payment_ids: [7, 8],
       payment_amount_paise: 4800000,
       pays_until: '2028-09',
+      months_ahead: 24,
       needs_check: true,
     })
   })

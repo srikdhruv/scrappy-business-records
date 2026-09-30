@@ -64,6 +64,7 @@ __all__ = [
     "credit",
     "has_left",
     "month_status",
+    "months_ahead",
     "needs_check",
     "owed",
     "paid_ahead",
@@ -80,11 +81,9 @@ MONTHS_AHEAD = 24
 app/services/bounds.py), so nothing later is ever suggested, and extra money never covers a
 month later than this ("paid ahead" stops here)."""
 
-CHECK_MONTHS = 3
-"""A payment that pays this many other months (or more) is worth a glance: see `needs_check`."""
-
-CHECK_FEE_FACTOR = 3
-"""A payment this many times its month's fee (or more) is worth a glance: see `needs_check`."""
+CHECK_MONTHS_AHEAD = 4
+"""A payment that pays this many months after the current one (or more) is worth a glance: see
+`needs_check`."""
 
 # --------------------------------------------------------------------------- inputs
 
@@ -341,14 +340,25 @@ def payment_uses(student: StudentRecord, current_month: dt.date) -> tuple[Paymen
     return student.allocation(current_month).uses
 
 
-def needs_check(student: StudentRecord, use: PaymentUse) -> bool:
-    """A payment that may be a typo (an extra zero): it pays `CHECK_MONTHS` or more other months,
-    or it's `CHECK_FEE_FACTOR` times its month's fee or more (the fee in effect then, even after
-    leaving; a month with a 0 fee only counts by months). Extra money quietly pays months ahead,
-    so a slip would otherwise just look "paid ahead"."""
-    fee = student.fee_in_effect(use.payment.for_month)
-    too_many_months = len(use.sent) >= CHECK_MONTHS
-    return too_many_months or (fee > 0 and use.payment.amount_paise >= CHECK_FEE_FACTOR * fee)
+def months_ahead(use: PaymentUse, current_month: dt.date) -> int:
+    """How many months after the current one this payment pays (its own month, if it paid any
+    of it, and the months its extra went to)."""
+    months = {e.to_month for e in use.sent}
+    if use.direct_paise:
+        months.add(use.payment.for_month)
+    return sum(1 for m in months if m > first_of_month(current_month))
+
+
+def needs_check(use: PaymentUse, current_month: dt.date) -> bool:
+    """A payment that may be a slip of the finger (an extra zero). Extra money quietly pays
+    months ahead, so a typo would otherwise just look "paid ahead". Paying months owed (a
+    catch-up, a top-up, a quarterly payment) is never flagged. Only when:
+
+    - it pays `CHECK_MONTHS_AHEAD` or more months after the current one, or
+    - some of it is kept as credit: no month needed it (this includes money logged for a month
+      with no fee when nothing is owed).
+    """
+    return months_ahead(use, current_month) >= CHECK_MONTHS_AHEAD or use.unused_paise > 0
 
 
 def pays_until(use: PaymentUse) -> dt.date:
@@ -785,7 +795,7 @@ def build_dashboard(
         use_of = {id(u.payment): u for u in alloc.uses}
         for mv in mine:
             use = use_of[id(mv.payment)]
-            moves.append(CreditMoveEntry(s, mv, use, needs_check(s, use)))
+            moves.append(CreditMoveEntry(s, mv, use, needs_check(use, current_month)))
 
     return Dashboard(
         month=month,

@@ -106,6 +106,8 @@ def get_dashboard(session: Session, month: dt.date, current_month: dt.date) -> D
                     ledger.pays_until(e.use) if e.use else e.move.to_month
                 ),
                 payment_needs_check=e.needs_check,
+                payment_months_ahead=ledger.months_ahead(e.use, current_month) if e.use else 0,
+                payment_extra_unused_paise=e.use.unused_paise if e.use else 0,
             )
             for e in board.credit_moves
         ],

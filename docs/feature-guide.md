@@ -198,9 +198,12 @@ which payment it came from: *Vihaan Joshi · ₹2,000 extra from the 2 Sep 2026 
 August is paid with September's extra, so he isn't in *Earlier months still owed*. Click a row
 to open the profile.
 
-A payment that pays three or more other months, or is three times its fee or more, gets an
-amber line in case it's a slip of the finger: *"Check: this ₹45,000 payment pays up to Sep
-2028"* (with *→ Oct 2026 to Sep 2028* on the right). If it's right, there's nothing to do.
+A payment that pays **4 or more months ahead** (months not due yet), or has money **no month
+needs**, gets an amber line saying why, in case it's a slip of the finger: *"Check: this
+₹45,000 payment pays up to Sep 2028 — 24 months ahead; ₹7,500 isn't needed by any month"* (with
+*→ Oct 2026 to Sep 2028* on the right). Paying months still owed (a catch-up, a quarterly
+payment, a top-up of a part-paid month) never gets one. If it's right, there's nothing to
+do.
 
 **Extra kept as credit** appears only when someone paid more than every fee they owe, so no
 month needed the money (usually someone who has left): *May 2026 · paid ₹2,500, fee ₹2,000*,
@@ -495,7 +498,7 @@ saving.
   at most 24 months ahead, `paid_on` from 2000-01-01 to tomorrow); the amount cap is
   `MAX_AMOUNT_PAISE` in `app/schemas.py`. A 422's `loc` field is shown next to the matching box
   (`SERVER_FIELDS`).
-- **Rules:** the suggestion is PRD ledger rule 9; the extra-money line is rule 10; the 3× check
+- **Rules:** the suggestion is PRD ledger rule 9; the extra-money line is rule 10; the 3× check at entry
   is `LARGE_AMOUNT_FACTOR`; the suggestion never overwrites what was typed or what the caller
   prefilled for that student.
 - **PRD:** stories P1, P2, P4, P5, D5; ledger rules 3, 4, 5, 9 and 10.
@@ -914,9 +917,11 @@ Under the headline:
 - one plain sentence: *"4 months not fully paid."*, *"Paid ₹500 more than every fee owed."*,
   *"Everything due is paid, and ahead to October 2026."* (a month with no fee in between
   doesn't stop the count) or *"Everything due so far has been paid."*;
-- if a payment may be a slip of the finger (it pays three or more other months, or is three
-  times its fee or more), an amber line for each: *"Check: this ₹15,000 payment pays up to Jun
-  2027"*, with **Edit payment**. If it's right, there's nothing to do;
+- if a payment may be a slip of the finger (it pays 4 or more months ahead, or has money no
+  month needs), an amber line for each, with the reason: *"Check: this ₹15,000 payment pays up
+  to Jun 2027 — 9 months ahead"*, with **Edit payment**. (Money no month needs is shown in the
+  credit box below instead.) Paying months still owed never gets one. If it's right, there's
+  nothing to do;
 - if they owe, an **Oldest unpaid** box (*June 2026 · ₹1,200 left*) with **Log payment**;
 - if they have credit, a box **₹500 kept as credit** listing the payment it's in (*₹2,500 paid
   for Jul 2026, after they left · ₹500 of it not needed*), with **Edit payment**, and *"Extra
@@ -1199,7 +1204,7 @@ The same word always has the same colour, everywhere in the app.
 | **… extra → …** | Teal note | Profile *Month by month* | Where this month's money above its fee went: "₹2,000 extra → Aug 2026" |
 | **… went to …** | Teal line | Payments page and the profile's *Payments*; "Now: …" in Edit payment | Where a payment's money above its month's fee went: "₹2,000 went to Aug 2026" |
 | **Extra money used** | Teal arrow (→ Aug 2026) | The Dashboard section of that name | Money that paid a different month than it was logged for, into or out of the month you're looking at |
-| **Check: this ₹X payment …** | Amber | Profile Balance card; Dashboard *Extra money used* | A payment that pays three or more other months, or is three times its fee or more: worth a glance in case of a typo. Nothing to do if it's right |
+| **Check: this ₹X payment …** | Amber | Profile Balance card; Dashboard *Extra money used* | A payment that pays 4 or more months ahead, or has money no month needs, with the reason ("pays up to Jun 2027 — 9 months ahead", "₹500 isn't needed by any month"): worth a glance in case of a typo. Paying months owed never gets one. Nothing to do if it's right |
 | **Overpaid** | — | Not shown as a word. The app says **Paid extra** or **kept as credit** instead | Some of a month's money wasn't needed by any month (the rules' name for it) |
 | **Paid extra** | Teal, with a + | Profile *Month by month* | A month holding money that no month needed: it's kept as credit (the row also says "₹500 kept as credit") |
 | **Extra kept as credit** | Teal amounts (+₹500) | The Dashboard section of that name (shown only when there is some) | Every month holding credit, up to the one you're looking at |

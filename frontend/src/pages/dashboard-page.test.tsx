@@ -149,7 +149,9 @@ describe('dashboard', () => {
       const rows = used.getAllByRole('link', { name: /Tanu Test/ })
       expect(rows).toHaveLength(1)
       expect(rows[0]).toHaveTextContent('Nov 2026 to Oct 2028')
-      expect(rows[0]).toHaveTextContent('Check: this ₹45,000 payment pays up to Oct 2028')
+      expect(rows[0]).toHaveTextContent(
+        'Check: this ₹45,000 payment pays up to Oct 2028 — 24 months ahead; ₹7,500 isn’t needed by any month',
+      )
     })
 
     it('shows the month that extra money paid, looking back', async () => {

@@ -543,14 +543,13 @@ function CreditMoves({ items }: { items: CreditMoveItem[] }) {
                 </span>
                 {g.needs_check && (
                   <span className="block text-sm font-semibold text-partial">
-                    {g.payment_ids.length > 1
-                      ? `Check: these payments pay up to ${formatMonthShort(g.pays_until)}`
-                      : checkText({
-                          amount_paise: g.payment_amount_paise,
-                          for_month: g.from_month,
-                          paysUntil: g.pays_until,
-                          fee: 0,
-                        })}
+                    {checkText({
+                      amount_paise: g.payment_amount_paise,
+                      paysUntil: g.pays_until,
+                      monthsAhead: g.months_ahead,
+                      unused_paise: g.unused_paise,
+                      several: g.payment_ids.length > 1,
+                    })}
                   </span>
                 )}
               </span>

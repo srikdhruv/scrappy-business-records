@@ -583,8 +583,14 @@ class PaymentRead(_ReadModel):
         description="The part that pays for_month itself (at most what was left of its fee)."
     )
     needs_check: bool = Field(
-        description="Worth a glance, in case of a typo: it pays 3 or more other months, or it's "
-        "3 times its month's fee or more."
+        description="Worth a glance, in case of a typo: it pays 4 or more months after the "
+        "current one (months_ahead), or some of it is kept as credit (extra_unused_paise > 0). "
+        "Paying months owed never flags."
+    )
+    months_ahead: int = Field(
+        ge=0,
+        description="How many months after the current one it pays (its own, and where its "
+        "extra went).",
     )
     extra_sent: list[ExtraSent] = Field(
         description="The rest, covering other unpaid months, oldest first."
@@ -706,6 +712,10 @@ class CreditMoveItem(_ReadModel):
         description="The latest month the payment pays (so a screen can say 'pays up to …')."
     )
     payment_needs_check: bool = Field(description="See PaymentRead.needs_check.")
+    payment_months_ahead: int = Field(ge=0, description="See PaymentRead.months_ahead.")
+    payment_extra_unused_paise: NonNegativePaise = Field(
+        description="The part of the payment no month needed (credit)."
+    )
 
 
 class DashboardResponse(_ReadModel):

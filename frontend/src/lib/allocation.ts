@@ -160,22 +160,34 @@ export function monthShare(alloc: Allocation, month: string) {
   }
 }
 
-/** Backend `CHECK_MONTHS` and `CHECK_FEE_FACTOR` (see `needsCheck`). */
-export const CHECK_MONTHS = 3
-export const CHECK_FEE_FACTOR = 3
+/** Backend `CHECK_MONTHS_AHEAD` (see `needsCheck`). */
+export const CHECK_MONTHS_AHEAD = 4
+
+/** How many months after `now` a payment pays: its own (if it paid any of it) and where its
+ * extra went (backend `months_ahead`). */
+export function monthsAhead(
+  p: { for_month: string; paid_direct_paise: number; extra_sent: readonly ExtraSent[] },
+  now: string,
+): number {
+  const months = new Set(p.extra_sent.map((e) => e.to_month))
+  if (p.paid_direct_paise > 0) months.add(p.for_month)
+  return [...months].filter((m) => m > now).length
+}
 
 /**
- * A payment that may be a typo (backend `needs_check`): it pays 3 or more other months, or it's
- * 3 times its month's fee (`fee`, the fee in effect then) or more.
+ * A payment that may be a slip of the finger (backend `needs_check`): it pays 4 or more months
+ * after `now`, or some of it is kept as credit. Paying months owed never flags.
  */
 export function needsCheck(
-  use: Pick<PaymentUse, 'extra_sent'> & { payment: Pick<AllocPayment, 'amount_paise'> },
-  fee: number,
+  p: {
+    for_month: string
+    paid_direct_paise: number
+    extra_sent: readonly ExtraSent[]
+    extra_unused_paise: number
+  },
+  now: string,
 ): boolean {
-  return (
-    use.extra_sent.length >= CHECK_MONTHS ||
-    (fee > 0 && use.payment.amount_paise >= CHECK_FEE_FACTOR * fee)
-  )
+  return monthsAhead(p, now) >= CHECK_MONTHS_AHEAD || p.extra_unused_paise > 0
 }
 
 /** The latest month a payment pays (backend `pays_until`): its own, or the last one its extra
