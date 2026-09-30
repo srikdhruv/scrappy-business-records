@@ -21,7 +21,8 @@ def pay(api: TestClient, student_id: int, month: str, amount: int = 150000, **fi
     body = {
         "student_id": student_id,
         "amount_paise": amount,
-        "paid_on": f"{month}-05",
+        # Paid on the 5th, or on "today" (conftest's FROZEN_TODAY) when paying ahead.
+        "paid_on": min(f"{month}-05", "2026-06-15"),
         "for_month": month,
         "method": "upi",
     }

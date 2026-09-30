@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Query, status
 
+from app.clock import TodayDep
 from app.db import SessionDep
 from app.schemas import (
     ErrorResponse,
@@ -43,8 +44,8 @@ def list_payments(
     responses={404: {"model": ErrorResponse, "description": "No student with this id"}},
     operation_id="createPayment",
 )
-def create_payment(body: PaymentCreate, session: SessionDep) -> PaymentRead:
-    return service.create_payment(session, body)
+def create_payment(body: PaymentCreate, session: SessionDep, today: TodayDep) -> PaymentRead:
+    return service.create_payment(session, body, today)
 
 
 @router.get(
@@ -63,9 +64,11 @@ def get_payment(payment_id: int, session: SessionDep) -> PaymentRead:
     responses=NOT_FOUND,
     operation_id="updatePayment",
 )
-def update_payment(payment_id: int, body: PaymentUpdate, session: SessionDep) -> PaymentRead:
+def update_payment(
+    payment_id: int, body: PaymentUpdate, session: SessionDep, today: TodayDep
+) -> PaymentRead:
     """Partial update. Only fields that are sent change."""
-    return service.update_payment(session, payment_id, body)
+    return service.update_payment(session, payment_id, body, today)
 
 
 @router.delete(
