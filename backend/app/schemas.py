@@ -47,14 +47,18 @@ __all__ = [
     "HealthResponse",
     "LedgerMonth",
     "MonthStatus",
+    "NoFeeReason",
     "OverpaidItem",
     "PaymentCreate",
     "PaymentMethod",
     "PaymentRead",
     "PaymentSort",
     "PaymentUpdate",
+    "ReportCheck",
+    "ReportFilter",
     "ReportResponse",
     "ReportRow",
+    "ReportSort",
     "ReportStatus",
     "ReportTotals",
     "SortOrder",
@@ -274,6 +278,49 @@ class ReportStatus(enum.StrEnum):
     paid = "paid"
     no_fee = "no_fee"
     left = "left"
+
+
+class NoFeeReason(enum.StrEnum):
+    """Why a monthly report row says **No fee**."""
+
+    not_joined = "not_joined"
+    """M is before the month they joined."""
+    away = "away"
+    """A month away before they came back (an `away` fee change)."""
+    zero_fee = "zero_fee"
+    """A ₹0 fee the owner set: a month off, or a free place."""
+
+
+class ReportFilter(enum.StrEnum):
+    """Which rows of the monthly report: `all`; `owes` (anything owed now, any month);
+    `short` (something left to pay for M); or one `ReportStatus`."""
+
+    all = "all"
+    owes = "owes"
+    short = "short"
+    unpaid = "unpaid"
+    partial = "partial"
+    not_due_yet = "not_due_yet"
+    paid_with_credit = "paid_with_credit"
+    paid = "paid"
+    no_fee = "no_fee"
+    left = "left"
+
+
+class ReportSort(enum.StrEnum):
+    """A column of the monthly report to sort by (ties keep the report's usual order)."""
+
+    student = "student"
+    status = "status"
+    fee = "fee"
+    paid = "paid"
+    short = "short"
+    owed_now = "owed_now"
+    covered = "covered"
+    extra = "extra"
+    owed_before = "owed_before"
+    credit = "credit"
+    batch = "batch"
 
 
 class StudentListFilter(enum.StrEnum):
@@ -763,6 +810,18 @@ class DashboardResponse(_ReadModel):
 # --------------------------------------------------------------------------- monthly report
 
 
+class ReportCheck(_ReadModel):
+    """A payment logged for M that is worth a glance in case of a typo (`ledger.needs_check`,
+    as on the dashboard): it pays 4 or more months ahead, or some of it is kept as credit."""
+
+    payment_id: int
+    paid_on: dt.date
+    amount_paise: PositivePaise
+    pays_until: Month = Field(description="The latest month it pays (`ledger.pays_until`).")
+    months_ahead: int = Field(ge=0, description="How many months after the current one it pays.")
+    extra_unused_paise: NonNegativePaise = Field(description="The part no month needed.")
+
+
 class ReportRow(_ReadModel):
     """One student on the monthly report for M. The M numbers are the student's `LedgerMonth`
     for M; the standing numbers are their `StudentRead` ones (as of the current month).
@@ -773,6 +832,8 @@ class ReportRow(_ReadModel):
     student_name: str
     batch_label: str | None
     phone: str | None
+    joined_month: Month
+    left_month: Month | None
     is_enrolled: bool = Field(description="Active in M (joined on or before M, not left before).")
     fee_paise: NonNegativePaise = Field(description="The fee for M (0 if not enrolled in M).")
     paid_paise: NonNegativePaise = Field(description="Everything logged for M, as typed.")
@@ -796,6 +857,12 @@ class ReportRow(_ReadModel):
         description="What's left of M's fee: the LedgerMonth's remaining_paise."
     )
     status: ReportStatus
+    no_fee_reason: NoFeeReason | None = Field(
+        description="Why the status is `no_fee` (null for any other status)."
+    )
+    checks: list[ReportCheck] = Field(
+        description="Payments logged for M worth a glance in case of a typo, as on the dashboard."
+    )
     owed_before_paise: NonNegativePaise = Field(
         description="Still owed for due months before M (the dashboard's backlog total)."
     )
@@ -839,7 +906,9 @@ class ReportResponse(_ReadModel):
     )
     today: dt.date = Field(description="The server's date, to print on the report.")
     rows: list[ReportRow] = Field(
-        description="Every student enrolled in M, with money logged for or paying M, or still "
-        "owing for an earlier month. Unpaid first (in ReportStatus order), then by name."
+        description="Every student relevant to M (see ledger.build_report): enrolled in M, money "
+        "logged for or paying M, still owing an earlier month, money kept as credit up to M, or "
+        "(from the current month on) any credit or money paid ahead. Unpaid first (in "
+        "ReportStatus order), then by name."
     )
     totals: ReportTotals

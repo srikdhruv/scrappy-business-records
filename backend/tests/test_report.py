@@ -8,6 +8,7 @@ scenario below and on the demo data.
 from __future__ import annotations
 
 import io
+import re
 from typing import Any
 
 import pytest
@@ -18,6 +19,7 @@ from openpyxl import load_workbook
 
 from app.db import session_factory
 from app.seed import seed
+from app.services.report_xlsx import RUPEES, RUPEES_PAISE, rupees
 
 Json = dict[str, Any]
 
@@ -40,7 +42,13 @@ def _relevant(student: Json, detail: Json, month: str, owes_earlier: bool) -> bo
     )
     line = next((m for m in detail["months"] if m["month"] == month), None)
     money = line is not None and (line["paid_paise"] > 0 or line["covered_by_credit_paise"] > 0)
-    return enrolled or money or owes_earlier
+    # Money kept as credit in M or earlier: the dashboard's "Extra kept as credit" for M.
+    held = any(m["extra_unused_paise"] > 0 and m["month"] <= month for m in detail["months"])
+    # From the current month on: anyone with credit or money paid ahead (the Students list).
+    standing = month >= student["current_month"] and (
+        student["credit_paise"] > 0 or student["paid_ahead_paise"] > 0
+    )
+    return enrolled or money or owes_earlier or held or standing
 
 
 def assert_reconciles(api: TestClient, months: list[str] = MONTHS) -> None:
@@ -140,6 +148,15 @@ def assert_reconciles(api: TestClient, months: list[str] = MONTHS) -> None:
                 r["paid_direct_paise"] + r["covered_by_credit_paise"] + r["short_paise"]
                 == r["fee_paise"]
             )
+
+        # The current month (and later ones) list everyone the Students list shows as owing,
+        # with credit or with money paid ahead, so those totals are the Students list's.
+        if month >= body["current_month"]:
+            everyone = students.values()
+            assert t["credit_paise"] == sum(s["credit_paise"] for s in everyone), month
+            assert t["paid_ahead_paise"] == sum(s["paid_ahead_paise"] for s in everyone), month
+        if month == body["current_month"]:
+            assert t["owed_now_paise"] == sum(s["owed_paise"] for s in students.values())
 
         # Exactly the students relevant to M: enrolled in M, money logged for or paying M, or
         # still owing an earlier month.
@@ -349,6 +366,45 @@ def _sheet(content: bytes) -> Any:
     return load_workbook(io.BytesIO(content)).worksheets[0]
 
 
+HEADINGS = [
+    "Student",
+    "Status",
+    "Fee ₹",
+    "Paid for this month ₹",
+    "Short ₹",
+    "Total owed now ₹",
+    "Paid from another payment's extra ₹",
+    "Came from",
+    "Extra sent elsewhere ₹",
+    "Went to",
+    "Extra kept as credit ₹",
+    "Owed from earlier months ₹",
+    "Earlier months owed",
+    "Kept as credit, all months ₹",
+    "Paid ahead ₹",
+    "Check",
+    "Class/batch",
+    "Phone",
+]
+COL = {h: i for i, h in enumerate(HEADINGS)}
+MONEY = [i for i, h in enumerate(HEADINGS) if h.endswith("₹")]
+
+
+def _evaluate(ws: Any, value: Any) -> Any:
+    """Work out the two kinds of formula the report writes, as Excel would (with no filter on):
+    `=SUBTOTAL(109,D5:D12)` and `=D13-I13-K13+G13`."""
+    if not (isinstance(value, str) and value.startswith("=")):
+        return value
+    if m := re.fullmatch(r"=SUBTOTAL\(109,([A-Z]+)(\d+):\1(\d+)\)", value):
+        col, first, last = m[1], int(m[2]), int(m[3])
+        return sum(ws[f"{col}{r}"].value or 0 for r in range(first, last + 1))
+    total = 0
+    for sign, ref in re.findall(r"([=+-])([A-Z]+\d+)", value):
+        cell = _evaluate(ws, ws[ref].value)
+        total += -cell if sign == "-" else cell
+    return total
+
+
 def test_excel_has_the_screen_rows_and_totals(api: TestClient) -> None:
     _scenario(api)
     make_student(api, name="=HYPERLINK(1)", joined_month="2026-06", batch_label="Tue 5pm")
@@ -363,76 +419,125 @@ def test_excel_has_the_screen_rows_and_totals(api: TestClient) -> None:
 
     assert ws["A1"].value == "Scrappy Records — Fees report, June 2026"
     assert ws["A1"].font.bold
-    assert ws["A2"].value == "As of 15 Jun 2026"
-    headings = [c.value for c in ws[4]]
-    assert headings == [
-        "Student",
-        "Class/batch",
-        "Phone",
-        "Fee ₹",
-        "Paid for this month ₹ (logged)",
-        "Covered by credit ₹",
-        "Credit came from",
-        "Extra sent elsewhere ₹",
-        "Extra went to",
-        "Short ₹",
-        "Status",
-        "Owed from earlier months ₹",
-        "Earlier months owed",
-        "Total owed now ₹",
-        "Credit ₹",
-        "Paid ahead ₹",
-    ]
+    assert ws["A2"].value.startswith("As of 15 Jun 2026. Payments count for the month")
+    assert [c.value for c in ws[4]] == HEADINGS
     assert all(c.font.bold for c in ws[4])
     assert ws.freeze_panes == "B5"
     assert ws.page_setup.orientation == "landscape"
 
-    data = [[c.value for c in row] for row in ws.iter_rows(min_row=5)]
-    rows, total = data[:-1], data[-1]
+    n = len(body["rows"])
+    rows = [[c.value for c in row] for row in ws.iter_rows(min_row=5, max_row=4 + n)]
+    total_row, collected_row = 5 + n, 6 + n
+    total = [_evaluate(ws, c.value) for c in ws[total_row]]
     assert [r[0] for r in rows] == [r["student_name"] for r in body["rows"]]
     by_name = {r[0]: r for r in rows}
     arjun = by_name["Arjun Menon"]
-    assert arjun[3:6] == [1500, 0, 0]
-    assert arjun[9:14] == [1500, "Unpaid", 1500, "May 2026", 3000]
-    assert by_name["Zoya Khan"][10] == "No fee"
-    assert by_name["Dev Patel"][10] == "Left"
+    assert arjun[:6] == ["Arjun Menon", "Unpaid", 1500, 0, 1500, 3000]
+    assert arjun[COL["Owed from earlier months ₹"]] == 1500
+    assert arjun[COL["Earlier months owed"]] == "May 2026"
+    assert by_name["Zoya Khan"][1] == "No fee"
+    assert by_name["Dev Patel"][1] == "Left after March 2026"
+    assert by_name["Rohan Das"][1] == "Left after April 2026"
     injected = by_name["=HYPERLINK(1)"]
-    assert injected[1] == "Tue 5pm"
+    assert injected[COL["Class/batch"]] == "Tue 5pm"
     cell = next(c for c in ws["A"] if c.value == "=HYPERLINK(1)")
     assert cell.data_type == "s"  # text, never a formula
 
     t = body["totals"]
     assert total[0] == f"Total ({t['student_count']} students)"
-    assert total[3] == t["fee_paise"] // 100
-    assert total[4] == t["paid_paise"] // 100
-    assert total[9] == t["short_paise"] // 100
-    assert total[10] == f"{t['not_fully_paid_count']} of {t['active_student_count']} not fully paid"
-    assert total[13] == t["owed_now_paise"] // 100
-    total_row = ws.max_row
+    assert total[1] == f"{t['not_fully_paid_count']} of {t['active_student_count']} not fully paid"
+    for heading, field in {
+        "Fee ₹": "fee_paise",
+        "Paid for this month ₹": "paid_paise",
+        "Short ₹": "short_paise",
+        "Total owed now ₹": "owed_now_paise",
+        "Paid from another payment's extra ₹": "covered_by_credit_paise",
+        "Extra sent elsewhere ₹": "extra_sent_paise",
+        "Extra kept as credit ₹": "extra_unused_paise",
+        "Owed from earlier months ₹": "owed_before_paise",
+        "Kept as credit, all months ₹": "credit_paise",
+        "Paid ahead ₹": "paid_ahead_paise",
+    }.items():
+        formula = ws.cell(row=total_row, column=COL[heading] + 1).value
+        assert formula.startswith("=SUBTOTAL(109,"), heading  # follows Excel's own filter
+        assert total[COL[heading]] * 100 == t[field], heading
     assert all(c.font.bold for c in ws[total_row])
-    # Money is a number with a ₹ format, so it adds up in Excel.
-    fee_cell = ws.cell(row=5, column=4)
+    # Collected, as on the Dashboard.
+    assert ws.cell(row=collected_row, column=1).value.startswith("Collected for June 2026")
+    collected = ws.cell(row=collected_row, column=COL["Paid for this month ₹"] + 1).value
+    assert _evaluate(ws, collected) * 100 == t["collected_paise"]
+    board = api.get("/api/dashboard", params={"month": "2026-06"}).json()
+    assert t["collected_paise"] == board["summary"]["collected_paise"]
+    # Money is a number with the Indian-grouping ₹ format, so it adds up in Excel.
+    fee_cell = ws.cell(row=5, column=COL["Fee ₹"] + 1)
     assert isinstance(fee_cell.value, int)
-    assert "₹" in fee_cell.number_format
-    # The money columns add up to the totals row.
-    for col in (4, 5, 6, 8, 10, 12, 14, 15, 16):
-        assert sum(r[col - 1] or 0 for r in rows) == total[col - 1], col
+    assert fee_cell.number_format == RUPEES
+    for i in MONEY:
+        assert sum(r[i] or 0 for r in rows) == total[i], HEADINGS[i]
 
 
-def test_excel_credit_words(api: TestClient) -> None:
+def test_excel_follows_the_filter_search_and_sort(api: TestClient) -> None:
+    _scenario(api)
+    params = {"month": "2026-06", "status": "owes", "sort": "owed_now", "order": "desc"}
+    ws = _sheet(api.get("/api/report.xlsx", params=params).content)
+    body = report(api, "2026-06")
+    owing = sorted(
+        (r for r in body["rows"] if r["owed_now_paise"] > 0),
+        key=lambda r: r["owed_now_paise"],
+        reverse=True,
+    )
+    names = [ws.cell(row=5 + i, column=1).value for i in range(len(owing))]
+    assert names == [r["student_name"] for r in owing]
+    assert ws.cell(row=5 + len(owing), column=1).value == f"Total ({len(owing)} students)"
+    assert ws["A1"].value == (
+        "Scrappy Records — Fees report, June 2026 · Owes anything · "
+        "sorted by Total owed now, largest first"
+    )
+
+    params = {"month": "2026-06", "status": "short", "q": "arjun"}
+    ws = _sheet(api.get("/api/report.xlsx", params=params).content)
+    assert ws["A1"].value.endswith(' · Short this month · matching "arjun"')
+    assert ws["A5"].value == "Arjun Menon"
+    assert ws["A6"].value == "Total (1 student)"
+
+    # Phone numbers match with or without spaces, as on the page.
+    make_student(api, name="Kiara Fernandes", joined_month="2026-06", phone="98765 43210")
+    params = {"month": "2026-06", "q": "9876543210"}
+    ws = _sheet(api.get("/api/report.xlsx", params=params).content)
+    assert ws["A5"].value == "Kiara Fernandes"
+
+
+def test_excel_words_credit_checks_and_months(api: TestClient) -> None:
     s = make_student(api, name="Ananya Rao", joined_month="2026-05")
     pay(api, s["id"], "2026-06", 150000, paid_on="2026-06-05")
     pay(api, s["id"], "2026-06", 170050, paid_on="2026-06-10")
     ws = _sheet(api.get("/api/report.xlsx", params={"month": "2026-05"}).content)
     may = [c.value for c in ws[5]]
-    assert may[5] == 1500
-    assert may[6] == "₹1,500 from the 10 Jun 2026 payment (for Jun 2026)"
-    assert may[10] == "Paid with credit"
+    assert may[COL["Paid from another payment's extra ₹"]] == 1500
+    assert may[COL["Came from"]] == "₹1,500 from the 10 Jun 2026 payment (for Jun 2026)"
+    assert may[COL["Status"]] == "Paid (from extra)"
     ws = _sheet(api.get("/api/report.xlsx", params={"month": "2026-06"}).content)
     june = ws[5]
-    assert june[4].value == 3200.5
-    assert june[4].number_format.startswith('"₹"#,##0.00')
-    assert june[8].value == "₹1,500 → May 2026; ₹200.50 → Jul 2026"
+    assert june[COL["Paid for this month ₹"]].value == 3200.5
+    assert june[COL["Paid for this month ₹"]].number_format == RUPEES_PAISE
+    assert june[COL["Went to"]].value == "₹1,500 → May 2026; ₹200.50 → Jul 2026"
+
+    # A typo-sized payment gets the dashboard's note.
+    k = make_student(api, name="Kabir Mehta", joined_month="2026-06")
+    pay(api, k["id"], "2026-06", 1500000, paid_on="2026-06-12")
+    params = {"month": "2026-06", "q": "kabir"}
+    ws = _sheet(api.get("/api/report.xlsx", params=params).content)
+    assert ws.cell(row=5, column=COL["Check"] + 1).value == (
+        "Check: this ₹15,000 payment pays up to Mar 2027 — 9 months ahead"
+    )
+
+    # Many months owed stay short.
+    d = make_student(api, name="Dev Patel", joined_month="2025-12")
+    pay(api, d["id"], "2026-03")
+    ws = _sheet(api.get("/api/report.xlsx", params={"month": "2026-06", "q": "dev"}).content)
+    assert ws.cell(row=5, column=COL["Earlier months owed"] + 1).value == (
+        "Dec 2025\u2013Feb 2026 (3 months), Apr\u2013May 2026 (2 months)"
+    )
 
 
 def test_excel_for_a_month_not_due_yet_says_so(api: TestClient) -> None:
@@ -440,13 +545,138 @@ def test_excel_for_a_month_not_due_yet_says_so(api: TestClient) -> None:
     assert ws["A1"].value == "Scrappy Records — Fees report, August 2026"
     assert "August 2026 isn't due yet" in ws["A2"].value
     assert ws["A5"].value == "Total (0 students)"
+    assert ws["B5"].value == "0 of 0 not paid ahead"
+    assert ws["A6"].value.startswith("Paid ahead for August 2026")
+
+
+def _render(fmt: str, value: float) -> str:
+    """What a spreadsheet shows for `value` with one of our money formats. Handles only what
+    they use: `[>=N]` conditions, a quoted ₹, `#`/`0` digits, literal `\\,` commas, a plain
+    `#,##0` (groups of three), and `.00`."""
+    sections = fmt.split(";")
+    chosen = sections[-1]
+    for section in sections:
+        m = re.match(r"\[>=(\d+)\]", section)
+        if m and value >= int(m[1]):
+            chosen = section
+            break
+    body = re.sub(r"^\[[^\]]*\]", "", chosen).replace('"₹"', "")
+    int_part, _, dec_part = body.partition(".")
+    decimals = len(dec_part)
+    whole, _, frac = f"{value:.{decimals}f}".partition(".")
+    if "\\," not in int_part:  # "#,##0": groups of three
+        whole = f"{int(whole):,}"
+    else:
+        out, digits = [], list(whole)
+        for token in reversed(re.findall(r"\\,|[#0]", int_part)):
+            if token == "\\,":
+                out.append(",")
+            elif digits:
+                out.append(digits.pop())
+        out.extend(reversed(digits))  # extra digits go before the first placeholder
+        whole = "".join(reversed(out)).lstrip(",")
+    return "₹" + whole + (f".{frac}" if decimals else "")
+
+
+def test_money_format_is_indian_grouping() -> None:
+    """The formats are the strings documented in report_xlsx, and read as the screen does."""
+    assert RUPEES == r'[>=10000000]"₹"##\,##\,##\,##0;[>=100000]"₹"##\,##\,##0;"₹"#,##0'
+    assert RUPEES_PAISE == (
+        r'[>=10000000]"₹"##\,##\,##\,##0.00;[>=100000]"₹"##\,##\,##0.00;"₹"#,##0.00'
+    )
+    for paise in (0, 50, 150000, 9999900, 10000000, 15000000, 99999999, 1234567890, 1077374950):
+        fmt = RUPEES if paise % 100 == 0 else RUPEES_PAISE
+        value = paise // 100 if paise % 100 == 0 else paise / 100
+        assert _render(fmt, value) == rupees(paise), paise
+    assert _render(RUPEES_PAISE, 10773749.5) == "₹1,07,73,749.50"
 
 
 def test_rupees_in_indian_grouping() -> None:
-    from app.services.report_xlsx import rupees
-
     assert rupees(0) == "₹0"
     assert rupees(150000) == "₹1,500"
     assert rupees(15000000) == "₹1,50,000"
     assert rupees(1234567890) == "₹1,23,45,678.90"
     assert rupees(150050) == "₹1,500.50"
+
+
+# --------------------------------------------------------------------------- review fixes
+
+
+def test_left_students_with_credit_are_on_the_report(api: TestClient) -> None:
+    """Credit or money paid ahead always counts for the current month: a student who left
+    with money kept as credit is listed, and the totals are the Students list's."""
+    s = make_student(api, name="Isha Nair", joined_month="2026-02", left_month="2026-03")
+    pay(api, s["id"], "2026-02")
+    pay(api, s["id"], "2026-03", 200000)  # ₹500 more than every fee: credit
+    june = rows_by_name(report(api, "2026-06"))
+    isha = june["Isha Nair"]
+    assert (isha["status"], isha["left_month"], isha["credit_paise"]) == ("left", "2026-03", 50000)
+    assert report(api, "2026-06")["totals"]["credit_paise"] == 50000
+    # March, where the credit is held, and every month after it list her; February doesn't.
+    assert "Isha Nair" in rows_by_name(report(api, "2026-05"))
+    assert rows_by_name(report(api, "2026-03"))["Isha Nair"]["extra_unused_paise"] == 50000
+    assert_reconciles(api)
+
+
+def test_why_no_fee_and_when_they_left(api: TestClient) -> None:
+    _scenario(api)
+    april = rows_by_name(report(api, "2026-04"))
+    assert (april["Tara Singh"]["status"], april["Tara Singh"]["no_fee_reason"]) == (
+        "no_fee",
+        "away",
+    )
+    assert april["Zoya Khan"]["no_fee_reason"] == "zero_fee"
+    assert april["Kabir Mehta"]["no_fee_reason"] is None
+    june = rows_by_name(report(api, "2026-06"))
+    assert (june["Dev Patel"]["status"], june["Dev Patel"]["left_month"]) == ("left", "2026-03")
+    # Money logged for a month before they joined: all extra, and the month says why.
+    n = make_student(api, name="Neha Joshi", joined_month="2026-06")
+    pay(api, n["id"], "2026-05", 150000)
+    may = rows_by_name(report(api, "2026-05"))["Neha Joshi"]
+    assert (may["status"], may["no_fee_reason"]) == ("no_fee", "not_joined")
+
+
+def test_payments_worth_a_check_are_flagged(api: TestClient) -> None:
+    """The dashboard's typo check (`needs_check`), on the row of the month it was logged for."""
+    s = make_student(api, name="Kabir Mehta", joined_month="2026-06")
+    big = pay(api, s["id"], "2026-06", 1500000, paid_on="2026-06-12")
+    june = rows_by_name(report(api, "2026-06"))["Kabir Mehta"]
+    assert june["checks"] == [
+        {
+            "payment_id": big["id"],
+            "paid_on": "2026-06-12",
+            "amount_paise": 1500000,
+            "pays_until": "2027-03",
+            "months_ahead": 9,
+            "extra_unused_paise": 0,
+        }
+    ]
+    board = api.get("/api/dashboard", params={"month": "2026-06"}).json()
+    flagged = {m["payment_id"] for m in board["credit_moves"] if m["payment_needs_check"]}
+    assert flagged == {big["id"]}
+    # A payment that only pays months owed is never flagged.
+    k = make_student(api, name="Meera Iyer", joined_month="2026-04")
+    pay(api, k["id"], "2026-06", 450000)
+    assert rows_by_name(report(api, "2026-06"))["Meera Iyer"]["checks"] == []
+
+
+def test_screen_filters_match_the_page(api: TestClient) -> None:
+    """`shown` is the page's filter: Owes anything is any money owed now, Short this month is
+    something left on M."""
+    from app.schemas import ReportFilter, ReportResponse
+    from app.services.report import shown
+
+    _scenario(api)
+    body = ReportResponse.model_validate(report(api, "2026-06"))
+    owes = shown(body, ReportFilter.owes)
+    short = shown(body, ReportFilter.short)
+    assert {r.student_name for r in owes.rows} == {
+        "Arjun Menon",
+        "Meera Iyer",
+        "Kabir Mehta",  # paid June, owes May
+        "Dev Patel",  # left, owes March
+        "Rohan Das",  # left, owes part of April
+    }
+    assert {r.student_name for r in short.rows} == {"Arjun Menon", "Meera Iyer"}
+    assert owes.totals.owed_now_paise == body.totals.owed_now_paise
+    assert shown(body, ReportFilter.left, "dev").totals.student_count == 1

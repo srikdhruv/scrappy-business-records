@@ -1,14 +1,22 @@
-"""The monthly report as an Excel file (`GET /api/report.xlsx`): the same rows and totals as
-the Report screen, from `app.services.report.get_report`.
+"""The monthly report as an Excel file (`GET /api/report.xlsx`): the rows the Report page shows
+(its filter, search and sort, `app.services.report.shown`), with its columns in its order.
 
-A title row ("Scrappy Records — Fees report, October 2026"), the date, then the headings
-(bold, frozen with the Student column) and one row per student, then a bold totals row. Money is
-in rupees with a ₹ number format (a nil amount shows as "—" but is still the number 0, so sums
-work). The sheet prints on A4 landscape, one page wide.
+Row 1 is the title, with the filter if there is one ("Scrappy Records — Fees report, September
+2026 · Short this month"), row 2 the date, then the headings (bold, frozen with the Student
+column, with Excel's filter buttons), one row per student, a bold totals row of
+`SUBTOTAL(109, …)` formulas (so they follow Excel's own filters too), and a **Collected** line
+that matches the Dashboard. The sheet prints on A4 landscape, one page wide.
 
-Kept small and on its own on purpose. It follows the same approach as the Excel downloads
-(`openpyxl`, the same ₹ formats, heading colour and text safety), so the two can share one
-helper module once both are in.
+**Money** is a number of rupees (so it adds up) shown with the Indian grouping the screen uses,
+₹1,07,73,749.50, by a conditional number format (`RUPEES`, `RUPEES_PAISE`): Excel number
+formats only know groups of three, so the lakh and crore commas are literal commas (`\\,`) in
+patterns picked by the amount, `[>=10000000]` (a crore or more) and `[>=100000]` (a lakh or
+more). Excel allows two such conditions plus the rest; amounts here are never negative. A whole
+number of rupees uses the pattern without paise. `tests/test_report.py` checks the strings.
+
+Kept small and on its own on purpose. It follows the same approach as the Excel downloads PR
+(`openpyxl`, the heading colour, text that is never a formula, the same download headers), so
+the two can share one helper module once both are in.
 """
 
 from __future__ import annotations
@@ -25,14 +33,26 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
-from app.months import parse_month
-from app.schemas import CreditSource, ExtraSent, ReportResponse, ReportRow, ReportStatus
+from app.months import add_months, parse_month
+from app.schemas import (
+    CreditSource,
+    ExtraSent,
+    NoFeeReason,
+    ReportCheck,
+    ReportFilter,
+    ReportResponse,
+    ReportRow,
+    ReportSort,
+    ReportStatus,
+    SortOrder,
+)
+from app.services.report import FILTER_WORDS
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 STATUS_WORDS = {
     ReportStatus.paid: "Paid",
-    ReportStatus.paid_with_credit: "Paid with credit",
+    ReportStatus.paid_with_credit: "Paid (from extra)",
     ReportStatus.partial: "Partial",
     ReportStatus.unpaid: "Unpaid",
     ReportStatus.no_fee: "No fee",
@@ -41,13 +61,34 @@ STATUS_WORDS = {
 }
 """The words on the Report screen (`frontend/src/lib/report.ts`)."""
 
+NO_FEE_WORDS = {
+    NoFeeReason.not_joined: "Not joined yet",
+    NoFeeReason.away: "Away (no fee)",
+    NoFeeReason.zero_fee: "No fee",
+}
+
+SORT_WORDS = {
+    ReportSort.student: "Student",
+    ReportSort.status: "Status",
+    ReportSort.fee: "Fee",
+    ReportSort.paid: "Paid for this month",
+    ReportSort.short: "Short",
+    ReportSort.owed_now: "Total owed now",
+    ReportSort.covered: "Paid from another payment's extra",
+    ReportSort.extra: "Extra sent elsewhere",
+    ReportSort.owed_before: "Owed from earlier months",
+    ReportSort.credit: "Kept as credit / paid ahead",
+    ReportSort.batch: "Class/batch",
+}
+
+RUPEES = r'[>=10000000]"₹"##\,##\,##\,##0;[>=100000]"₹"##\,##\,##0;"₹"#,##0'
+RUPEES_PAISE = r'[>=10000000]"₹"##\,##\,##\,##0.00;[>=100000]"₹"##\,##\,##0.00;"₹"#,##0.00'
+
 _HEAD_FONT = Font(bold=True)
 _HEAD_FILL = PatternFill("solid", fgColor="FBEFD5")  # the app's cream-marigold
 _TITLE_FONT = Font(bold=True, size=14)
 _TOTAL_BORDER = Border(top=Side(style="thin"))
-# Whole rupees, or with paise when there are any; nothing shows as "—" (still the number 0).
-_RUPEES = '"₹"#,##0;-"₹"#,##0;"—"'
-_RUPEES_PAISE = '"₹"#,##0.00;-"₹"#,##0.00;"—"'
+_DASH = "\u2013"  # the en dash, as in "Jan-Jun 2026" on screen
 
 HEADER_ROW = 4
 """Row 1 is the title, row 2 the date, row 3 is empty."""
@@ -62,22 +103,25 @@ class _Column:
 
 COLUMNS: tuple[_Column, ...] = (
     _Column("Student", 26),
-    _Column("Class/batch", 20),
-    _Column("Phone", 15),
+    _Column("Status", 20),
     _Column("Fee ₹", 11, money=True),
-    _Column("Paid for this month ₹ (logged)", 14, money=True),
-    _Column("Covered by credit ₹", 13, money=True),
-    _Column("Credit came from", 34),
-    _Column("Extra sent elsewhere ₹", 13, money=True),
-    _Column("Extra went to", 28),
+    _Column("Paid for this month ₹", 13, money=True),
     _Column("Short ₹", 11, money=True),
-    _Column("Status", 16),
-    _Column("Owed from earlier months ₹", 14, money=True),
-    _Column("Earlier months owed", 22),
     _Column("Total owed now ₹", 13, money=True),
-    _Column("Credit ₹", 11, money=True),
+    _Column("Paid from another payment's extra ₹", 15, money=True),
+    _Column("Came from", 34),
+    _Column("Extra sent elsewhere ₹", 13, money=True),
+    _Column("Went to", 22),
+    _Column("Extra kept as credit ₹", 12, money=True),
+    _Column("Owed from earlier months ₹", 14, money=True),
+    _Column("Earlier months owed", 26),
+    _Column("Kept as credit, all months ₹", 13, money=True),
     _Column("Paid ahead ₹", 12, money=True),
+    _Column("Check", 40),
+    _Column("Class/batch", 24),
+    _Column("Phone", 15),
 )
+_COL = {c.heading: i for i, c in enumerate(COLUMNS, start=1)}
 
 
 def rupees(paise: int) -> str:
@@ -107,6 +151,35 @@ def month_long(month: str) -> str:
     return f"{parse_month(month):%B %Y}"
 
 
+def month_runs(months: Sequence[str]) -> str:
+    """Months owed, in short, a run of months at a time, as on screen (`lib/report.ts`
+    `formatMonthRuns`): "Apr 2026", "Jan-Jun 2026 (6 months)", "Dec 2025-Feb 2026 (3 months)",
+    with an en dash."""
+    runs: list[list[str]] = []
+    for m in months:
+        if runs and add_months(parse_month(runs[-1][-1]), 1) == parse_month(m):
+            runs[-1].append(m)
+        else:
+            runs.append([m])
+    parts = []
+    for run in runs:
+        first, last = run[0], run[-1]
+        if len(run) == 1:
+            parts.append(_month_short(first))
+            continue
+        start = f"{parse_month(first):%b}" if first[:4] == last[:4] else _month_short(first)
+        parts.append(f"{start}{_DASH}{_month_short(last)} ({len(run)} months)")
+    return ", ".join(parts)
+
+
+def status_words(r: ReportRow) -> str:
+    if r.status is ReportStatus.left and r.left_month:
+        return f"Left after {month_long(r.left_month)}"
+    if r.status is ReportStatus.no_fee and r.no_fee_reason:
+        return NO_FEE_WORDS[r.no_fee_reason]
+    return STATUS_WORDS[r.status]
+
+
 def credit_from_text(sources: Sequence[CreditSource]) -> str:
     """ "₹1,500 from the 5 Sep 2026 payment (for Sep 2026)", one per source."""
     return "; ".join(
@@ -116,39 +189,54 @@ def credit_from_text(sources: Sequence[CreditSource]) -> str:
     )
 
 
-def extra_went_text(sent: Sequence[ExtraSent], unused_paise: int) -> str:
-    """ "₹1,500 → Aug 2026", one per month, and "₹500 kept as credit"."""
-    parts = [f"{rupees(e.amount_paise)} → {_month_short(e.to_month)}" for e in sent]
-    if unused_paise:
-        parts.append(f"{rupees(unused_paise)} kept as credit")
-    return "; ".join(parts)
+def extra_went_text(sent: Sequence[ExtraSent]) -> str:
+    """ "₹1,500 → Aug 2026", one per month."""
+    return "; ".join(f"{rupees(e.amount_paise)} → {_month_short(e.to_month)}" for e in sent)
+
+
+def check_text(c: ReportCheck) -> str:
+    """The dashboard's note (`lib/credit.ts` `checkText`): "Check: this ₹30,000 payment pays up
+    to Feb 2027 — 5 months ahead; ₹500 isn't needed by any month"."""
+    reasons = []
+    if c.months_ahead >= 4:
+        reasons.append(f"pays up to {_month_short(c.pays_until)} — {c.months_ahead} months ahead")
+    if c.extra_unused_paise > 0:
+        reasons.append(f"{rupees(c.extra_unused_paise)} isn't needed by any month")
+    what = f"this {rupees(c.amount_paise)} payment"
+    if not reasons:
+        return f"Check: {what}"
+    first, *rest = reasons
+    joined = "; ".join([first if first.startswith("pays") else f"— {first}", *rest])
+    return f"Check: {what} {joined}"
 
 
 def _values(r: ReportRow) -> list[Any]:
     return [
         r.student_name,
-        r.batch_label,
-        r.phone,
+        status_words(r),
         r.fee_paise,
         r.paid_paise,
+        r.short_paise,
+        r.owed_now_paise,
         r.covered_by_credit_paise,
         credit_from_text(r.credit_sources),
         r.extra_sent_paise,
-        extra_went_text(r.extra_sent, r.extra_unused_paise),
-        r.short_paise,
-        STATUS_WORDS[r.status],
+        extra_went_text(r.extra_sent),
+        r.extra_unused_paise,
         r.owed_before_paise,
-        ", ".join(_month_short(m) for m in r.owed_before_months),
-        r.owed_now_paise,
+        month_runs(r.owed_before_months),
         r.credit_paise,
         r.paid_ahead_paise,
+        "; ".join(check_text(c) for c in r.checks),
+        r.batch_label,
+        r.phone,
     ]
 
 
 def _put(ws: Worksheet, row: int, col: int, column: _Column, value: Any) -> None:
     fmt = None
     if column.money and isinstance(value, int):
-        fmt = _RUPEES if value % 100 == 0 else _RUPEES_PAISE
+        fmt = RUPEES if value % 100 == 0 else RUPEES_PAISE
         value = value // 100 if value % 100 == 0 else value / 100
     elif isinstance(value, str):
         value = ILLEGAL_CHARACTERS_RE.sub("", value) or None
@@ -159,6 +247,11 @@ def _put(ws: Worksheet, row: int, col: int, column: _Column, value: Any) -> None
         cell.number_format = fmt
 
 
+def _formula(ws: Worksheet, row: int, col: int, formula: str, paise: bool) -> None:
+    cell = ws.cell(row=row, column=col, value=formula)
+    cell.number_format = RUPEES_PAISE if paise else RUPEES
+
+
 def filename(month: str) -> str:
     return f"scrappy-records-report-{month}.xlsx"
 
@@ -167,17 +260,51 @@ def title(month: str) -> str:
     return f"Scrappy Records — Fees report, {month_long(month)}"
 
 
-def workbook(report: ReportResponse) -> bytes:
+def shown_words(
+    status: ReportFilter, q: str | None, sort: ReportSort | None, order: SortOrder
+) -> str:
+    """What the rows are, for the title: "Short this month · matching "rao" · sorted by Short,
+    largest first". Empty for everyone, in the usual order."""
+    parts = []
+    if status is not ReportFilter.all:
+        parts.append(FILTER_WORDS.get(status) or STATUS_WORDS[ReportStatus(status.value)])
+    if q and q.strip():
+        parts.append(f'matching "{q.strip()}"')
+    if sort is not None:
+        text_sort = sort in (ReportSort.student, ReportSort.batch, ReportSort.status)
+        way = ("Z to A" if text_sort else "largest first") if order is SortOrder.desc else None
+        way = way or ("A to Z" if text_sort else "smallest first")
+        parts.append(f"sorted by {SORT_WORDS[sort]}, {way}")
+    return " · ".join(parts)
+
+
+def workbook(
+    report: ReportResponse,
+    status: ReportFilter = ReportFilter.all,
+    q: str | None = None,
+    sort: ReportSort | None = None,
+    order: SortOrder = SortOrder.asc,
+) -> bytes:
+    """`report` is the rows to write (already filtered and sorted: `report.shown`); the other
+    arguments only say so in the title."""
     book = Workbook()
     ws = book.active
     assert ws is not None
     ws.title = f"Report {_month_short(report.month)}"
     last_col = get_column_letter(len(COLUMNS))
+    ahead = report.month > report.current_month
 
-    ws["A1"] = title(report.month)
+    heading = title(report.month)
+    if words := shown_words(status, q, sort, order):
+        heading += f" · {words}"
+    ws["A1"] = ILLEGAL_CHARACTERS_RE.sub("", heading)
+    ws["A1"].data_type = "s"
     ws["A1"].font = _TITLE_FONT
-    ws["A2"] = f"As of {_date(report.today)}"
-    if report.month > report.current_month:
+    ws["A2"] = (
+        f"As of {_date(report.today)}. Payments count for the month they're for, not the day "
+        "they were paid."
+    )
+    if ahead:
         ws["A2"] = (
             f"As of {_date(report.today)}. {month_long(report.month)} isn't due yet: what's "
             "paid for it is paid ahead."
@@ -189,38 +316,91 @@ def workbook(report: ReportResponse) -> bytes:
         cell.fill = _HEAD_FILL
         cell.alignment = Alignment(vertical="center", wrap_text=True)
         ws.column_dimensions[get_column_letter(i)].width = column.width
-    ws.row_dimensions[HEADER_ROW].height = 32
+    ws.row_dimensions[HEADER_ROW].height = 45
 
+    first = HEADER_ROW + 1
     row = HEADER_ROW
     for r in report.rows:
         row += 1
         for i, (column, value) in enumerate(zip(COLUMNS, _values(r), strict=True), start=1):
             _put(ws, row, i, column, value)
+    last = row
 
     t = report.totals
-    row += 1
+    total_row = row + 1
     count = f"{t.student_count} student" + ("" if t.student_count == 1 else "s")
-    totals: dict[int, Any] = {
-        1: f"Total ({count})",
-        4: t.fee_paise,
-        5: t.paid_paise,
-        6: t.covered_by_credit_paise,
-        8: t.extra_sent_paise,
-        10: t.short_paise,
-        11: f"{t.not_fully_paid_count} of {t.active_student_count} not fully paid",
-        12: t.owed_before_paise,
-        14: t.owed_now_paise,
-        15: t.credit_paise,
-        16: t.paid_ahead_paise,
+    _put(ws, total_row, 1, COLUMNS[0], f"Total ({count})")
+    wording = "not paid ahead" if ahead else "not fully paid"
+    _put(
+        ws,
+        total_row,
+        2,
+        COLUMNS[1],
+        f"{t.not_fully_paid_count} of {t.active_student_count} {wording}",
+    )
+    sums = {
+        "Fee ₹": t.fee_paise,
+        "Paid for this month ₹": t.paid_paise,
+        "Short ₹": t.short_paise,
+        "Total owed now ₹": t.owed_now_paise,
+        "Paid from another payment's extra ₹": t.covered_by_credit_paise,
+        "Extra sent elsewhere ₹": t.extra_sent_paise,
+        "Extra kept as credit ₹": t.extra_unused_paise,
+        "Owed from earlier months ₹": t.owed_before_paise,
+        "Kept as credit, all months ₹": t.credit_paise,
+        "Paid ahead ₹": t.paid_ahead_paise,
     }
-    for i, column in enumerate(COLUMNS, start=1):
-        _put(ws, row, i, column, totals.get(i))
-        cell = ws.cell(row=row, column=i)
+    for heading_text, paise in sums.items():
+        col = _COL[heading_text]
+        letter = get_column_letter(col)
+        if report.rows:
+            # SUBTOTAL(109, …) adds up only the rows Excel's own filter shows.
+            _formula(
+                ws,
+                total_row,
+                col,
+                f"=SUBTOTAL(109,{letter}{first}:{letter}{last})",
+                paise % 100 != 0,
+            )
+        else:
+            _put(ws, total_row, col, COLUMNS[col - 1], 0)
+    for i in range(1, len(COLUMNS) + 1):
+        cell = ws.cell(row=total_row, column=i)
         cell.font = _HEAD_FONT
         cell.border = _TOTAL_BORDER
 
-    ws.freeze_panes = f"B{HEADER_ROW + 1}"
-    ws.auto_filter.ref = f"A{HEADER_ROW}:{last_col}{max(row - 1, HEADER_ROW)}"
+    # Collected: what pays M, as on the Dashboard = paid for M - sent elsewhere - kept as credit
+    # + paid from other payments' extra.
+    collected_row = total_row + 1
+    label = "Paid ahead" if ahead else "Collected"
+    _put(
+        ws,
+        collected_row,
+        1,
+        COLUMNS[0],
+        f"{label} for {month_long(report.month)}, as on the Dashboard (paid for this month, less "
+        "extra sent elsewhere and kept as credit, plus paid from another payment's extra)",
+    )
+    paid, sent, kept, covered = (
+        f"{get_column_letter(_COL[h])}{total_row}"
+        for h in (
+            "Paid for this month ₹",
+            "Extra sent elsewhere ₹",
+            "Extra kept as credit ₹",
+            "Paid from another payment's extra ₹",
+        )
+    )
+    _formula(
+        ws,
+        collected_row,
+        _COL["Paid for this month ₹"],
+        f"={paid}-{sent}-{kept}+{covered}",
+        t.collected_paise % 100 != 0,
+    )
+    ws.cell(row=collected_row, column=_COL["Paid for this month ₹"]).font = _HEAD_FONT
+
+    ws.freeze_panes = f"B{first}"
+    ws.auto_filter.ref = f"A{HEADER_ROW}:{last_col}{max(last, HEADER_ROW)}"
     ws.print_title_rows = f"{HEADER_ROW}:{HEADER_ROW}"
     ws.page_setup.orientation = "landscape"
     ws.page_setup.paperSize = ws.PAPERSIZE_A4

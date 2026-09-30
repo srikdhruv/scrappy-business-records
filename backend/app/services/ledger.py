@@ -846,6 +846,8 @@ class ReportRow:
     """`credit` as of the current month."""
     paid_ahead_paise: int
     """`paid_ahead` as of the current month."""
+    checks: tuple[PaymentUse, ...] = ()
+    """Payments logged for M that are worth a glance in case of a typo (`needs_check`)."""
 
     @property
     def owed_before_paise(self) -> int:
@@ -891,9 +893,17 @@ def build_report(
     """The monthly report for M: one row per student relevant to M, worked out from the same
     allocation as the dashboard and the profiles (rule 4, as of the current month, whichever M).
 
-    A student is on it if they are enrolled in M, have money logged for M, have extra money
-    moving into or out of M, or still owe for a due month before M (the dashboard's *Earlier
-    months still owed*, which includes students who have since left).
+    A student is on it if any of these is true (so students who have left are listed whenever
+    they still matter):
+
+    - they are enrolled in M (a 0 fee included);
+    - money was logged for M, or extra money from another payment pays M;
+    - they still owe for a due month before M (the dashboard's *Earlier months still owed*);
+    - money they logged for M or an earlier month is kept as credit (the dashboard's *Extra
+      kept as credit* for M);
+    - M is the current month or later, and they have any credit or money paid ahead. So the
+      current month's report lists everyone the Students list shows as owing, with credit or
+      paid ahead, and its totals match it.
 
     Rows are in `REPORT_STATUS_ORDER` (unpaid first), then by name ignoring case and accents.
     """
@@ -908,10 +918,14 @@ def build_report(
             for m in due_months(s, backlog_end)
             if (ml := month_line(s, m, current_month)).is_owing
         )
+        credit_paise = credit(s, current_month)
+        paid_ahead_paise = paid_ahead(s, current_month)
         # Money logged for M (whatever it paid) or extra money paying M.
         touched = line.paid_paise > 0 or line.covered_by_credit_paise > 0
+        held = any(m <= month for m in s.allocation(current_month).unused_by_month)
+        standing = month >= current_month and (credit_paise > 0 or paid_ahead_paise > 0)
         enrolled = s.is_active(month)
-        if not (enrolled or touched or owing):
+        if not (enrolled or touched or owing or held or standing):
             continue
         rows.append(
             ReportRow(
@@ -921,8 +935,13 @@ def build_report(
                 is_enrolled=enrolled,
                 owed_before=owing,
                 owed_now_paise=owed(s, current_month),
-                credit_paise=credit(s, current_month),
-                paid_ahead_paise=paid_ahead(s, current_month),
+                credit_paise=credit_paise,
+                paid_ahead_paise=paid_ahead_paise,
+                checks=tuple(
+                    u
+                    for u in s.allocation(current_month).uses
+                    if u.payment.for_month == month and needs_check(u, current_month)
+                ),
             )
         )
     rows.sort(key=lambda r: (REPORT_STATUS_ORDER.index(r.status), *_sort_key(r.student)))

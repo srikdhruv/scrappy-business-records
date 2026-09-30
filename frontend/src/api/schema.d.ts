@@ -234,7 +234,8 @@ export interface paths {
         };
         /**
          * Download Report
-         * @description The same report as an Excel file, named like `scrappy-records-report-2026-10.xlsx`.
+         * @description The report as the page shows it (filter, search and sort), as an Excel file named like
+         *     `scrappy-records-report-2026-10.xlsx`.
          */
         get: operations["downloadReport"];
         put?: never;
@@ -646,6 +647,12 @@ export interface components {
          */
         MonthStatus: "paid" | "partial" | "unpaid" | "overpaid" | "not_applicable";
         /**
+         * NoFeeReason
+         * @description Why a monthly report row says **No fee**.
+         * @enum {string}
+         */
+        NoFeeReason: "not_joined" | "away" | "zero_fee";
+        /**
          * OverpaidItem
          * @description A student-month up to M (or later, from the current month on) holding money that no
          *     month needed: credit (`extra_unused_paise > 0`).
@@ -806,6 +813,48 @@ export interface components {
             /** Note */
             note?: string | null;
         };
+        /**
+         * ReportCheck
+         * @description A payment logged for M that is worth a glance in case of a typo (`ledger.needs_check`,
+         *     as on the dashboard): it pays 4 or more months ahead, or some of it is kept as credit.
+         */
+        ReportCheck: {
+            /** Payment Id */
+            payment_id: number;
+            /**
+             * Paid On
+             * Format: date
+             */
+            paid_on: string;
+            /**
+             * Amount Paise
+             * @description Amount in paise, more than 0.
+             */
+            amount_paise: number;
+            /**
+             * Pays Until
+             * @description The latest month it pays (`ledger.pays_until`).
+             * @example 2026-10
+             */
+            pays_until: string;
+            /**
+             * Months Ahead
+             * @description How many months after the current one it pays.
+             */
+            months_ahead: number;
+            /**
+             * Extra Unused Paise
+             * @description The part no month needed.
+             */
+            extra_unused_paise: number;
+        };
+        /**
+         * ReportFilter
+         * @description Which rows of the monthly report: `all`; `owes` (anything owed now, any month);
+         *     `short` (something left to pay for M); or one `ReportStatus`.
+         * @enum {string}
+         */
+        ReportFilter: "all" | "owes" | "short" | "unpaid" | "partial" | "not_due_yet" | "paid_with_credit" | "paid" | "no_fee" | "left";
         /** ReportResponse */
         ReportResponse: {
             /**
@@ -828,7 +877,7 @@ export interface components {
             today: string;
             /**
              * Rows
-             * @description Every student enrolled in M, with money logged for or paying M, or still owing for an earlier month. Unpaid first (in ReportStatus order), then by name.
+             * @description Every student relevant to M (see ledger.build_report): enrolled in M, money logged for or paying M, still owing an earlier month, money kept as credit up to M, or (from the current month on) any credit or money paid ahead. Unpaid first (in ReportStatus order), then by name.
              */
             rows: components["schemas"]["ReportRow"][];
             totals: components["schemas"]["ReportTotals"];
@@ -849,6 +898,14 @@ export interface components {
             batch_label: string | null;
             /** Phone */
             phone: string | null;
+            /**
+             * Joined Month
+             * @description A month as "YYYY-MM".
+             * @example 2026-10
+             */
+            joined_month: string;
+            /** Left Month */
+            left_month: string | null;
             /**
              * Is Enrolled
              * @description Active in M (joined on or before M, not left before).
@@ -900,6 +957,13 @@ export interface components {
              */
             short_paise: number;
             status: components["schemas"]["ReportStatus"];
+            /** @description Why the status is `no_fee` (null for any other status). */
+            no_fee_reason: components["schemas"]["NoFeeReason"] | null;
+            /**
+             * Checks
+             * @description Payments logged for M worth a glance in case of a typo, as on the dashboard.
+             */
+            checks: components["schemas"]["ReportCheck"][];
             /**
              * Owed Before Paise
              * @description Still owed for due months before M (the dashboard's backlog total).
@@ -926,6 +990,12 @@ export interface components {
              */
             paid_ahead_paise: number;
         };
+        /**
+         * ReportSort
+         * @description A column of the monthly report to sort by (ties keep the report's usual order).
+         * @enum {string}
+         */
+        ReportSort: "student" | "status" | "fee" | "paid" | "short" | "owed_now" | "covered" | "extra" | "owed_before" | "credit" | "batch";
         /**
          * ReportStatus
          * @description One student's status for month M on the monthly report, in the report's default order
@@ -1412,14 +1482,18 @@ export type HttpValidationError = components['schemas']['HTTPValidationError'];
 export type HealthResponse = components['schemas']['HealthResponse'];
 export type LedgerMonth = components['schemas']['LedgerMonth'];
 export type MonthStatus = components['schemas']['MonthStatus'];
+export type NoFeeReason = components['schemas']['NoFeeReason'];
 export type OverpaidItem = components['schemas']['OverpaidItem'];
 export type PaymentCreate = components['schemas']['PaymentCreate'];
 export type PaymentMethod = components['schemas']['PaymentMethod'];
 export type PaymentRead = components['schemas']['PaymentRead'];
 export type PaymentSort = components['schemas']['PaymentSort'];
 export type PaymentUpdate = components['schemas']['PaymentUpdate'];
+export type ReportCheck = components['schemas']['ReportCheck'];
+export type ReportFilter = components['schemas']['ReportFilter'];
 export type ReportResponse = components['schemas']['ReportResponse'];
 export type ReportRow = components['schemas']['ReportRow'];
+export type ReportSort = components['schemas']['ReportSort'];
 export type ReportStatus = components['schemas']['ReportStatus'];
 export type ReportTotals = components['schemas']['ReportTotals'];
 export type SortOrder = components['schemas']['SortOrder'];
@@ -2038,6 +2112,13 @@ export interface operations {
             query?: {
                 /** @description Defaults to the current month. */
                 month?: string | null;
+                /** @description The page's status filter. */
+                status?: components["schemas"]["ReportFilter"];
+                /** @description The page's search. */
+                q?: string | null;
+                /** @description The column the page is sorted by. */
+                sort?: components["schemas"]["ReportSort"] | null;
+                order?: components["schemas"]["SortOrder"];
             };
             header?: never;
             path?: never;
