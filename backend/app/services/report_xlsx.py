@@ -40,6 +40,7 @@ from app.schemas import (
     NoFeeReason,
     ReportCheck,
     ReportFilter,
+    ReportGroup,
     ReportResponse,
     ReportRow,
     ReportSort,
@@ -85,6 +86,7 @@ RUPEES = r'[>=10000000]"₹"##\,##\,##\,##0;[>=100000]"₹"##\,##\,##0;"₹"#,##
 RUPEES_PAISE = r'[>=10000000]"₹"##\,##\,##\,##0.00;[>=100000]"₹"##\,##\,##0.00;"₹"#,##0.00'
 
 _HEAD_FONT = Font(bold=True)
+_GROUP_FILL = PatternFill("solid", fgColor="F2E9D8")  # the app's muted cream
 _HEAD_FILL = PatternFill("solid", fgColor="FBEFD5")  # the app's cream-marigold
 _TITLE_FONT = Font(bold=True, size=14)
 _TOTAL_BORDER = Border(top=Side(style="thin"))
@@ -314,9 +316,12 @@ def workbook(
     q: str | None = None,
     sort: ReportSort | None = None,
     order: SortOrder = SortOrder.asc,
+    group: ReportGroup = ReportGroup.none,
+    batch_words: str | None = None,
 ) -> bytes:
-    """`report` is the rows to write (already filtered and sorted: `report.shown`); the other
-    arguments only say so in the title."""
+    """`report` is the rows to write (already filtered, sorted and grouped: `report.shown`);
+    the other arguments only say so in the title. Grouped by batch, each batch's rows come
+    under a heading row with its name and how many students."""
     book = Workbook()
     ws = book.active
     assert ws is not None
@@ -325,8 +330,11 @@ def workbook(
     ahead = report.month > report.current_month
 
     heading = title(report.month)
-    if words := shown_words(report, status, q, sort, order):
-        heading += f" · {words}"
+    words = [w for w in (batch_words, shown_words(report, status, q, sort, order)) if w]
+    if group is ReportGroup.batch:
+        words.append("grouped by batch")
+    if words:
+        heading += " · " + " · ".join(words)
     ws["A1"] = ILLEGAL_CHARACTERS_RE.sub("", heading)
     ws["A1"].data_type = "s"
     ws["A1"].font = _TITLE_FONT
@@ -351,7 +359,20 @@ def workbook(
     first = HEADER_ROW + 1
     row = HEADER_ROW
     has_paise: set[int] = set()  # columns with an amount in paise somewhere
+    sizes: dict[str | None, int] = {}
     for r in report.rows:
+        sizes[r.batch_name] = sizes.get(r.batch_name, 0) + 1
+    current_group: object = object()
+    for r in report.rows:
+        if group is ReportGroup.batch and r.batch_name != current_group:
+            current_group = r.batch_name
+            row += 1
+            count = sizes[r.batch_name]
+            label = f"{r.batch_name or 'No batch'} ({count} student{'' if count == 1 else 's'})"
+            _put(ws, row, 1, COLUMNS[0], label)
+            ws.cell(row=row, column=1).font = _HEAD_FONT
+            for i in range(1, len(COLUMNS) + 1):
+                ws.cell(row=row, column=i).fill = _GROUP_FILL
         row += 1
         for i, (column, value) in enumerate(zip(COLUMNS, _values(r), strict=True), start=1):
             _put(ws, row, i, column, value)

@@ -56,11 +56,11 @@ def list_students(
 ) -> list[StudentRead]:
     """Students sorted by name, each with their current fee and balance."""
     return service.list_students(
-        session, status_filter, q, current, batch=_batch_filter(batch), location=location
+        session, status_filter, q, current, batch=batch_filter(batch), location=location
     )
 
 
-def _batch_filter(value: str | None) -> int | Literal["none"] | None:
+def batch_filter(value: str | None) -> int | Literal["none"] | None:
     if value is None or not value.strip():
         return None
     value = value.strip()

@@ -14,7 +14,7 @@ import datetime as dt
 import io
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
@@ -35,6 +35,7 @@ from app.schemas import (
     StudentListFilter,
     StudentRead,
 )
+from app.services import batches as batch_service
 from app.services import payments as payment_service
 from app.services import students as student_service
 from app.services.spreadsheet import TEMPLATE_HELP_SHEET
@@ -131,7 +132,8 @@ _STUDENT_COLUMNS = (
     _Column("Name", 28),
     _Column("Phone", 16, "phone"),
     _Column("Parent/guardian", 24),
-    _Column("Class/batch", 24),
+    _Column("Batch", 24),
+    _Column("Old class label", 24),
     _Column("Monthly fee ₹ (current)", 14, "money"),
     _Column("Joined (month)", 12, "month"),
     _Column("Left (month)", 12, "month"),
@@ -146,6 +148,7 @@ def _student_values(s: StudentRead) -> list[Any]:
         s.name,
         s.phone,
         s.guardian_name,
+        s.batch_name,
         s.batch_label,
         s.monthly_fee_paise,
         s.joined_month,
@@ -157,10 +160,15 @@ def _student_values(s: StudentRead) -> list[Any]:
 
 
 def students_shown(
-    session: Session, status: StudentListFilter, q: str | None, current_month: dt.date
+    session: Session,
+    status: StudentListFilter,
+    q: str | None,
+    current_month: dt.date,
+    batch: int | Literal["none"] | None = None,
 ) -> list[StudentRead]:
-    """The students the Students page shows for this tab and search (its `studentMatches`)."""
-    rows = student_service.list_students(session, status, None, current_month)
+    """The students the Students page shows for this batch tab, Show choice and search (its
+    `studentMatches`)."""
+    rows = student_service.list_students(session, status, None, current_month, batch=batch)
     if q and q.strip():
         rows = [
             s
@@ -170,7 +178,7 @@ def students_shown(
                 name=s.name,
                 phone=s.phone,
                 guardian_name=s.guardian_name,
-                batch_label=s.batch_label,
+                batch_label=" ".join(t for t in (s.batch_name, s.batch_label) if t) or None,
             )
         ]
     return rows
@@ -258,11 +266,29 @@ _UNASSIGNED_COLUMNS = (
 )
 _KIND_WORDS = {"fee": "Fee", "away": "Away (no fee)"}
 
+_BATCH_COLUMNS = (
+    _Column("Name", 28),
+    _Column("Location", 24),
+    _Column("Days", 20),
+    _Column("Starts", 10),
+    _Column("Ends", 10),
+    _Column("Usual monthly fee ₹", 14, "money"),
+    _Column("Notes", 40),
+)
+_DAY_WORDS = {"mon": "Mon", "tue": "Tue", "wed": "Wed", "thu": "Thu", "fri": "Fri",
+              "sat": "Sat", "sun": "Sun"}  # fmt: skip
+
+
+def format_days(days: Sequence[str]) -> str | None:
+    """["mon", "wed"] -> "Mon, Wed" (what the upload reads back)."""
+    return ", ".join(_DAY_WORDS[str(d)] for d in days) or None
+
 
 def everything_workbook(session: Session, current_month: dt.date) -> bytes:
-    """Students, Fee history, Payments and Unassigned payments, with each student's uid (the
-    Student ID column), which links the sheets, and finds the same students again when the
-    file is uploaded into this app or any other."""
+    """Students, Batches, Fee history, Payments and Unassigned payments, with each student's
+    uid (the Student ID column), which links the sheets, and finds the same students again
+    when the file is uploaded into this app or any other. A student's batch is its name (the
+    Batch column), which the upload matches to the Batches sheet or the batches there."""
     uids = ensure_uids(session)
     students = student_service.list_students(session, StudentListFilter.all, None, current_month)
     order = {s.id: i for i, s in enumerate(students)}
@@ -273,6 +299,23 @@ def everything_workbook(session: Session, current_month: dt.date) -> bytes:
         "Students",
         (*_STUDENT_COLUMNS, _ID),
         ([*_student_values(s), uids[s.id]] for s in students),
+    )
+    _add_sheet(
+        book,
+        "Batches",
+        _BATCH_COLUMNS,
+        (
+            [
+                b.name,
+                b.location,
+                format_days(b.days),
+                b.start_time,
+                b.end_time,
+                b.default_fee_paise,
+                b.notes,
+            ]
+            for b in batch_service.list_batches(session, current_month)
+        ),
     )
 
     rows = session.scalars(select(Student).options(selectinload(Student.fee_changes))).all()
@@ -357,6 +400,8 @@ _TEMPLATE_HELP: dict[ExportTemplateKind, list[str]] = {
         "Joined (month): the first month they pay for, like Oct 2026. Empty means this month.",
         "Left (month): only for someone who has stopped coming: the last month they pay for.",
         "Phone: helps tell apart two students with the same name.",
+        "Batch: the name of one of your batches in Scrappy Records. A name it doesn't know is "
+        "shown before anything is saved, with a choice to create that batch.",
         "Then, in Scrappy Records: Students → Upload Excel. You'll see what will be added "
         "before anything is saved.",
     ],
@@ -380,7 +425,7 @@ _TEMPLATE_COLUMNS: dict[ExportTemplateKind, tuple[str, Sequence[_Column]]] = {
             _Column("Name", 28),
             _Column("Phone", 16, "phone"),
             _Column("Parent/guardian", 24),
-            _Column("Class/batch", 24),
+            _Column("Batch", 24),
             _Column("Monthly fee ₹", 14, "money"),
             _Column("Joined (month)", 14, "month"),
             _Column("Left (month)", 14, "month"),

@@ -234,8 +234,8 @@ export interface paths {
         };
         /**
          * Download Report
-         * @description The report as the page shows it (filter, search and sort), as an Excel file named like
-         *     `scrappy-records-report-2026-10.xlsx`.
+         * @description The report as the page shows it (filters, search, sort and grouping), as an Excel file
+         *     named like `scrappy-records-report-2026-10.xlsx`.
          */
         get: operations["downloadReport"];
         put?: never;
@@ -255,7 +255,8 @@ export interface paths {
         };
         /**
          * Export Students
-         * @description The students on the Students page for this tab and search, as an Excel file.
+         * @description The students on the Students page for this batch tab, Show choice and search, as an
+         *     Excel file.
          */
         get: operations["exportStudents"];
         put?: never;
@@ -1184,6 +1185,39 @@ export interface components {
              */
             status: "ok";
         };
+        /** ImportBatchPreview */
+        ImportBatchPreview: {
+            /** Name */
+            name: string;
+            status: components["schemas"]["ImportBatchStatus"];
+            /**
+             * Reason
+             * @description Why, in plain words (not for `new` or `exists`).
+             */
+            reason: string | null;
+            /**
+             * Row
+             * @description Its row on the Batches sheet, if it's there.
+             */
+            row: number | null;
+            /**
+             * Student Count
+             * @description Student rows in the file that name it.
+             */
+            student_count: number;
+            /**
+             * Batch Id
+             * @description `exists`: the batch already here.
+             */
+            batch_id: number | null;
+        };
+        /**
+         * ImportBatchStatus
+         * @description What an uploaded file's batch (a Batches sheet row, or a name in the students' Batch
+         *     column) would do.
+         * @enum {string}
+         */
+        ImportBatchStatus: "new" | "exists" | "not_found" | "problem";
         /**
          * ImportCommit
          * @description The same file again, and the owner's choices (only for the rows she chose something
@@ -1213,6 +1247,12 @@ export interface components {
              * @default []
              */
             payments: components["schemas"]["ImportPaymentDecision"][];
+            /**
+             * Create Batches
+             * @description Batches the preview said `not_found` that the owner chose to create (by name, as in the preview). Any other not-found batch is never created.
+             * @default []
+             */
+            create_batches: string[];
         };
         /**
          * ImportPaymentChoice
@@ -1335,6 +1375,11 @@ export interface components {
              */
             fee_changes: number;
             /**
+             * Batches
+             * @description Every batch the file names (its Batches sheet, and the students' Batch column), by name.
+             */
+            batches?: components["schemas"]["ImportBatchPreview"][];
+            /**
              * Current Month
              * @description A month as "YYYY-MM".
              * @example 2026-10
@@ -1364,6 +1409,12 @@ export interface components {
              * @description Rows not added (already here, problems, skipped).
              */
             skipped: number;
+            /**
+             * Batches Added
+             * @description Batches created.
+             * @default 0
+             */
+            batches_added: number;
             /**
              * Backup File
              * @description The backup taken first (records-pre-import-…), or null if nothing was added.
@@ -1416,6 +1467,11 @@ export interface components {
              * @description `similar` only: added unless the owner says Skip (a brother or sister sharing a phone with an earlier row of the file).
              */
             add_by_default: boolean;
+            /**
+             * Batch Name
+             * @description Their batch, as written in the file's Batch column.
+             */
+            batch_name?: string | null;
         };
         /**
          * ImportStudentStatus
@@ -1803,6 +1859,13 @@ export interface components {
          * @enum {string}
          */
         ReportFilter: "all" | "owes" | "short" | "unpaid" | "partial" | "not_due_yet" | "paid_with_credit" | "paid" | "no_fee" | "left";
+        /**
+         * ReportGroup
+         * @description How the monthly report's rows are grouped: `none`, or under a heading per `batch`
+         *     (batches A to Z, "No batch" last; the order inside each group stays).
+         * @enum {string}
+         */
+        ReportGroup: "none" | "batch";
         /** ReportResponse */
         ReportResponse: {
             /**
@@ -1861,6 +1924,11 @@ export interface components {
              * @description The name of the batch they're in, if any.
              */
             batch_name: string | null;
+            /**
+             * Batch Id
+             * @description The batch they're in, if any.
+             */
+            batch_id?: number | null;
             /** Phone */
             phone: string | null;
             /**
@@ -2558,6 +2626,8 @@ export type FeePlanStatus = components['schemas']['FeePlanStatus'];
 export type FeePlanStudent = components['schemas']['FeePlanStudent'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];
 export type HealthResponse = components['schemas']['HealthResponse'];
+export type ImportBatchPreview = components['schemas']['ImportBatchPreview'];
+export type ImportBatchStatus = components['schemas']['ImportBatchStatus'];
 export type ImportCommit = components['schemas']['ImportCommit'];
 export type ImportPaymentChoice = components['schemas']['ImportPaymentChoice'];
 export type ImportPaymentDecision = components['schemas']['ImportPaymentDecision'];
@@ -2584,6 +2654,7 @@ export type PaymentSort = components['schemas']['PaymentSort'];
 export type PaymentUpdate = components['schemas']['PaymentUpdate'];
 export type ReportCheck = components['schemas']['ReportCheck'];
 export type ReportFilter = components['schemas']['ReportFilter'];
+export type ReportGroup = components['schemas']['ReportGroup'];
 export type ReportResponse = components['schemas']['ReportResponse'];
 export type ReportRow = components['schemas']['ReportRow'];
 export type ReportSort = components['schemas']['ReportSort'];
@@ -3219,6 +3290,10 @@ export interface operations {
                 /** @description The column the page is sorted by. */
                 sort?: components["schemas"]["ReportSort"] | null;
                 order?: components["schemas"]["SortOrder"];
+                /** @description The page's batch filter: an id, or `none`. */
+                batch?: string | null;
+                /** @description Grouped by batch, or not. */
+                group?: components["schemas"]["ReportGroup"];
             };
             header?: never;
             path?: never;
@@ -3252,6 +3327,8 @@ export interface operations {
                 status?: components["schemas"]["StudentListFilter"];
                 /** @description The Students page's search. */
                 q?: string | null;
+                /** @description The batch tab: a batch's id, or `none` for no batch. */
+                batch?: string | null;
             };
             header?: never;
             path?: never;

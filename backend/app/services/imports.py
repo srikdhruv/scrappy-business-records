@@ -48,6 +48,7 @@ from app import backup
 from app.db import lock_for_writing
 from app.errors import unprocessable
 from app.models import (
+    Batch,
     FeeChange,
     FeeKind,
     Payment,
@@ -58,6 +59,9 @@ from app.models import (
 from app.months import format_month, parse_month
 from app.schemas import (
     MAX_AMOUNT_PAISE,
+    BatchCreate,
+    ImportBatchPreview,
+    ImportBatchStatus,
     ImportCommit,
     ImportFee,
     ImportPayment,
@@ -71,10 +75,12 @@ from app.schemas import (
     ImportStudentStatus,
 )
 from app.services import spreadsheet as sheet_io
+from app.services.batches import days_to_mask
 from app.services.bounds import EARLIEST_DATE, latest_month
 from app.services.matching import PeopleIndex, Person, text_digits, text_key
 from app.services.spreadsheet import CellError, Col, SheetKind
-from app.services.text import name_key, phone_digits
+from app.services.students import same_text_key
+from app.services.text import fold, name_key, phone_digits
 
 # --------------------------------------------------------------------------- plain words
 
@@ -800,6 +806,8 @@ class _Parsed:
     student_rows: list[ImportStudent]
     payments: list[ImportPaymentPreview]  # problems already decided
     payment_rows: list[ImportPayment]
+    batch_rows: list[tuple[int, BatchCreate]] = field(default_factory=list)
+    batch_problems: list[ImportBatchPreview] = field(default_factory=list)
 
 
 def _cell(read: Any, value: object, label: str) -> tuple[Any, str | None]:
@@ -870,7 +878,8 @@ def _parse(book: sheet_io.Workbook, current_month: dt.date) -> _Parsed:
                         "name": name,
                         "phone": phone,
                         "guardian_name": sheet_io.text(row.get(Col.guardian)),
-                        "batch_label": sheet_io.text(row.get(Col.batch)),
+                        "batch_label": sheet_io.text(row.get(Col.label)),
+                        "batch_name": sheet_io.text(row.get(Col.batch)),
                         "notes": sheet_io.text(row.get(Col.notes)),
                         "joined_month": joined or this_month,
                         "left_month": left,
@@ -893,6 +902,42 @@ def _parse(book: sheet_io.Workbook, current_month: dt.date) -> _Parsed:
                         reason=problem,
                         student_id=None,
                         add_by_default=False,
+                    )
+                )
+
+    for sheet in book.of(SheetKind.batches):
+        for row in sheet.rows:
+            name = sheet_io.text(row.get(Col.name)) or ""
+            days, p1 = _cell(sheet_io.days, row.get(Col.days), "Days")
+            starts, p2 = _cell(sheet_io.clock_time, row.get(Col.starts), "Starts")
+            ends, p3 = _cell(sheet_io.clock_time, row.get(Col.ends), "Ends")
+            fee, p4 = _cell(sheet_io.money, row.get(Col.fee), "Usual monthly fee")
+            problem = p1 or p2 or p3 or p4 or (None if name else "Name is missing")
+            batch: BatchCreate | None = None
+            if not problem:
+                batch, problem = _check(
+                    BatchCreate,
+                    {
+                        "name": name,
+                        "location": sheet_io.text(row.get(Col.location)),
+                        "days": days or [],
+                        "start_time": starts,
+                        "end_time": ends,
+                        "default_fee_paise": fee,
+                        "notes": sheet_io.text(row.get(Col.notes)),
+                    },
+                )
+            if batch is not None:
+                parsed.batch_rows.append((row.number, batch))
+            else:
+                parsed.batch_problems.append(
+                    ImportBatchPreview(
+                        name=name[:200] or f"Row {row.number}",
+                        status=ImportBatchStatus.problem,
+                        reason=problem,
+                        row=row.number,
+                        student_count=0,
+                        batch_id=None,
                     )
                 )
 
@@ -973,6 +1018,90 @@ _LISTED_OTHERWISE = 100
 
 
 @dataclass
+class _BatchPlan:
+    """One batch the file names: from its Batches sheet (`data`), or only in the students'
+    Batch column."""
+
+    key: str
+    name: str
+    status: ImportBatchStatus
+    row: int | None
+    data: BatchCreate | None
+    existing: Batch | None
+    student_count: int = 0
+
+    @property
+    def reason(self) -> str | None:
+        if self.status is ImportBatchStatus.not_found:
+            return "Batch not found, will be left without a batch"
+        return None
+
+
+def _plan_batches(session: Session, parsed: _Parsed) -> list[_BatchPlan]:
+    """Every batch the file names, matched to the batches here by name (ignoring capitals,
+    accents and spaces). A Batches sheet row that isn't here yet will be added; a name only
+    in the Batch column that isn't here is `not_found` (never created unless chosen)."""
+    here = {same_text_key(b.name): b for b in session.scalars(select(Batch))}
+    plans: dict[str, _BatchPlan] = {}
+    for row, data in parsed.batch_rows:
+        key = same_text_key(data.name)
+        if key in plans:
+            parsed.batch_problems.append(
+                ImportBatchPreview(
+                    name=data.name,
+                    status=ImportBatchStatus.problem,
+                    reason=f"Listed twice on the Batches sheet (also row {plans[key].row})",
+                    row=row,
+                    student_count=0,
+                    batch_id=None,
+                )
+            )
+            continue
+        existing = here.get(key)
+        plans[key] = _BatchPlan(
+            key=key,
+            name=existing.name if existing else data.name,
+            status=ImportBatchStatus.exists if existing else ImportBatchStatus.new,
+            row=row,
+            data=data,
+            existing=existing,
+        )
+    for student in parsed.student_rows:
+        if not student.batch_name:
+            continue
+        key = same_text_key(student.batch_name)
+        if not key:
+            continue
+        plan = plans.get(key)
+        if plan is None:
+            existing = here.get(key)
+            plan = plans[key] = _BatchPlan(
+                key=key,
+                name=existing.name if existing else " ".join(student.batch_name.split()),
+                status=ImportBatchStatus.exists if existing else ImportBatchStatus.not_found,
+                row=None,
+                data=None,
+                existing=existing,
+            )
+        plan.student_count += 1
+    return sorted(plans.values(), key=lambda p: (fold(p.name), p.key))
+
+
+def _batch_previews(plans: list[_BatchPlan], parsed: _Parsed) -> list[ImportBatchPreview]:
+    return [
+        ImportBatchPreview(
+            name=p.name,
+            status=p.status,
+            reason=p.reason,
+            row=p.row,
+            student_count=p.student_count,
+            batch_id=p.existing.id if p.existing else None,
+        )
+        for p in plans
+    ] + parsed.batch_problems
+
+
+@dataclass
 class _Plan:
     """A file, read and checked against the records as they are now."""
 
@@ -981,6 +1110,7 @@ class _Plan:
     known: _Known
     students: list[StudentPlan]
     payments: list[PaymentPlan]
+    batches: list[_BatchPlan]
 
 
 def _read(data: bytes) -> sheet_io.Workbook:
@@ -997,7 +1127,7 @@ def _plan(session: Session, data: bytes, today: dt.date, current_month: dt.date)
     known = _load_known(session)
     splans = classify_students(parsed.student_rows, known, current_month)
     pplans = classify_payments(parsed.payment_rows, splans, known, today)
-    return _Plan(book, parsed, known, splans, pplans)
+    return _Plan(book, parsed, known, splans, pplans, _plan_batches(session, parsed))
 
 
 class _Lister:
@@ -1047,6 +1177,7 @@ def preview(
             reason=p.reason,
             student_id=p.student_id,
             add_by_default=p.add_by_default,
+            batch_name=p.data.batch_name,
         )
         for p in plan.students
         if student_list.keep(p.status)
@@ -1091,6 +1222,7 @@ def preview(
         fee_changes=sum(
             len(p.data.fees or ()) for p in plan.students if p.status is ImportStudentStatus.new
         ),
+        batches=_batch_previews(plan.batches, plan.parsed),
         current_month=format_month(current_month),
         file_sha256=hashlib.sha256(data).hexdigest(),
     )
@@ -1155,6 +1287,17 @@ def commit(
             field="students" if not set(student_choice) <= student_rows else "payments",
         )
 
+    not_found = {p.key: p for p in plan.batches if p.status is ImportBatchStatus.not_found}
+    create = {same_text_key(name) for name in body.create_batches}
+    if not create <= set(not_found):
+        raise unprocessable(
+            "A batch to create isn't one this file names, or it's already here. Please upload "
+            "the file again.",
+            field="create_batches",
+        )
+    new_batches = [p for p in plan.batches if p.status is ImportBatchStatus.new]
+    new_batches += [not_found[k] for k in sorted(create)]
+
     added_rows: set[int] = set()
     for p in plan.students:
         chosen = student_choice.get(p.data.row)
@@ -1187,7 +1330,7 @@ def commit(
     # Every row read, problems included.
     total = len(plan.students) + len(plan.payments)
     total += len(plan.parsed.students) + len(plan.parsed.payments)
-    if not added_rows and not any(targets):
+    if not added_rows and not any(targets) and not new_batches:
         session.rollback()
         return ImportResult(
             students_added=0,
@@ -1207,6 +1350,22 @@ def commit(
             "laptop and try again."
         ) from None
 
+    batch_ids = {p.key: p.existing.id for p in plan.batches if p.existing is not None}
+    for p in new_batches:
+        d = p.data or BatchCreate(name=p.name)
+        made = Batch(
+            name=d.name,
+            location=d.location,
+            days=days_to_mask(d.days),
+            start_time=d.start_time,
+            end_time=d.end_time,
+            default_fee_paise=d.default_fee_paise,
+            notes=d.notes,
+        )
+        session.add(made)
+        session.flush()
+        batch_ids[p.key] = made.id
+
     new_students: dict[int, Student] = {}
     fee_count = 0
     taken = set(known.by_uid)
@@ -1219,12 +1378,16 @@ def commit(
         uid = d.ref if fresh else None  # a copied row added as new gets a uid of its own
         if uid:
             taken.add(uid)
+        batch_id = batch_ids.get(same_text_key(d.batch_name)) if d.batch_name else None
         student = Student(
             uid=uid,
             name=d.name,
             phone=d.phone,
             guardian_name=d.guardian_name,
-            batch_label=d.batch_label,
+            # A batch that isn't here (and wasn't created): its name is kept as their old
+            # class label, so nothing typed in the file is lost.
+            batch_label=d.batch_label or (d.batch_name if batch_id is None else None),
+            batch_id=batch_id,
             joined_month=parse_month(d.joined_month),
             left_month=parse_month(d.left_month) if d.left_month else None,
             notes=d.notes,
@@ -1287,6 +1450,7 @@ def commit(
         unassigned_added=len(unassigned_rows),
         skipped=total - added,
         backup_file=saved.name if saved else None,
+        batches_added=len(new_batches),
     )
 
 

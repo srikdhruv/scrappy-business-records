@@ -72,6 +72,7 @@ __all__ = [
     "PaymentUpdate",
     "ReportCheck",
     "ReportFilter",
+    "ReportGroup",
     "ReportResponse",
     "ReportRow",
     "ReportSort",
@@ -92,6 +93,8 @@ __all__ = [
 # Excel download and upload, and unassigned payments (at the end of this file).
 __all__ += [
     "ExportTemplateKind",
+    "ImportBatchPreview",
+    "ImportBatchStatus",
     "ImportCommit",
     "ImportFee",
     "ImportPayment",
@@ -376,6 +379,14 @@ class ReportFilter(enum.StrEnum):
     paid = "paid"
     no_fee = "no_fee"
     left = "left"
+
+
+class ReportGroup(enum.StrEnum):
+    """How the monthly report's rows are grouped: `none`, or under a heading per `batch`
+    (batches A to Z, "No batch" last; the order inside each group stays)."""
+
+    none = "none"
+    batch = "batch"
 
 
 class ReportSort(enum.StrEnum):
@@ -932,6 +943,7 @@ class ReportRow(_ReadModel):
     student_name: str
     batch_label: str | None
     batch_name: str | None = Field(description="The name of the batch they're in, if any.")
+    batch_id: int | None = Field(default=None, description="The batch they're in, if any.")
     phone: str | None
     joined_month: Month
     left_month: Month | None
@@ -1134,6 +1146,9 @@ class ImportStudent(_Model):
     phone: ShortText = None
     guardian_name: ShortText = None
     batch_label: ShortText = None
+    batch_name: ShortText = Field(
+        default=None, description="The file's Batch (or Class/batch) column: a batch's name."
+    )
     notes: LongText = None
     joined_month: Month
     left_month: Month | None = None
@@ -1188,6 +1203,34 @@ class ImportStudentPreview(_ReadModel):
         description="`similar` only: added unless the owner says Skip (a brother or sister "
         "sharing a phone with an earlier row of the file)."
     )
+    batch_name: str | None = Field(
+        default=None, description="Their batch, as written in the file's Batch column."
+    )
+
+
+class ImportBatchStatus(enum.StrEnum):
+    """What an uploaded file's batch (a Batches sheet row, or a name in the students' Batch
+    column) would do."""
+
+    new = "new"
+    """On the file's Batches sheet, and not here yet: will be added, with its details."""
+    exists = "exists"
+    """Already here (same name, ignoring capitals and spaces): its students go into it. The
+    batch itself is left as it is."""
+    not_found = "not_found"
+    """Only named in the Batch column, and not here: those students are left without a batch
+    (the name is kept as their old class label), unless the owner chooses to create it."""
+    problem = "problem"
+    """A Batches sheet row that can't be added (see `reason`)."""
+
+
+class ImportBatchPreview(_ReadModel):
+    name: str
+    status: ImportBatchStatus
+    reason: str | None = Field(description="Why, in plain words (not for `new` or `exists`).")
+    row: int | None = Field(description="Its row on the Batches sheet, if it's there.")
+    student_count: int = Field(ge=0, description="Student rows in the file that name it.")
+    batch_id: int | None = Field(description="`exists`: the batch already here.")
 
 
 class ImportPaymentPreview(_ReadModel):
@@ -1234,6 +1277,11 @@ class ImportPreview(_ReadModel):
     fee_changes: int = Field(
         ge=0, description="Fee-history rows that come with the new students (restored exactly)."
     )
+    batches: list[ImportBatchPreview] = Field(
+        default_factory=list,
+        description="Every batch the file names (its Batches sheet, and the students' Batch "
+        "column), by name.",
+    )
     current_month: Month
     file_sha256: str = Field(
         description="The SHA-256 of the file previewed (hex). Add sends it back: the file sent "
@@ -1278,6 +1326,12 @@ class ImportCommit(_Model):
     filename: ShortText = None
     students: list[ImportStudentDecision] = Field(default=[], max_length=MAX_IMPORT_ROWS)
     payments: list[ImportPaymentDecision] = Field(default=[], max_length=MAX_IMPORT_ROWS)
+    create_batches: list[Annotated[str, Field(max_length=200)]] = Field(
+        default=[],
+        max_length=10_000,
+        description="Batches the preview said `not_found` that the owner chose to create (by "
+        "name, as in the preview). Any other not-found batch is never created.",
+    )
 
 
 class ImportResult(_ReadModel):
@@ -1288,6 +1342,7 @@ class ImportResult(_ReadModel):
     payments_added: int = Field(ge=0)
     unassigned_added: int = Field(ge=0)
     skipped: int = Field(ge=0, description="Rows not added (already here, problems, skipped).")
+    batches_added: int = Field(default=0, ge=0, description="Batches created.")
     backup_file: str | None = Field(
         description="The backup taken first (records-pre-import-…), or null if nothing was added."
     )
