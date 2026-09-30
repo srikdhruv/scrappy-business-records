@@ -2,13 +2,14 @@
  * Every payment (P3, P4): filter by student, month, method or a search, sort by any column, and
  * fix mistakes with Edit or Delete. Filters live in the address bar, so Back keeps them.
  */
-import { FileDownIcon, FileUpIcon, ReceiptIndianRupeeIcon, SearchIcon, XIcon } from 'lucide-react'
+import { ReceiptIndianRupeeIcon, SearchIcon, XIcon } from 'lucide-react'
 import type { SortingState } from '@tanstack/react-table'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
 import { usePayments } from '@/api/queries'
 import type { PaymentMethod } from '@/api/types'
+import { ExcelButtons } from '@/components/excel-buttons'
 import { ExcelUploadDialog } from '@/components/excel-upload-dialog'
 import { PageHeader } from '@/components/layout/page-header'
 import { MonthPicker } from '@/components/month-picker'
@@ -90,29 +91,20 @@ export function PaymentsPage() {
     <>
       <PageHeader
         title="Payments"
-        description="Every payment you’ve logged. Click a column heading to sort."
-        actions={
+        description={
           <>
-            <Button variant="ghost" size="lg" onClick={() => setUploadOpen(true)}>
-              <FileUpIcon aria-hidden />
-              Upload Excel
-            </Button>
-            <Button variant="ghost" size="lg" asChild>
-              {/* The payments shown below: these filters, in this order. */}
-              <a
-                href={paymentsDownloadUrl({
-                  studentId,
-                  month,
-                  q,
-                  method,
-                  sort: sorting[0],
-                })}
-                download
-              >
-                <FileDownIcon aria-hidden />
-                Download Excel
-              </a>
-            </Button>
+            <p>Every payment you’ve logged. Click a column heading to sort.</p>
+            {/* Download: the payments shown below, with these filters, in this order. */}
+            <ExcelButtons
+              downloadHref={paymentsDownloadUrl({
+                studentId,
+                month,
+                q,
+                method,
+                sort: sorting[0],
+              })}
+              onUpload={() => setUploadOpen(true)}
+            />
           </>
         }
       />

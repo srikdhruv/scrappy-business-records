@@ -2,11 +2,12 @@
  * Every student (PRD scope 6) with their status and how long they've been coming. Search and
  * the Active / Left / All tabs filter on the spot; click a row to open the profile.
  */
-import { FileDownIcon, FileUpIcon, SearchIcon, UserPlusIcon, UsersIcon } from 'lucide-react'
+import { SearchIcon, UserPlusIcon, UsersIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 
 import { useStudents } from '@/api/queries'
+import { ExcelButtons } from '@/components/excel-buttons'
 import { ExcelUploadDialog } from '@/components/excel-upload-dialog'
 import { PageHeader } from '@/components/layout/page-header'
 import { Panel } from '@/components/panel'
@@ -65,25 +66,21 @@ export function StudentsPage() {
     <>
       <PageHeader
         title="Students"
-        description="Everyone in your classes. Click a name to see their full history."
-        actions={
+        description={
           <>
-            <Button variant="ghost" size="lg" onClick={() => setUploadOpen(true)}>
-              <FileUpIcon aria-hidden />
-              Upload Excel
-            </Button>
-            <Button variant="ghost" size="lg" asChild>
-              {/* The students shown below: this tab and this search. */}
-              <a href={studentsDownloadUrl(tab, search)} download>
-                <FileDownIcon aria-hidden />
-                Download Excel
-              </a>
-            </Button>
-            <Button variant="outline" size="lg" onClick={() => setNewOpen(true)}>
-              <UserPlusIcon aria-hidden />
-              New student
-            </Button>
+            <p>Everyone in your classes. Click a name to see their full history.</p>
+            {/* Download: the students shown below, for this tab and this search. */}
+            <ExcelButtons
+              downloadHref={studentsDownloadUrl(tab, search)}
+              onUpload={() => setUploadOpen(true)}
+            />
           </>
+        }
+        actions={
+          <Button variant="outline" size="lg" onClick={() => setNewOpen(true)}>
+            <UserPlusIcon aria-hidden />
+            New student
+          </Button>
         }
       />
 

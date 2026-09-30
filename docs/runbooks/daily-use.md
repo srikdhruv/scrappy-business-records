@@ -140,6 +140,27 @@ For a month off (no fee for one month), see
 - **Student added by mistake:** open their profile and click **Delete**. This also deletes their
   payments, and the app will ask you to confirm first.
 
+## Excel: downloading and uploading
+
+- **Download a list:** on **Students** or **Payments**, choose the tab, search or filters you
+  want, then click **Download Excel** (under the page title). The file has exactly what the page
+  shows, and goes to your *Downloads* folder.
+- **Download everything:** click **Download everything** at the bottom of the side menu. One
+  file with every student, fee and payment. Keep it safe, or use it to move to a new laptop.
+- **Add students or payments from a list:** click **Upload Excel** and choose the file (no list
+  yet? click **Download a blank template** in that box and fill it in). The app shows what will
+  happen to each row **before saving anything**:
+  - **New** ones are added, and anything that **Already exists** is skipped.
+  - For **Looks similar** (same name, different phone), choose **Add as new** only if it's
+    really someone else.
+  - A payment whose student isn't found is kept as **unassigned** (or choose who paid).
+  - Then click **Add**. An upload never changes anything already in the app, and a backup is
+    saved first.
+- **Unassigned payments** wait at the top of the **Payments** page (the Dashboard reminds you).
+  Choose the student and click **Assign**, or **Delete** it.
+
+More in [the feature guide](../feature-guide.md#downloading-and-uploading-excel).
+
 ## If the app says "Can't reach Scrappy Records"
 
 Close the browser tab and open **Scrappy Records** again from the Desktop. See
@@ -151,4 +172,5 @@ Yes.
 - Everything stays on this laptop.
 - Once a day a copy is saved in `Documents\ScrappyRecords Backups`. The last 30 days are
   kept.
+- **Download everything** (bottom of the side menu) gives you all of it as an Excel file too.
 - See [backups](backup-and-restore.md).

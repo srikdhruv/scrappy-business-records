@@ -538,8 +538,8 @@ function StatusLine({
   return (
     <div className="flex flex-col items-start gap-1">
       <StatusPill tone={tone}>{label}</StatusPill>
-      {children}
       {reason && <p className="text-sm text-muted-foreground">{reason}</p>}
+      {children}
     </div>
   )
 }

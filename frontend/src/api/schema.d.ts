@@ -944,7 +944,7 @@ export interface components {
             students_added: number;
             /**
              * Fee Changes Added
-             * @description Beyond each new student's first fee.
+             * @description Fee-history rows added with the new students, first fees included.
              */
             fee_changes_added: number;
             /** Payments Added */

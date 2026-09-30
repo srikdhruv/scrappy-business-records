@@ -1159,7 +1159,9 @@ class ImportCommit(_Model):
 
 class ImportResult(_ReadModel):
     students_added: int = Field(ge=0)
-    fee_changes_added: int = Field(ge=0, description="Beyond each new student's first fee.")
+    fee_changes_added: int = Field(
+        ge=0, description="Fee-history rows added with the new students, first fees included."
+    )
     payments_added: int = Field(ge=0)
     unassigned_added: int = Field(ge=0)
     skipped: int = Field(ge=0, description="Rows not added (already here, problems, skipped).")
