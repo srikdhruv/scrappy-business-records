@@ -1,0 +1,154 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import '@fontsource-variable/nunito';
+
+/*
+ * `dark:` classes (used inside shadcn components) apply only under a `.dark` ancestor, which the
+ * app never sets. Without this line Tailwind would follow the OS dark mode and mix palettes.
+ */
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * ============================================================================================
+ *  Scrappy Records theme — warm: cream background, marigold primary, terracotta accent.
+ *
+ *  Every colour is a CSS variable on :root and is exposed to Tailwind below, so components use
+ *  utilities like `bg-primary`, `text-primary-strong`, `bg-paid-soft text-paid`.
+ *
+ *  Contrast (WCAG AA, >= 4.5:1 for normal text) is checked by src/styles/theme.test.ts. If you
+ *  change a colour, run `npm test` — and never put white text on `--primary` (light marigold);
+ *  use `--primary-foreground` (dark brown) instead.
+ * ============================================================================================
+ */
+:root {
+  --radius: 0.875rem;
+
+  /* Surfaces */
+  --background: #fbf5ea; /* cream */
+  --foreground: #3b2a1f; /* warm dark brown */
+  --card: #fffcf6;
+  --card-foreground: #3b2a1f;
+  --popover: #fffcf6;
+  --popover-foreground: #3b2a1f;
+  --muted: #f2e9d8;
+  --muted-foreground: #6b5746;
+  --border: #e7dac3;
+  --input: #dccbb0;
+
+  /* Marigold: fills (buttons, highlights) use --primary with dark text. For marigold-coloured
+     TEXT or icons on cream/white use --primary-strong. */
+  --primary: #f2a93b;
+  --primary-foreground: #3b2410;
+  --primary-strong: #955800;
+  --ring: #d98a0b;
+
+  /* Terracotta accent. shadcn uses `accent` for soft hover/selected backgrounds. */
+  --accent: #f7e3d8;
+  --accent-foreground: #8c3a1e;
+  --terracotta: #a94c2e; /* text on cream, or a fill with white text */
+  --terracotta-foreground: #fffcf6;
+
+  --secondary: #f2e9d8;
+  --secondary-foreground: #3b2a1f;
+  --destructive: #b03a2e;
+
+  /* Payment status: text colour + soft background. Pair them as `bg-paid-soft text-paid`. */
+  --paid: #276c41; /* green — paid / up to date */
+  --paid-soft: #e2f1e5;
+  --partial: #8a5700; /* amber — partial */
+  --partial-soft: #fbecc9;
+  --owed: #a93f33; /* muted red — unpaid / owes */
+  --owed-soft: #f8e2dd;
+  --credit: #1e6b74; /* teal — overpaid / credit */
+  --credit-soft: #dcefee;
+
+  /* Sidebar */
+  --sidebar: #f5ecdc;
+  --sidebar-foreground: #3b2a1f;
+  --sidebar-primary: #f2a93b;
+  --sidebar-primary-foreground: #3b2410;
+  --sidebar-accent: #eddcbf;
+  --sidebar-accent-foreground: #3b2a1f;
+  --sidebar-border: #e7dac3;
+  --sidebar-ring: #d98a0b;
+
+  /* Charts (future) */
+  --chart-1: #f2a93b;
+  --chart-2: #a94c2e;
+  --chart-3: #276c41;
+  --chart-4: #1e6b74;
+  --chart-5: #8a5700;
+}
+
+@theme inline {
+  --font-sans: 'Nunito Variable', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+  --font-heading: var(--font-sans);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-strong: var(--primary-strong);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-terracotta: var(--terracotta);
+  --color-terracotta-foreground: var(--terracotta-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-destructive: var(--destructive);
+
+  --color-paid: var(--paid);
+  --color-paid-soft: var(--paid-soft);
+  --color-partial: var(--partial);
+  --color-partial-soft: var(--partial-soft);
+  --color-owed: var(--owed);
+  --color-owed-soft: var(--owed-soft);
+  --color-credit: var(--credit);
+  --color-credit-soft: var(--credit-soft);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
