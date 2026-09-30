@@ -76,6 +76,7 @@ def test_dashboard_sections(api: TestClient) -> None:
             "student_id": kabir,
             "student_name": "Kabir Mehta",
             "batch_label": None,
+            "batch_name": None,
             "phone": None,
             "expected_paise": 200000,
             "paid_paise": 100000,
@@ -88,6 +89,7 @@ def test_dashboard_sections(api: TestClient) -> None:
             "student_id": meera,
             "student_name": "Meera Iyer",
             "batch_label": None,
+            "batch_name": None,
             "phone": None,
             "expected_paise": 120000,
             "paid_paise": 0,
@@ -102,6 +104,7 @@ def test_dashboard_sections(api: TestClient) -> None:
             "student_id": ananya,
             "student_name": "Ananya Rao",
             "batch_label": "Mon/Wed 5pm",
+            "batch_name": None,
             "phone": "90000 00001",
             # March is paid in full now (₹1,000 for it + ₹500 of May's extra): only April.
             "months": [
@@ -121,6 +124,7 @@ def test_dashboard_sections(api: TestClient) -> None:
             "student_id": meera,
             "student_name": "Meera Iyer",
             "batch_label": None,
+            "batch_name": None,
             "phone": None,
             "months": [
                 {
@@ -150,6 +154,7 @@ def test_dashboard_sections(api: TestClient) -> None:
             "student_id": ananya,
             "student_name": "Ananya Rao",
             "batch_label": "Mon/Wed 5pm",
+            "batch_name": None,
             "phone": "90000 00001",
             "payment_id": may_payment["id"],
             "paid_on": "2026-05-05",

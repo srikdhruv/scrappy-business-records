@@ -76,3 +76,25 @@ def test_single_rows_and_writes_use_few_queries(api: TestClient) -> None:
     # loaded with it: the student (joined to the payment), fee changes, payments.
     assert len(payment) <= 3
     assert len(update) <= 5
+
+
+@pytest.mark.parametrize("url", ["/api/batches", "/api/batches/summary?month=2026-02"])
+def test_batch_queries_do_not_grow_with_rows(api: TestClient, url: str) -> None:
+    ids = [api.post("/api/batches", json={"name": f"Batch {i}"}).json()["id"] for i in range(3)]
+
+    def add(n: int, start: int) -> None:
+        for i in range(start, start + n):
+            s = make_student(api, name=f"Student {i:03d}", batch_id=ids[i % 3])
+            pay(api, s["id"], "2026-02")
+
+    add(2, start=0)
+    with count_queries() as small:
+        assert api.get(url).status_code == 200
+    add(10, start=100)
+    api.post("/api/batches", json={"name": "One more"})
+    with count_queries() as large:
+        assert api.get(url).status_code == 200
+    assert len(large) == len(small), large
+    # The batches, and for the month's numbers the students (with their batch) and their fee
+    # changes and payments.
+    assert len(large) <= 4

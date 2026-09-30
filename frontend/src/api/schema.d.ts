@@ -205,10 +205,125 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/batches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Batches
+         * @description Every batch, sorted by name, with how many students are in it.
+         */
+        get: operations["listBatches"];
+        put?: never;
+        /**
+         * Create Batch
+         * @description Create a batch. Its name must be new (ignoring capitals and spaces).
+         */
+        post: operations["createBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/batches/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Overview
+         * @description Each batch's fees for a month (and the students in no batch): expected, collected,
+         *     still due, % paid. They add up to the dashboard's summary.
+         */
+        get: operations["getBatchOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/batches/from-labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview Labels
+         * @description What "Create batches from existing labels" would do. Changes nothing.
+         */
+        get: operations["previewLabelConversion"];
+        put?: never;
+        /**
+         * Convert Labels
+         * @description Create batches from the students' labels and place them in those batches, in one go,
+         *     after a backup. Labels are kept as they are. Running it again does nothing.
+         */
+        post: operations["convertLabels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/batches/{batch_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Batch */
+        get: operations["getBatch"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Batch
+         * @description Delete a batch. Its students aren't deleted: they are then in no batch.
+         */
+        delete: operations["deleteBatch"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Batch
+         * @description Partial update. A new default fee changes no student's fee, unless `apply_fee` names the
+         *     students to charge it to, and from which month.
+         */
+        patch: operations["updateBatch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ApplyBatchFee
+         * @description Also charge the batch's new default fee to some of its students, from a month on. Each
+         *     gets a fee change from `from_month` (or from when they joined, if later), exactly like
+         *     changing their fee in Edit. Without this, no student's fee changes.
+         */
+        ApplyBatchFee: {
+            /**
+             * From Month
+             * @description The first month of the new fee.
+             * @example 2026-10
+             */
+            from_month: string;
+            /**
+             * Student Ids
+             * @description The students to charge it to: all must be in this batch. The UI lists them first, so exactly those change.
+             */
+            student_ids: number[];
+        };
         /**
          * BacklogItem
          * @description A student with Unpaid or Partial months before M.
@@ -220,6 +335,11 @@ export interface components {
             student_name: string;
             /** Batch Label */
             batch_label: string | null;
+            /**
+             * Batch Name
+             * @description The name of the batch they're in, if any.
+             */
+            batch_name: string | null;
             /** Phone */
             phone: string | null;
             /**
@@ -281,6 +401,181 @@ export interface components {
          */
         BalanceStatus: "up_to_date" | "owes" | "credit";
         /**
+         * BatchCreate
+         * @description A new batch. Only the name is required. `default_fee_paise` only prefills the fee of a
+         *     student added to it: each student keeps their own fee.
+         */
+        BatchCreate: {
+            /** Name */
+            name: string;
+            /** Location */
+            location?: string | null;
+            /**
+             * Days
+             * @description The days it meets, Monday first.
+             */
+            days?: components["schemas"]["Weekday"][];
+            /** Start Time */
+            start_time?: string | null;
+            /** End Time */
+            end_time?: string | null;
+            /**
+             * Default Fee Paise
+             * @description The usual monthly fee, prefilled for a new student in it.
+             */
+            default_fee_paise?: number | null;
+            /** Notes */
+            notes?: string | null;
+        };
+        /** BatchOverview */
+        BatchOverview: {
+            /**
+             * Month
+             * @description The month shown (M).
+             * @example 2026-10
+             */
+            month: string;
+            /**
+             * Current Month
+             * @description A month as "YYYY-MM".
+             * @example 2026-10
+             */
+            current_month: string;
+            /**
+             * Batches
+             * @description One per batch, in the order of /batches.
+             */
+            batches: components["schemas"]["BatchSummary"][];
+            /** @description The students who aren't in any batch. */
+            no_batch: components["schemas"]["BatchSummary"];
+        };
+        /** BatchRead */
+        BatchRead: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Location */
+            location: string | null;
+            /**
+             * Days
+             * @description The days it meets, Monday first.
+             */
+            days: components["schemas"]["Weekday"][];
+            /**
+             * Start Time
+             * @description "HH:MM", 24-hour.
+             */
+            start_time: string | null;
+            /**
+             * End Time
+             * @description "HH:MM", 24-hour.
+             */
+            end_time: string | null;
+            /** Default Fee Paise */
+            default_fee_paise: number | null;
+            /** Notes */
+            notes: string | null;
+            /**
+             * Student Count
+             * @description Everyone in it, including those who left.
+             */
+            student_count: number;
+            /**
+             * Active Student Count
+             * @description Those in it who haven't left (is_active on StudentRead).
+             */
+            active_student_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             * @description UTC timestamp, e.g. 2026-10-05T09:30:00Z
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             * @description UTC timestamp, e.g. 2026-10-05T09:30:00Z
+             */
+            updated_at: string;
+        };
+        /**
+         * BatchSummary
+         * @description One batch's fees for a month M (or the students in no batch, `batch_id` null): the
+         *     dashboard's summary, counted over that batch's students only. Over every batch and "no
+         *     batch", each number adds up to the dashboard's.
+         */
+        BatchSummary: {
+            /**
+             * Batch Id
+             * @description Null: the students in no batch.
+             */
+            batch_id: number | null;
+            /**
+             * Student Count
+             * @description Students in it who are active in M.
+             */
+            student_count: number;
+            /**
+             * Active Student Count
+             * @description Of those, the ones with a fee above 0 in M (as on the dashboard).
+             */
+            active_student_count: number;
+            /**
+             * Expected Paise
+             * @description Their fees for M.
+             */
+            expected_paise: number;
+            /**
+             * Collected Paise
+             * @description What pays M (as the dashboard's collected_paise).
+             */
+            collected_paise: number;
+            /**
+             * Still Due Paise
+             * @description What's still left on M.
+             */
+            still_due_paise: number;
+            /**
+             * Paid Ahead Paise
+             * @description For a month after the current one: what pays it ahead of time. 0 otherwise.
+             */
+            paid_ahead_paise: number;
+            /**
+             * Not Fully Paid Count
+             * @description Students unpaid or partial for M.
+             */
+            not_fully_paid_count: number;
+            /**
+             * Paid Percent
+             * @description (expected - still due) / expected, rounded down, so 100 only when every fee for M is paid. Null when nothing is expected.
+             */
+            paid_percent: number | null;
+        };
+        /**
+         * BatchUpdate
+         * @description Partial update: only the fields that are sent change. Changing `default_fee_paise` never
+         *     changes a student's fee by itself; send `apply_fee` too for that.
+         */
+        BatchUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Location */
+            location?: string | null;
+            /** Days */
+            days?: components["schemas"]["Weekday"][] | null;
+            /** Start Time */
+            start_time?: string | null;
+            /** End Time */
+            end_time?: string | null;
+            /** Default Fee Paise */
+            default_fee_paise?: number | null;
+            /** Notes */
+            notes?: string | null;
+            /** @description Also charge default_fee_paise (which must be sent too) to these students. */
+            apply_fee?: components["schemas"]["ApplyBatchFee"] | null;
+        };
+        /**
          * CreditMoveItem
          * @description Extra money from a payment logged for one month (`from_month`) that covers another
          *     (`to_month`). On M's dashboard, one of the two is M.
@@ -292,6 +587,11 @@ export interface components {
             student_name: string;
             /** Batch Label */
             batch_label: string | null;
+            /**
+             * Batch Name
+             * @description The name of the batch they're in, if any.
+             */
+            batch_name: string | null;
             /** Phone */
             phone: string | null;
             /** Payment Id */
@@ -526,6 +826,65 @@ export interface components {
              */
             status: "ok";
         };
+        /** LabelConversion */
+        LabelConversion: {
+            /** Batches Created */
+            batches_created: number;
+            /** Students Placed */
+            students_placed: number;
+            /**
+             * Backup File
+             * @description The backup taken first (a file name), or null if nothing needed doing.
+             */
+            backup_file: string | null;
+        };
+        /**
+         * LabelGroup
+         * @description Students whose old "class or batch" text is the same, ignoring capitals and spaces.
+         */
+        LabelGroup: {
+            /**
+             * Name
+             * @description The batch's name: the way most of them spell it.
+             */
+            name: string;
+            /**
+             * Labels
+             * @description Every spelling found, most used first.
+             */
+            labels: string[];
+            /** Student Count */
+            student_count: number;
+            /**
+             * Student Names
+             * @description Sorted by name.
+             */
+            student_names: string[];
+            /**
+             * Existing Batch Id
+             * @description A batch with this name already exists, so they go into it.
+             */
+            existing_batch_id: number | null;
+        };
+        /**
+         * LabelPreview
+         * @description What "Create batches from existing labels" would do: students in no batch who have a
+         *     label, grouped. Nothing changes until it is confirmed.
+         */
+        LabelPreview: {
+            /**
+             * Groups
+             * @description Sorted by name.
+             */
+            groups: components["schemas"]["LabelGroup"][];
+            /** Student Count */
+            student_count: number;
+            /**
+             * New Batch Count
+             * @description Groups with no batch of that name yet.
+             */
+            new_batch_count: number;
+        };
         /**
          * LedgerMonth
          * @description One row of a student's month-by-month ledger, after extra money has been handed out
@@ -617,6 +976,11 @@ export interface components {
             student_name: string;
             /** Batch Label */
             batch_label: string | null;
+            /**
+             * Batch Name
+             * @description The name of the batch they're in, if any.
+             */
+            batch_name: string | null;
             /** Phone */
             phone: string | null;
             /**
@@ -792,6 +1156,11 @@ export interface components {
             guardian_name?: string | null;
             /** Batch Label */
             batch_label?: string | null;
+            /**
+             * Batch Id
+             * @description The batch they're in (see /batches), or null for no batch.
+             */
+            batch_id?: number | null;
             /** Notes */
             notes?: string | null;
             /**
@@ -810,8 +1179,21 @@ export interface components {
             phone: string | null;
             /** Guardian Name */
             guardian_name: string | null;
-            /** Batch Label */
+            /**
+             * Batch Label
+             * @description Free text typed before batches existed (kept exactly as it was typed).
+             */
             batch_label: string | null;
+            /**
+             * Batch Id
+             * @description The batch they're in, or null for no batch.
+             */
+            batch_id: number | null;
+            /**
+             * Batch Name
+             * @description That batch's name, or null.
+             */
+            batch_name: string | null;
             /**
              * Joined Month
              * @description A month as "YYYY-MM".
@@ -916,8 +1298,21 @@ export interface components {
             phone: string | null;
             /** Guardian Name */
             guardian_name: string | null;
-            /** Batch Label */
+            /**
+             * Batch Label
+             * @description Free text typed before batches existed (kept exactly as it was typed).
+             */
             batch_label: string | null;
+            /**
+             * Batch Id
+             * @description The batch they're in, or null for no batch.
+             */
+            batch_id: number | null;
+            /**
+             * Batch Name
+             * @description That batch's name, or null.
+             */
+            batch_name: string | null;
             /**
              * Joined Month
              * @description A month as "YYYY-MM".
@@ -1036,6 +1431,11 @@ export interface components {
             guardian_name?: string | null;
             /** Batch Label */
             batch_label?: string | null;
+            /**
+             * Batch Id
+             * @description Move them to this batch; null takes them out of their batch.
+             */
+            batch_id?: number | null;
             /** Notes */
             notes?: string | null;
             /** Joined Month */
@@ -1087,6 +1487,12 @@ export interface components {
             ctx?: Record<string, never>;
         };
         /**
+         * Weekday
+         * @description A day a batch meets. Always listed Monday first.
+         * @enum {string}
+         */
+        Weekday: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+        /**
          * YetToPayItem
          * @description A student active in M who is Unpaid or Partial for M.
          */
@@ -1097,6 +1503,11 @@ export interface components {
             student_name: string;
             /** Batch Label */
             batch_label: string | null;
+            /**
+             * Batch Name
+             * @description The name of the batch they're in, if any.
+             */
+            batch_name: string | null;
             /** Phone */
             phone: string | null;
             /**
@@ -1137,9 +1548,15 @@ export interface components {
     headers: never;
     pathItems: never;
 }
+export type ApplyBatchFee = components['schemas']['ApplyBatchFee'];
 export type BacklogItem = components['schemas']['BacklogItem'];
 export type BacklogMonth = components['schemas']['BacklogMonth'];
 export type BalanceStatus = components['schemas']['BalanceStatus'];
+export type BatchCreate = components['schemas']['BatchCreate'];
+export type BatchOverview = components['schemas']['BatchOverview'];
+export type BatchRead = components['schemas']['BatchRead'];
+export type BatchSummary = components['schemas']['BatchSummary'];
+export type BatchUpdate = components['schemas']['BatchUpdate'];
 export type CreditMoveItem = components['schemas']['CreditMoveItem'];
 export type CreditSource = components['schemas']['CreditSource'];
 export type DashboardResponse = components['schemas']['DashboardResponse'];
@@ -1150,6 +1567,9 @@ export type FeeChangeRead = components['schemas']['FeeChangeRead'];
 export type FeeKind = components['schemas']['FeeKind'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];
 export type HealthResponse = components['schemas']['HealthResponse'];
+export type LabelConversion = components['schemas']['LabelConversion'];
+export type LabelGroup = components['schemas']['LabelGroup'];
+export type LabelPreview = components['schemas']['LabelPreview'];
 export type LedgerMonth = components['schemas']['LedgerMonth'];
 export type MonthStatus = components['schemas']['MonthStatus'];
 export type OverpaidItem = components['schemas']['OverpaidItem'];
@@ -1168,6 +1588,7 @@ export type StudentUpdate = components['schemas']['StudentUpdate'];
 export type SuggestedPayment = components['schemas']['SuggestedPayment'];
 export type SuggestionReason = components['schemas']['SuggestionReason'];
 export type ValidationError = components['schemas']['ValidationError'];
+export type Weekday = components['schemas']['Weekday'];
 export type YetToPayItem = components['schemas']['YetToPayItem'];
 export type $defs = Record<string, never>;
 export interface operations {
@@ -1198,6 +1619,10 @@ export interface operations {
                 status?: components["schemas"]["StudentListFilter"];
                 /** @description Case-insensitive search on name, phone, guardian. */
                 q?: string | null;
+                /** @description Only one batch's students: its id, or `none` for the students in no batch. */
+                batch?: string | null;
+                /** @description Only the students whose batch is at this location (ignoring capitals, accents and spaces). */
+                location?: string | null;
             };
             header?: never;
             path?: never;
@@ -1724,6 +2149,253 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DashboardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listBatches: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchRead"][];
+                };
+            };
+        };
+    };
+    createBatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getBatchOverview: {
+        parameters: {
+            query?: {
+                /** @description Defaults to the current month. */
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    previewLabelConversion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelPreview"];
+                };
+            };
+        };
+    };
+    convertLabels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelConversion"];
+                };
+            };
+        };
+    };
+    getBatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchRead"];
+                };
+            };
+            /** @description No batch with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deleteBatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No batch with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    updateBatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchRead"];
+                };
+            };
+            /** @description No batch with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */

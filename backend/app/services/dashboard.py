@@ -44,6 +44,7 @@ def get_dashboard(session: Session, month: dt.date, current_month: dt.date) -> D
                 student_id=e.student.id,
                 student_name=e.student.name,
                 batch_label=e.student.batch_label,
+                batch_name=e.student.batch_name,
                 phone=e.student.phone,
                 expected_paise=e.line.expected_paise,
                 paid_paise=e.line.paid_paise,
@@ -59,6 +60,7 @@ def get_dashboard(session: Session, month: dt.date, current_month: dt.date) -> D
                 student_id=e.student.id,
                 student_name=e.student.name,
                 batch_label=e.student.batch_label,
+                batch_name=e.student.batch_name,
                 phone=e.student.phone,
                 months=[
                     BacklogMonth(
@@ -81,6 +83,7 @@ def get_dashboard(session: Session, month: dt.date, current_month: dt.date) -> D
                 student_id=e.student.id,
                 student_name=e.student.name,
                 batch_label=e.student.batch_label,
+                batch_name=e.student.batch_name,
                 phone=e.student.phone,
                 month=format_month(e.line.month),
                 expected_paise=e.line.expected_paise,
@@ -95,6 +98,7 @@ def get_dashboard(session: Session, month: dt.date, current_month: dt.date) -> D
                 student_id=e.student.id,
                 student_name=e.student.name,
                 batch_label=e.student.batch_label,
+                batch_name=e.student.batch_name,
                 phone=e.student.phone,
                 payment_id=e.move.payment.id,
                 paid_on=e.move.payment.paid_on,  # type: ignore[arg-type]  # set when stored

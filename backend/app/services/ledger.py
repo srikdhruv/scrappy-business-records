@@ -120,6 +120,7 @@ class StudentRecord:
     payments: tuple[Payment, ...] = ()
     batch_label: str | None = None
     phone: str | None = None
+    batch_name: str | None = None
     _allocations: dict[dt.date, Allocation] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )

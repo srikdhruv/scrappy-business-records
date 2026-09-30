@@ -2,8 +2,9 @@
 
 Credit allocation (PRD ledger rule 10) changed no table and added no migration: it is worked
 out from the payments every time. So a database written by v0.1.0 is read as it is. These
-tests write rows the way v0.1.0 did (plain SQL against the v0.1.0 schema, which is still the
-head), then check what every screen's API now says, and that reading never changed a row.
+tests write rows the way v0.1.0 did (plain SQL against the v0.1.0 tables, which later
+migrations only add to), then check what every screen's API now says, and that reading never
+changed a row.
 """
 
 from __future__ import annotations
@@ -25,9 +26,16 @@ V0_1_0_HEAD = "0002"
 """The last migration in v0.1.0 (`20260930_0002_fee_change_kind`)."""
 
 
+# Since v0.1.0 only batches added to the database: a new table and a new nullable column
+# (0005, batches and students.batch_id). The ledger doesn't read them, and credit allocation
+# itself stores nothing.
+ADDED_SINCE_V0_1_0 = ("0005",)
+
+
 def test_no_migration_since_v0_1_0() -> None:
     # Credit allocation must not change how data is stored.
-    assert migrate.head_revision() == V0_1_0_HEAD
+    assert migrate.head_revision() == ADDED_SINCE_V0_1_0[-1]
+    assert V0_1_0_HEAD == "0002"
 
 
 # Students as v0.1.0 stored them (the current month in these tests is June 2026).

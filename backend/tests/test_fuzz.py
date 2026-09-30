@@ -27,6 +27,13 @@ FIELDS = [
     "method",
     "note",
     "from_month",
+    "batch_id",
+    "location",
+    "days",
+    "start_time",
+    "end_time",
+    "default_fee_paise",
+    "apply_fee",
 ]
 
 scalars = st.one_of(
@@ -42,6 +49,7 @@ scalars = st.one_of(
     st.from_regex(r"\A\d{1,5}-\d{1,3}\Z"),  # month-ish
     st.from_regex(r"\A\d{1,5}-\d{1,2}-\d{1,2}\Z"),  # date-ish
     st.sampled_from(["2026-06", "2028-12", "2026-06-10", "upi", "cash", "", " "]),
+    st.sampled_from(["mon", "sun", "17:00", "23:59", "24:00", "9:5", "none"]),
 )
 values = st.one_of(
     scalars,
@@ -69,10 +77,18 @@ routes = st.sampled_from(
         ("patch", "/api/payments/{id}"),
         ("delete", "/api/payments/{id}"),
         ("get", "/api/dashboard"),
+        ("get", "/api/batches"),
+        ("post", "/api/batches"),
+        ("get", "/api/batches/summary"),
+        ("get", "/api/batches/from-labels"),
+        ("post", "/api/batches/from-labels"),
+        ("get", "/api/batches/{id}"),
+        ("patch", "/api/batches/{id}"),
+        ("delete", "/api/batches/{id}"),
     ]
 )
 params = st.dictionaries(
-    st.sampled_from(["month", "q", "sort", "order", "student_id", "status"]),
+    st.sampled_from(["month", "q", "sort", "order", "student_id", "status", "batch", "location"]),
     st.one_of(st.text(max_size=12), st.integers(-(2**70), 2**70).map(str)),
     max_size=4,
 )
@@ -86,7 +102,9 @@ FUZZ = settings(
 
 def _seed(api: TestClient) -> None:
     if not api.get("/api/students", params={"status": "all"}).json():
-        s = make_student(api)
+        batch = api.post("/api/batches", json={"name": "Mon/Wed", "location": "Koramangala"})
+        s = make_student(api, batch_id=batch.json()["id"], batch_label="Mon/Wed 5pm")
+        make_student(api, name="Kabir Mehta", batch_label="Sat 10am")
         pay(api, s["id"], "2026-05")
 
 
@@ -139,3 +157,28 @@ def test_lone_surrogates_are_rejected_not_crashing(api: TestClient) -> None:
     for query in ("q=%ED%A0%80", "q=%FF", "month=%FF"):
         assert api.get(f"/api/payments?{query}").status_code < 500
         assert api.get(f"/api/students?{query}").status_code < 500
+
+
+@FUZZ
+@given(
+    fee=scalars,
+    from_month=scalars,
+    student_ids=st.one_of(values, st.lists(st.one_of(ids, scalars), max_size=4)),
+    batch_id=ids,
+)
+def test_no_500_from_applying_a_batch_fee(
+    api: TestClient, fee: Any, from_month: Any, student_ids: Any, batch_id: int
+) -> None:
+    _seed(api)
+    body = {
+        "default_fee_paise": fee,
+        "apply_fee": {"from_month": from_month, "student_ids": student_ids},
+    }
+    for target in (batch_id, 1):
+        response = api.request(
+            "patch",
+            f"/api/batches/{target}",
+            content=json.dumps(body).encode(),
+            headers={"content-type": "application/json"},
+        )
+        assert response.status_code < 500, (body, response.text)

@@ -5,10 +5,13 @@ Routers stay thin: the work is in `app/services/students.py`, and the rules (due
 balances) in `app/services/ledger.py`.
 """
 
+from typing import Literal
+
 from fastapi import APIRouter, Query, status
 
 from app.clock import CurrentMonthDep
 from app.db import SessionDep
+from app.errors import unprocessable
 from app.schemas import (
     ErrorResponse,
     StudentCreate,
@@ -39,9 +42,33 @@ def list_students(
     q: str | None = Query(
         None, max_length=200, description="Case-insensitive search on name, phone, guardian."
     ),
+    batch: str | None = Query(
+        None,
+        max_length=30,
+        description="Only one batch's students: its id, or `none` for the students in no batch.",
+    ),
+    location: str | None = Query(
+        None,
+        max_length=200,
+        description="Only the students whose batch is at this location (ignoring capitals, "
+        "accents and spaces).",
+    ),
 ) -> list[StudentRead]:
     """Students sorted by name, each with their current fee and balance."""
-    return service.list_students(session, status_filter, q, current)
+    return service.list_students(
+        session, status_filter, q, current, batch=_batch_filter(batch), location=location
+    )
+
+
+def _batch_filter(value: str | None) -> int | Literal["none"] | None:
+    if value is None or not value.strip():
+        return None
+    value = value.strip()
+    if value.lower() == service.NO_BATCH:
+        return service.NO_BATCH
+    if value.isascii() and value.isdigit():
+        return int(value)  # an id too large to exist simply matches nobody
+    raise unprocessable("Choose a batch by its number, or none", field="batch", location="query")
 
 
 @router.post(

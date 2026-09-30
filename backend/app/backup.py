@@ -5,6 +5,7 @@
 | First time the server runs on a day | `records-YYYY-MM-DD.db`            | newest 30       |
 | Before an update (installer)  | `records-pre-update-YYYYMMDD-HHMMSS.db`   | until deleted   |
 | Before a database upgrade     | `records-pre-migration-YYYYMMDD-HHMMSS.db` | until deleted  |
+| Before turning labels into batches | `records-pre-batches-YYYYMMDD-HHMMSS.db` | until deleted |
 | By hand                       | `records-manual-YYYYMMDD-HHMMSS.db`       | until deleted   |
 
 The daily backup is taken at server start, and again by the running server whenever the date
@@ -46,7 +47,7 @@ from app import config, logs
 log = logging.getLogger("scrappy.backup")
 
 DAILY_KEEP = 30
-REASONS = ("pre-update", "pre-migration", "manual")
+REASONS = ("pre-update", "pre-migration", "pre-batches", "manual")
 _DAILY_RE = re.compile(r"^records-\d{4}-\d{2}-\d{2}\.db$")
 
 

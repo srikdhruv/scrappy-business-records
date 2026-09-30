@@ -274,6 +274,45 @@ def populate(api: Api) -> None:
     kiran = api.student(name="Kiran Bose", monthly_fee_paise=110000, joined_month=m(0))
     api.pay(kiran, m(0), 110000, "upi")
 
+    # --- Batches (since v0.2): some made from the old labels, some by hand, with every field;
+    # a student moved between batches, a batch's fee charged to one student, and a batch
+    # deleted (its students are then in no batch).
+    if api.has("/api/batches", "post"):
+        api.call("POST", "/api/batches/from-labels")
+        evening = next(
+            b for b in api.call("GET", "/api/batches") if b["name"].startswith("Mon/Wed")
+        )
+        api.call(
+            "PATCH",
+            f"/api/batches/{evening['id']}",
+            {
+                "location": "Koramangala",
+                "days": ["mon", "wed"],
+                "start_time": "17:00",
+                "end_time": "18:00",
+                "default_fee_paise": 180000,
+                "notes": "Hall B \N{EN DASH} upstairs",
+                "apply_fee": {"from_month": m(1), "student_ids": [ananya]},
+            },
+        )
+        café = api.call(
+            "POST",
+            "/api/batches",
+            {
+                "name": "Café Seniors \N{EN DASH} रविवार",
+                "location": "Café studio",
+                "days": ["sat", "sun"],
+                "start_time": "09:30",
+                "end_time": "11:00",
+                "default_fee_paise": 149_950,
+            },
+        )
+        api.call("PATCH", f"/api/students/{anika}", {"batch_id": café["id"]})
+        api.call("PATCH", f"/api/students/{zoe}", {"batch_id": café["id"]})
+        gone = api.call("POST", "/api/batches", {"name": "Trial batch"})
+        api.call("PATCH", f"/api/students/{kiran}", {"batch_id": gone["id"]})
+        api.call("DELETE", f"/api/batches/{gone['id']}")
+
     # Now the deletes: a student with payments and fee changes (theirs go with them), a
     # payment, and the scheduled fee change.
     api.call("DELETE", f"/api/students/{rohan}")
