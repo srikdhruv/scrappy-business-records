@@ -13,7 +13,7 @@ When picking one up, write a short spec in `docs/product/` and link it here.
 The owner runs several **locations**. Each has several **batches** (a day/time slot, sometimes
 taught by a hired instructor), and each batch has several students.
 
-**Built** (PRD scope item 7, [Batches](prd.md#batches)): `batches` with a name, a free-text
+**Built** (PRD scope item 8, [Batches](prd.md#batches)): `batches` with a name, a free-text
 location, days, start and end time, a usual monthly fee (it only prefills a new student's fee)
 and notes; each student in one batch or none (`students.batch_id`); batch tabs, cards with each
 batch's % paid for a month, and turning the old `batch_label` text into batches.

@@ -46,8 +46,10 @@ can open the app and see who is left to pay.
 5. **Payments page.** Every payment, sortable and filterable.
 6. **Students page.** Every student, with a status and how long they have been a student.
    Found fast: search as you type (Enter opens the first match), sort, filter and group.
-7. **Excel.** Download the Students and Payments lists (as shown), or everything, as an Excel
-   file; upload students and payments from one, with a preview first. An upload never changes
+7. **Excel.** Download the Students and Payments lists (as shown), or everything (batches
+   included), as an Excel file; upload students and payments from one, with a preview first. A
+   Batch column puts new students in batches by name; a batch the app doesn't know is flagged
+   and only created if the owner ticks it. An upload never changes
    what is already here, and payments whose student isn't found wait as *unassigned* until
    given to a student.
 8. **Batches.** The classes students come to. See [Batches](#batches).
@@ -97,6 +99,7 @@ notifications, reminders, attendance, instructor payouts, analytics, and a Start
 | B4 | turn the class labels I typed before into batches, after seeing what will happen | I don't have to place every student by hand |
 | B5 | find any student in a keystroke or two, and sort, filter and group everyone by batch, place, day or status | I never hunt for a name |
 | B6 | change a batch's usual fee, and choose whether its students pay it too, from a month | nobody's fee changes by surprise |
+| B7 | tick many students and move them to a batch at once | setting up batches takes minutes, not an afternoon |
 
 ## Data captured
 
@@ -289,11 +292,21 @@ These rules decide every number the app shows.
    deletes a student: its students are then in no batch.
 2. **The usual fee only prefills.** Every student keeps their own fee (discounts, siblings, a
    free place). Changing a batch's usual fee changes no student's fee by itself. The owner may
-   tick *Also charge it to …*, which lists exactly which students change (those in the batch,
-   not left, on the old usual fee; everyone in it if there was none) and from which month, and
-   records an ordinary fee change for each (rule 7). Someone who joins after that month gets it
-   from their joining month; if the month falls in their months away (rule 11), it starts from
-   the month they came back.
+   tick *Also charge it to …*, which lists every student in the batch who hasn't left, each with
+   a tick box, from one server rule (the preview and the change use the same one):
+   - ticked at first: those on the **usual fee** (the batch's old one, or if it had none, the
+     fee most of its students pay; nobody on a tie);
+   - not ticked: those on **their own fee**, and those with a **fee change planned** for a
+     later month (said in the words of rule 7: "until December, when ₹900 (already scheduled)
+     starts"). A planned change is never overridden without that student's own tick;
+   - not listed as changing: those already on the new fee, and those who leave before the
+     month.
+
+   Each ticked student gets an ordinary fee change (rule 7) from the chosen month (this month
+   at first). Someone who joins after it gets it from their joining month; if the month falls in
+   their months away (rule 11), it starts from the month they came back. A month before this
+   one warns how many months already due change and how much more (or less) the ticked
+   students then owe.
 3. **A batch's numbers for month M** are the Dashboard's summary (rules 1–5 and 10), worked out
    over the batch's students only: students active in M, expected, collected (or paid ahead,
    for a later M), still due and not fully paid. **% paid** = (expected − still due) /
@@ -306,6 +319,8 @@ These rules decide every number the app shows.
    common spelling (or goes into the existing batch of that name). A preview shows every group
    and student; nothing changes until the owner confirms. Then, after a backup, it is done in
    one transaction. Labels are never changed. Running it again does nothing.
+5. **Many at once.** Ticked students on the Students page move to a batch (or none) in one
+   step. Their fees don't change.
 
 ### Dashboard for a selected month M
 
