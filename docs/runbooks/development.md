@@ -59,11 +59,12 @@ backend/
     seed.py          `python -m app.seed [--force]`: fictional demo data (`make seed`)
     migrate.py       Run Alembic from code (no alembic.ini, no CWD assumptions)
     openapi_dump.py  Print the OpenAPI JSON (used by `make gen-api`)
-    services/        ledger.py: pure business rules (dues, statuses, dashboard), no I/O;
-                     students.py, payments.py, dashboard.py, batches.py: the database work
-                     routers call;
-                     bounds.py (input limits), text.py (case- and accent-insensitive matching)
-    routers/         health, students, payments, dashboard, batches
+    services/        ledger.py: pure business rules (dues, statuses, dashboard, report), no I/O;
+                     students.py, payments.py, dashboard.py, report.py, batches.py: the
+                     database work routers call; report_xlsx.py: the report as an Excel file
+                     (openpyxl); bounds.py (input limits), text.py (case- and
+                     accent-insensitive matching)
+    routers/         health, students, payments, dashboard, report, batches
     migrations/      Alembic env.py and versions/ (ships inside the package)
     static/          Built UI (git-ignored; `make build`)
     launcher.py      Desktop-shortcut entry point: health check, start the server, open the browser
@@ -73,20 +74,21 @@ backend/
                      fixtures/releases/ holds each release's sample database (ADR 0004)
 frontend/src/
   main.tsx, App.tsx  Entry and router
-  routes.tsx         Every client route (/, /payments, /students, /students/batch/:batchId,
-                     /students/:id)
+  routes.tsx         Every client route (/, /report, /payments, /students,
+                     /students/batch/:batchId, /students/:id)
   providers.tsx      QueryClient, tooltips, Log payment, toasts
   api/               schema.d.ts (generated), types.ts (what the UI imports), client.ts
                      (openapi-fetch), queries.ts (hooks)
-  pages/             Dashboard, Payments, Students, StudentProfile (+ their tests)
+  pages/             Dashboard, Report, Payments, Students, StudentProfile (+ their tests)
   components/        App building blocks: log-payment (the form), student-form, payments-table,
-                     month-picker, student-combobox, mark-left and come-back dialogs, status
-                     badges; batches/ (tabs, cards, batch form, labels to batches, the
-                     students table, the batch picker); layout/; ui/ (shadcn/ui)
+                     month-picker, month-switcher, student-combobox, mark-left and come-back
+                     dialogs, status badges; batches/ (tabs, cards, batch form, labels to
+                     batches, the students table, the batch picker); layout/; ui/ (shadcn/ui)
   lib/format.ts      ₹, date and month formatting (the only place that formats them)
   lib/errors.ts      Plain-words messages for API errors, including "Can't reach Scrappy Records"
   lib/search.ts      The student search both lists use (words in any order, accents, phones)
   lib/fees.ts        Reading a fee history: the fee in a month, and "until …" sentences
+  lib/report.ts      The monthly report's statuses, filters, sorting and totals row
   lib/batches.ts     Batches in words ("Mon, Wed · 5:00–6:00 pm"), and the students table's
                      filters, sorting and grouping
   mocks/             The mock API (MSW) for `make dev-mock` and the tests. Never in the build
@@ -129,8 +131,8 @@ scripts/
 - **Log payment and edit payment** use the same form:
   `useLogPayment().openEditPayment(payment)`.
 - **API calls.** Use `api` from `src/api/client.ts` with `unwrap()`, inside TanStack Query hooks
-  in `src/api/queries.ts`. Every change (create, edit, delete) refetches students, payments and
-  the dashboard (`invalidateRecords`), so no screen shows an old number. Import types from
+  in `src/api/queries.ts`. Every change (create, edit, delete) refetches students, payments,
+  the dashboard and the report (`invalidateRecords`), so no screen shows an old number. Import types from
   `src/api/types.ts`, e.g. `import type { StudentRead } from '@/api/types'`. It only re-exports
   the generated `schema.d.ts`, so any change to the API is a type error in the UI.
 - **"Now" is the server's month.** Use `current_month` from the API (`useServerMonth()`, or the
@@ -175,6 +177,9 @@ student as left, credit and paid-ahead, deleting with confirmation, and a server
 message shown next to its field. `e2e/fixes.spec.ts` covers the fixes made before v0.1.0:
 coming back after leaving, a scheduled fee change (and removing it), a month off set in
 advance, Enter after clicking Cash, the Students search, the amount cap and the Paid on sort.
+`e2e/report.spec.ts` covers the monthly report: opening it from the dashboard, filtering and
+searching, the Excel download (read back with openpyxl through `uv run`), the print layout
+(print media emulated) and the wide table at 1280 and 800 px.
 `e2e/batches.spec.ts` covers batches: creating one, adding a student from its tab with the fee
 filled in, its % paid after a payment, filtering and grouping, deleting a batch, and turning
 labels into batches.

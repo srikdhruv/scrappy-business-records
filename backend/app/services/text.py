@@ -7,6 +7,7 @@ matches "emile"; "Ölund" matches "ölund" and "olund").
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
 
@@ -14,6 +15,18 @@ def fold(text: str) -> str:
     """Lower-case, with accents removed, for comparing and sorting."""
     decomposed = unicodedata.normalize("NFKD", text.casefold())
     return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
+_APOSTROPHES_AND_HYPHENS = re.compile("['\u2019\u2018`\u00b4-]")
+
+
+def search_fold(text: str) -> str:
+    """Exactly the UI's `fold` (`frontend/src/lib/search.ts`): NFKD, every mark removed (`\\p{M}`),
+    apostrophes and hyphens dropped ("obrien" finds "O'Brien"), then lower-cased. The monthly
+    report sorts names with it on both sides, so the Excel download is in the screen's order."""
+    decomposed = unicodedata.normalize("NFKD", text)
+    stripped = "".join(c for c in decomposed if not unicodedata.category(c).startswith("M"))
+    return _APOSTROPHES_AND_HYPHENS.sub("", stripped).lower()
 
 
 def contains(haystack: str | None, needle: str) -> bool:

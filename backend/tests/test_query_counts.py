@@ -1,5 +1,5 @@
-"""Lists and the dashboard run a fixed number of SQL queries, however many rows there are
-(no query per student or per payment)."""
+"""Lists, the dashboard and the report run a fixed number of SQL queries, however many rows
+there are (no query per student or per payment)."""
 
 from __future__ import annotations
 
@@ -43,6 +43,7 @@ ENDPOINTS = [
     "/api/students?status=all",
     "/api/dashboard",
     "/api/dashboard?month=2026-02",
+    "/api/report?month=2026-02",
 ]
 
 

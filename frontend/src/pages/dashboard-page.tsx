@@ -10,8 +10,7 @@ import {
   ArrowRightIcon,
   CalendarCheckIcon,
   CheckCircle2Icon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
+  FileSpreadsheetIcon,
   HandCoinsIcon,
   UserPlusIcon,
   UsersIcon,
@@ -31,6 +30,7 @@ import type {
 } from '@/api/types'
 import { PageHeader } from '@/components/layout/page-header'
 import { useLogPayment } from '@/components/log-payment'
+import { MonthNote, MonthSwitcher } from '@/components/month-switcher'
 import { Panel } from '@/components/panel'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
 import { StatusPill } from '@/components/status'
@@ -38,7 +38,7 @@ import { StudentAvatar } from '@/components/student-avatar'
 import { StudentFormDialog } from '@/components/student-form'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { addMonths, formatDate, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
+import { formatDate, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
 import { checkText, groupMoves, monthRanges } from '@/lib/credit'
 import { plural } from '@/lib/labels'
 import { TONE_TEXT } from '@/lib/status'
@@ -74,23 +74,22 @@ export function DashboardPage() {
         eyebrow="Dashboard"
         title={<MonthSwitcher month={month} onChange={setMonth} />}
         description={
-          !month || !now ? (
-            ' '
-          ) : month === now ? (
-            'Who has paid this month, and who hasn’t yet.'
-          ) : (
-            <span className="inline-flex flex-wrap items-center gap-x-2">
-              {month < now
-                ? 'Looking back at an earlier month.'
-                : `Looking ahead: ${monthName(month)} isn’t due yet.`}
-              <button
-                type="button"
-                onClick={() => setMonth(now)}
-                className="rounded font-bold text-primary-strong underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
-              >
-                Back to {formatMonth(now)}
-              </button>
-            </span>
+          <MonthNote
+            month={month}
+            now={now}
+            current="Who has paid this month, and who hasn’t yet."
+            onBack={() => now && setMonth(now)}
+          />
+        }
+        actions={
+          month &&
+          !firstRun && (
+            <Button variant="outline" asChild className="border-primary/60 bg-card">
+              <Link to={`/report?month=${month}`}>
+                <FileSpreadsheetIcon className="text-primary-strong" aria-hidden />
+                Monthly report
+              </Link>
+            </Button>
           )
         }
       />
@@ -123,52 +122,6 @@ export function DashboardPage() {
 
       <StudentFormDialog open={newStudentOpen} onOpenChange={setNewStudentOpen} />
     </>
-  )
-}
-
-function MonthSwitcher({
-  month,
-  onChange,
-}: {
-  month: string | undefined
-  onChange: (m: string) => void
-}) {
-  if (!month) {
-    return (
-      <div className="flex h-10 items-center" aria-busy="true" aria-label="Loading">
-        <Skeleton className="h-9 w-64" />
-      </div>
-    )
-  }
-  const prev = addMonths(month, -1)
-  const next = addMonths(month, 1)
-  return (
-    <div className="-ml-2 flex items-center gap-1">
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => onChange(prev)}
-        aria-label={`Previous month, ${formatMonth(prev)}`}
-        className="rounded-full"
-      >
-        <ChevronLeftIcon className="size-6" />
-      </Button>
-      <h1
-        className="min-w-[11ch] text-center text-3xl font-extrabold tracking-tight tabular-nums"
-        aria-live="polite"
-      >
-        {formatMonth(month)}
-      </h1>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => onChange(next)}
-        aria-label={`Next month, ${formatMonth(next)}`}
-        className="rounded-full"
-      >
-        <ChevronRightIcon className="size-6" />
-      </Button>
-    </div>
   )
 }
 

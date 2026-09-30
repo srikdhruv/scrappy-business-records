@@ -190,5 +190,10 @@ export function createHandlers(db: MockDb, { latency = 0 }: HandlerOptions = {})
       await wait()
       return respond(() => db.deleteBatch(idParam(params.id)), 204)
     }),
+
+    http.get(api('/report'), async ({ request }) => {
+      await wait()
+      return respond(() => db.report(new URL(request.url).searchParams.get('month')))
+    }),
   ]
 }

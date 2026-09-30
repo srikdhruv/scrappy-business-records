@@ -234,6 +234,28 @@ await shot('dashboard-celebration', [header(), yetToPay()])
 await open(empty, '/')
 await windowShot('dashboard-first-run', 620)
 
+// ---- Monthly report -------------------------------------------------------------------------
+await open(demo, '/')
+await page.getByRole('link', { name: 'Monthly report' }).click()
+await settle()
+await shot('report')
+const reportPanel = () => page.locator('section.report-sheet')
+await open(demo, `/report?month=${now}&status=owes`)
+await shot('report-filtered', reportPanel())
+// August: Vihaan's September payment paid it (extra money), and where from.
+await open(demo, `/report?month=${addMonths(now, -1)}`)
+await page.getByRole('searchbox', { name: /Search the report/ }).fill('Vihaan')
+await settle()
+await shot('report-credit', reportPanel())
+// Print: as the printed page (A4 landscape less its margins is about 1047 px wide).
+await open(demo, `/report?month=${now}`)
+await page.setViewportSize({ width: 1047, height: 740 })
+await page.emulateMedia({ media: 'print' })
+await settle()
+await page.screenshot({ path: path.join(rawDir, 'report-print.png'), fullPage: true })
+await page.emulateMedia({ media: 'screen' })
+await page.setViewportSize({ width: 1280, height: 900 })
+
 // ---- Log payment ----------------------------------------------------------------------------
 await open(demo, '/')
 await page.getByRole('button', { name: 'Log payment for Arjun Menon' }).click()

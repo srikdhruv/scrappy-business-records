@@ -33,6 +33,7 @@ no Docker, no database server and no separate web server.
 |---|---|---|
 | API | FastAPI + Pydantic v2, served by uvicorn | `backend/app/main.py`, `backend/app/routers/` |
 | Business rules | Plain Python functions, no I/O | `backend/app/services/ledger.py` |
+| Excel files | openpyxl (pure Python), written in memory for a download | `backend/app/services/report_xlsx.py` (the monthly report) |
 | Persistence | SQLAlchemy 2 ORM on SQLite; schema managed by Alembic | `backend/app/models.py`, `backend/app/migrations/` |
 | UI | React + TypeScript + Vite + Tailwind + shadcn/ui; TanStack Query and TanStack Table | `frontend/` |
 | API types | Generated from FastAPI's OpenAPI schema (`openapi-typescript`) | `frontend/src/api/schema.d.ts` |

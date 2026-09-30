@@ -536,6 +536,18 @@ def test_no_backup_no_change(api: TestClient, monkeypatch: pytest.MonkeyPatch) -
     assert detail_of(api, s["id"])["batch_id"] is None
 
 
+def test_the_monthly_report_shows_each_students_batch(api: TestClient) -> None:
+    batch = make_batch(api, name="Saturday Morning")
+    make_student(api, name="Ananya Rao", batch_id=batch["id"], batch_label="Sat 10am")
+    make_student(api, name="Kabir Mehta", batch_label="Tue 5pm")
+    rows = api.get("/api/report", params={"month": "2026-06"}).json()["rows"]
+    by_name = {r["student_name"]: (r["batch_name"], r["batch_label"]) for r in rows}
+    assert by_name == {
+        "Ananya Rao": ("Saturday Morning", "Sat 10am"),
+        "Kabir Mehta": (None, "Tue 5pm"),
+    }
+
+
 def test_numbers_in_names_sort_as_numbers(api: TestClient) -> None:
     for name in ("Batch 10", "batch 2", "Batch 1"):
         make_batch(api, name=name)

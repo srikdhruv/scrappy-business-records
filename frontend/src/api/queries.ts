@@ -1,9 +1,9 @@
 /**
  * TanStack Query hooks and keys, one per endpoint.
  *
- * Every write can change dues, balances and the dashboard, so all mutations invalidate the three
- * roots (students, payments, dashboard) through `invalidateRecords`. At this app's size that's
- * instant, and it means no screen can ever show a stale number after a save.
+ * Every write can change dues, balances, the dashboard and the report, so all mutations invalidate
+ * the four roots (students, payments, dashboard, report) through `invalidateRecords`. At this
+ * app's size that's instant, and it means no screen can ever show a stale number after a save.
  */
 import {
   keepPreviousData,
@@ -23,6 +23,7 @@ import type {
   LabelConversion,
   LabelPreview,
   PaymentCreate,
+  ReportResponse,
   PaymentUpdate,
   StudentCreate,
   StudentDetail,
@@ -60,6 +61,10 @@ export const queryKeys = {
     overview: (month: string) => ['batches', 'summary', month] as const,
     labels: ['batches', 'from-labels'] as const,
   },
+  report: {
+    all: ['report'] as const,
+    month: (month: string) => ['report', month] as const,
+  },
 }
 
 /** Refetch everything that a student, payment or batch change can affect. */
@@ -69,6 +74,7 @@ export function invalidateRecords(queryClient: QueryClient) {
     queryClient.invalidateQueries({ queryKey: queryKeys.payments.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.batches.all }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.report.all }),
   ])
 }
 
@@ -114,6 +120,18 @@ export function useDashboard(month: string | undefined) {
     queryKey: queryKeys.dashboard.month(month ?? 'current'),
     queryFn: async (): Promise<DashboardResponse> =>
       unwrap(await api.GET('/api/dashboard', { params: { query: { month } } })),
+    placeholderData: keepPreviousData,
+  })
+}
+
+// ---- Monthly report ----------------------------------------------------------------------------
+
+/** The monthly report for `month`, or for the server's current month when it's undefined. */
+export function useReport(month: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.report.month(month ?? 'current'),
+    queryFn: async (): Promise<ReportResponse> =>
+      unwrap(await api.GET('/api/report', { params: { query: { month } } })),
     placeholderData: keepPreviousData,
   })
 }
