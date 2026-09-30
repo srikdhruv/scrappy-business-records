@@ -34,7 +34,7 @@ When everyone has paid, you'll see **Everyone's paid for** the month 🎉.
    it's the next month they haven't paid for. You can change both.
 4. Pick **How they paid**: **UPI**, **Cash** or **Other**.
 5. **Paid on** is today. Change it if they paid on another day. Add a **Note** if you like.
-6. Click **Save payment**, or press **Enter**.
+6. Click **Save payment**. (Enter also saves, but not straight after clicking UPI, Cash or Other.)
 
 If the amount is much more than their fee, the form asks "Is it right?" in case of an extra zero.
 You can still save it.

@@ -14,8 +14,8 @@ without the internet.
 - Each screen has the same parts: **What it's for**, **What you'll see**, **What you can do**
   and **Good to know**. A folded **For developers** box at the end of each screen lists the
   code, the API and the tests behind it. You can skip those.
-- The pictures use made-up demo students, so the names and numbers are only examples. The
-  month in the pictures is September 2026.
+- The pictures use made-up demo students, so the names and numbers are only examples. "Today"
+  in the pictures is 15 September 2026.
 
 ## Contents
 
@@ -101,10 +101,10 @@ banner goes away.
 ### Good to know
 
 - The banner goes away by itself as soon as the app answers again.
-- You can bookmark the page in your browser. The address is `http://127.0.0.1:8765`. It only
-  works while the app is running, so the Desktop shortcut is the surest way in.
-- A page address that doesn't exist shows **Page not found**, with a link back to the
-  Dashboard.
+- You can bookmark the app in your browser (Ctrl + D). The bookmark only works while the app
+  is running, so the Desktop shortcut is the surest way in.
+- If you ever land on **Page not found** (for example from an old bookmark), click the link
+  back to the Dashboard.
 - If a list can't load, you'll see *"This didn't load."* with a **Try again** button.
 
 <details><summary>For developers</summary>
@@ -124,6 +124,7 @@ banner goes away.
 - **Freshness:** every create, edit or delete calls `invalidateRecords()`
   (`src/api/queries.ts`), which refetches students, payments and the dashboard.
 - **Launcher:** `backend/app/launcher.py`, see [architecture](architecture.md#the-launcher).
+  The app's address is `http://127.0.0.1:8765` (`SCRAPPY_PORT`).
 - **PRD:** UX principles ("+ Log payment on every page", the name everywhere).
 - **Tests:** `frontend/src/App.test.tsx` (name, navigation, Log payment button on every page,
   version); `pages/dashboard-page.test.tsx` → "when the app can't be reached";
@@ -233,8 +234,7 @@ students enrolled it says *"No students were coming in …"*, and the last box s
 1. Click **Log payment** on their row.
 2. The form opens with the student, that month and what's left already filled in. Check the
    amount and how they paid.
-3. Press **Enter** or click **Save payment**. If that paid the month in full, their row
-   disappears from the list.
+3. Click **Save payment**. If that paid the month in full, their row disappears from the list.
 
 **Open a student's profile**
 1. Click their name in *Yet to pay*, or anywhere on their row in *Earlier months still owed*
@@ -289,7 +289,7 @@ the same form.
 
 ### What you'll see
 
-![The Log a payment form for Arjun Menon, opened from the Dashboard: Amount ₹1200, For month September 2026, a hint 'Oldest unpaid: June 2026' with a 'Pay June instead' button and 'September: ₹1,200 due, nothing paid yet.', the How they paid buttons UPI (chosen), Cash and Other, Paid on 29 Sep 2026 ('Today, 29 Sep 2026'), an optional Note, 'Press Enter to save', Cancel and Save payment.](images/feature-guide/log-payment-from-dashboard.png)
+![The Log a payment form for Arjun Menon, opened from the Dashboard: Amount ₹1200, For month September 2026, a hint 'Oldest unpaid: June 2026' with a 'Pay June instead' button and 'September: ₹1,200 due, nothing paid yet.', the How they paid buttons UPI (chosen), Cash and Other, Paid on 15 Sep 2026 ('Today, 15 Sep 2026'), an optional Note, 'Press Enter to save', Cancel and Save payment.](images/feature-guide/log-payment-from-dashboard.png)
 
 The form is titled **Log a payment** (*"Record money you've received from a student."*) or,
 when fixing one, **Edit payment** (*"Fix any detail and save."*).
@@ -339,7 +339,7 @@ profile."*
 **How they paid:** three big buttons, **UPI** (chosen at first), **Cash** and **Other**.
 
 **Paid on:** the date they paid. It starts as today, and the line under it spells the date out
-(*Today, 29 Sep 2026*), because the box itself follows the laptop's date settings.
+(*Today, 15 Sep 2026*), because the box itself follows the laptop's date settings.
 
 **Note (optional):** anything you want to remember, for example *"paid by grandmother"*.
 
@@ -359,7 +359,9 @@ zero. It never stops you saving.
 | The Indian `/-` at the end: `₹1,500/-` | More than ₹10,00,000: *"The most you can enter is ₹10,00,000."* |
 
 ₹10,00,000 is the most a single payment (or a monthly fee) can be. It's there to catch a slip
-of the finger, not as a rule about your fees.
+of the finger, not as a rule about your fees. (Typed with `/-` at the end, such as
+`₹20,00,000/-`, an amount over the limit gets the *"Enter an amount like 1500 or 1,500."*
+message instead.)
 
 **At the bottom:** *"Press Enter to save"*, **Cancel**, and **Save payment** (or **Save
 changes** when editing). While saving, the button says *Saving…*.
@@ -373,7 +375,7 @@ changes** when editing). While saving, the button says *Saving…*.
 3. Check **Amount** and **For month**. Change them if needed.
 4. Choose **UPI**, **Cash** or **Other**.
 5. Change **Paid on** if they paid on another day, and add a **Note** if you like.
-6. Press **Enter**, or click **Save payment**.
+6. Click **Save payment**.
 
 **Log a payment already filled in for someone.** The form opens with the student chosen and the
 cursor in **Amount**, so you can check it and press **Enter**. It opens this way from:
@@ -393,7 +395,7 @@ cursor in **Amount**, so you can check it and press **Enter**. It opens this way
 1. Find it on the [Payments page](#payments-page) or in a student's profile, and click
    **Edit** (or **Edit payment** next to a month that was paid too much).
 2. Change the student, amount, month, method, date or note.
-3. Press **Enter**, or click **Save changes**. You'll see *"Payment updated"*.
+3. Click **Save changes**. You'll see *"Payment updated"*.
 
 ![The Edit payment form for Vihaan Joshi: Amount ₹2500, For month July 2026, and 'July: ₹2,000 fee, nothing else paid.', method UPI, paid on 7 Jul 2026, note 'Paid extra by mistake', with Save changes.](images/feature-guide/edit-payment.png)
 
@@ -404,7 +406,8 @@ fee, nothing else paid."*), so you can see what the month will look like with yo
 
 - **Enter saves.** Pressing Enter in the amount, date or note box saves the payment. On the
   student box, Enter also saves once a student is chosen: it never switches to someone else.
-  Only typing letters there opens the list again.
+  Only typing letters there opens the list again. Right after clicking **UPI**, **Cash** or
+  **Other**, Enter doesn't save; click **Save payment** instead.
 - Pressing Enter twice, or clicking Save twice, still saves only one payment.
 - If something is missing, the form says what, next to that box, when you try to save:
   *"Choose who paid."*, *"Pick the month this payment is for."*, *"Enter the date they paid."*,
@@ -412,10 +415,13 @@ fee, nothing else paid."*), so you can see what the month will look like with yo
 - **One payment is for one month.** If a parent pays for two months at once, log two payments
   (see [Everyday situations](#a-parent-pays-for-two-months-at-once)). Splitting one payment
   across months automatically isn't built yet; see
-  [future features §2b](product/future-features.md#2b-smarter-handling-of-extra-money).
+  [smarter handling of extra money](product/future-features.md#2b-smarter-handling-of-extra-money)
+  in the future features.
 - A payment for a month that hasn't started is fine: it shows as **Paid ahead**.
-- A payment for a month when the student wasn't enrolled is allowed, but it counts as paid too
-  much, because no fee was due then.
+- The calendar greys out months before they joined and after they left, so you can't log a
+  payment for those. One can still end up there if **Joined in** or **Left in month** is
+  changed later (or they're marked as left) after a payment was logged. It then counts as paid
+  too much, because no fee was due that month.
 - Undo is only offered right after logging a new payment. To take back an edit, edit it again.
 - Pressing **Esc**, clicking **Cancel** or the **×** closes the form without saving.
 
@@ -498,9 +504,14 @@ and their **total**, for whatever filters are on:
    month or method.
 2. To see everything again, click **Clear filters**.
 
-**See what you collected for a month, or in cash**
+**See the payments for a month, or in cash**
 1. Choose the month under **All months** (and **Cash** under **All methods**, if you like).
 2. Read the total in the last row.
+
+The month filter goes by the month a payment is **for**, not the day it was paid. So
+"September" plus "Cash" is the cash paid *for* September, even if some of it came in October,
+and it leaves out cash paid in September for other months. It isn't a count of the cash you
+received during September.
 
 **Fix a payment**
 1. Click **Edit** on its row. The [Edit payment](#log-payment-and-edit-payment) form opens.
@@ -520,8 +531,8 @@ and their **total**, for whatever filters are on:
   sorts Cash, Other, UPI.
 - The list already starts newest first, so a first click on **Paid on** changes nothing you can
   see; click it again for oldest first.
-- The student, month and method filters are kept in the page address, so the browser's Back
-  button returns to them. The search text isn't kept.
+- The browser's **Back** button remembers the student, month and method you picked, but not
+  the search text.
 - *"No payments match these filters."* means nothing fits; click **Clear filters**. *"No
   payments yet."* means nothing has been logged at all.
 - A deleted payment can't be brought back from inside the app. If you delete one by mistake,
@@ -686,7 +697,8 @@ later."*):
 ![The Edit Kabir Mehta form with the Monthly fee changed to 2100 and a marigold box: New fee applies from September 2026, and 'From September 2026 they'll owe ₹2,100 a month. Earlier months keep the old fee of ₹1,800.'](images/feature-guide/student-edit-fee-change.png)
 
 It starts on this month, and says in plain words what will happen: *"From September 2026
-they'll owe ₹2,100 a month. Earlier months keep the old fee of ₹1,800."*
+they'll owe ₹2,100 a month. Earlier months keep the old fee of ₹1,800."* If another fee change is
+already set for a later month, the new fee only lasts until then (see *Good to know*).
 
 ### What you can do
 
@@ -720,8 +732,10 @@ they'll owe ₹2,100 a month. Earlier months keep the old fee of ₹1,800."*
 
 ### Good to know
 
-- **Earlier months keep the old fee.** Only months from the "applies from" month on use the new
-  one. Their profile's *Details* then lists each fee and when it started.
+- **Earlier months keep their fee.** The new fee applies from the "applies from" month until
+  the next fee change you've already set for a later month, if there is one; that later change
+  stays as it is. (The form's own sentence only mentions the old fee.) Their profile's
+  *Details* lists each fee and when it started.
 - Choosing an **earlier** month for a new fee changes those past months too. A month that was
   paid at the old fee then shows as **Partial** (if the fee went up) or **Paid extra** (if it
   went down).
@@ -734,7 +748,7 @@ they'll owe ₹2,100 a month. Earlier months keep the old fee of ₹1,800."*
   start before the month they joined."*
 - The **New fee applies from** box only appears when the fee you type is different from
   **this month's** fee. So if a new fee is already set for a later month, you can't use this
-  form to set it back to today's fee. See [open questions](#open-questions-found-while-writing-this-guide).
+  form to set it back to today's fee.
 - Months can be set at most two years ahead. Anything later is refused as a likely typo:
   *"… can't be later than September 2028 (two years from now)"*.
 - You can't set a leaving month while adding a student; add them first, then **Edit**.
@@ -856,7 +870,7 @@ by the heading is how many there are.
 **Log a payment for them**
 1. Click **+ Log payment** at the top (their next month is filled in), **Log payment** in the
    *Oldest unpaid* box, or **Log payment** on a month in *Month by month*.
-2. Check the amount and press **Enter**.
+2. Check the amount and click **Save payment**.
 
 **Fix a month that was paid too much**
 1. Click **Edit payment** next to that month (in the Balance card or in *Month by month*).
@@ -951,7 +965,7 @@ The same word always has the same colour, everywhere in the app.
 | **Paid too much** | Teal amounts (+₹500) | The Dashboard section of that name | The list of every such month up to the one you're looking at |
 | **Paid ahead** | Teal, with ▸▸ | Profile *Month by month* and Balance card ("Paid ahead to Oct 2026"); Students page ("Paid ahead ₹1,500"); the Dashboard's second box for a later month | Money paid for a month that hasn't started yet, while they're still enrolled then. It's never counted as extra or owed. **Part paid ahead** means only part of that month's fee |
 | **Owes ₹X** | Muted red | Students page *Status*; profile Balance headline | Any month up to this one is Unpaid or Partial. ₹X is what's left on all of them |
-| **Credit ₹X** | Teal | Students page; profile Balance headline | Nothing is owed, but some month up to this one was paid more than its fee, or something was paid for a month after they left. ₹X is the extra |
+| **Credit ₹X** | Teal | Students page; profile Balance headline | Nothing is owed, but some month up to this one was paid more than its fee, or something was paid for a month after they left. ₹X is the extra. It is never used up automatically for later months: to count it, edit that payment's month |
 | **Up to date** | Green, with a tick | Students page; profile Balance headline | Nothing owed and nothing extra |
 | **Not due yet** | Grey | Profile *Month by month*; Dashboard for a later month (labels and the third box) | A month that hasn't started, not paid yet. Nothing is owed until it comes |
 | **No fee** | Grey | Profile *Month by month* | A month whose fee is ₹0, with nothing paid |
@@ -987,26 +1001,27 @@ in [Log payment](#log-payment-and-edit-payment).
 2. Type the student's name and press **Enter** (skip this if it's already filled in).
 3. Check the **Amount** and **For month**. The form picks the oldest month they owe.
 4. Click **UPI** or **Cash**.
-5. Press **Enter**. Made a slip? Click **Undo** in the message at the top.
+5. Click **Save payment**. Made a slip? Click **Undo** in the message at the top.
 
 ### A parent pays for two months at once
 
 Log **two payments**, one for each month:
 1. Log the first payment as usual, for the first month and its fee.
 2. Click **+ Log payment** again and choose the same student. The form now suggests the next
-   month. Check it, and press **Enter**.
+   month. Check it, and click **Save payment**.
 
 If you've already logged it as one big payment for one month, that month shows **Paid extra** and
 the other shows as owed, with a note like *"Paid ₹1,500 extra in Aug 2026"*. Fix it by editing
 that payment down to one month's fee, then logging the second month. (Splitting one payment
-automatically isn't built yet; see [future features §2b](product/future-features.md#2b-smarter-handling-of-extra-money).)
+automatically isn't built yet; see
+[smarter handling of extra money](product/future-features.md#2b-smarter-handling-of-extra-money).)
 
 ### A parent pays part now and part later
 
 1. Log what they paid now, for that month. The month shows **Partial**, and the student stays
    in *Yet to pay* with what's left (*₹750 left, ₹750 of ₹1,500 paid*).
 2. When they pay the rest, click **Log payment** on their row. The rest is filled in.
-3. Press **Enter**. The month is now **Paid**, and they leave the list.
+3. Click **Save payment**. The month is now **Paid**, and they leave the list.
 
 Tip: a **Note** such as *"Balance after the 15th"* helps you remember.
 
@@ -1083,22 +1098,27 @@ students**.
 ### A student takes a month off
 
 **Not built yet.** The app can't mark a single month as "on a break" or "excused"; it's planned
-(see [future features §1](product/future-features.md#1-business-structure-locations--batches--students),
-"Excused / on break months"). Until then, you can:
+(see ["Excused / on break" months](product/future-features.md#1-business-structure-locations--batches--students)
+in the future features). Until then, you can:
 
 - **Leave it as it is**, and add a note to the student (**Edit** → **Notes**, e.g. *"No fee for
   December, away"*). The month will keep showing as owed.
-- **Or set their fee to ₹0 for that month**, once that month has started (or after it):
+- **Or set their fee to ₹0 for that month.** Only do this **once the month off has started**
+  (or after it):
   1. Open their profile and click **Edit**.
   2. Type **0** as the **Monthly fee**, set **New fee applies from** to the month off, and click
      **Save changes**.
   3. Click **Edit** again. Type their usual **Monthly fee**, set **New fee applies from** to the
      month after the break, and click **Save changes**.
 
-  The month off now shows **No fee**, and every other month keeps its fee. (It has to be done
-  once the month off has started, because the second step only appears when the fee you type
-  differs from this month's fee.) If they had already paid for that month, the payment now
-  shows as **Paid extra**: edit it and move its **For month** to the month they're back.
+  The month off now shows **No fee**, and every other month keeps its fee. If they had already
+  paid for that month, the payment now shows as **Paid extra**: edit it and move its **For
+  month** to the month they're back.
+
+  **Done in advance, it goes wrong:** before the month off starts, step 3 has no **New fee
+  applies from** box (their usual fee is still this month's fee), so nothing is saved, and they
+  owe nothing from the month off onwards. If that happens, repeat step 3 once the month off has
+  started.
 
 The same two steps clear the gap after **Mark as coming again**: fee **0** from the first month
 they were away, then their usual fee from the month they came back.
@@ -1108,9 +1128,10 @@ they were away, then their usual fee from the month they came back.
 Open their profile and look at **Month by month** to see which month shows as owed, then:
 
 1. **Was the payment logged for the wrong month?** A common one: the same month paid twice
-   (it shows **Paid extra**) while the next month shows **Unpaid**. Or, for a student who has
-   left, a payment typed for a month after they left (*"… after they left — was it for May?"*).
-   Click **Edit payment** on the extra month and change its **For month**.
+   (it shows **Paid extra**) while the next month shows **Unpaid**. Or a student was marked as
+   left (or their **Left in month** was changed) after a payment was logged for a later month:
+   the profile then says *"… after they left — was it for May?"*. Click **Edit payment** on the
+   extra month and change its **For month**.
 2. **Was it logged for someone else?** Search their name on the **Payments** page. If it isn't
    there, search the other student's name, then **Edit** the payment and change the **Student**.
 3. **Was the amount typed wrong?** Edit it on the **Payments** page.
@@ -1124,9 +1145,9 @@ Open their profile and look at **Month by month** to see which month shows as ow
 
 ## Your data and safety
 
-- **Everything stays on this laptop.** Your records are in one file on the laptop itself
-  (`%LOCALAPPDATA%\ScrappyRecords\data\records.db` on Windows). Nothing is sent anywhere, and no
-  account is needed.
+- **Everything stays on this laptop.** Your records are kept in one file on the laptop itself
+  (the [backups page](runbooks/backup-and-restore.md) says where). Nothing is sent anywhere, and
+  no account is needed.
 - **It works offline.** After installing, the app never needs the internet. Only installing
   and updating download something.
 - **Automatic backups.** A copy is saved every day to **Documents\ScrappyRecords Backups**
@@ -1223,13 +1244,21 @@ These look like small UI issues. They're described here rather than changed:
 - **Any PR that changes what the user sees or can do** (screens, wording, flows, or API
   behaviour the UI shows) must update this guide in the same PR, including the pictures when a
   screen changed noticeably. See [CONTRIBUTING](../CONTRIBUTING.md#keep-the-feature-guide-up-to-date).
-- **CI checks it.** The *Feature guide* workflow fails a PR that changes `frontend/src/`
-  (other than tests and mocks), `backend/app/routers/`, `backend/app/services/` or
-  `backend/app/schemas.py` without changing this file. A PR that truly doesn't affect the user
-  (a refactor, a speed-up) can carry the `no-guide-change` label instead.
+- **CI checks it.** The *Feature guide updated* check (a required check) fails a PR that
+  changes the screens (`frontend/src/` other than tests and mocks, `frontend/index.html`,
+  `frontend/public/`), the API (`backend/app/routers/`, `services/`, `schemas.py`), startup,
+  backups or the date (`main.py`, `launcher.py`, `backup.py`, `clock.py`, `months.py`) or the
+  installers, without changing this file. A PR that only regenerates `schema.d.ts` or only
+  touches `components/ui/` passes. A PR that truly doesn't affect the user (a refactor, a
+  speed-up) can carry the `no-guide-change` label instead. The list is in
+  `scripts/ci/check_feature_guide.py`.
 - **Pictures:** `make guide-screenshots` retakes every picture in `images/feature-guide/`
-  against the real app with fresh demo data, and shrinks them. Look through the diff and commit
-  the ones that changed. Keep each under about 150 KB.
+  against the real app with fresh demo data, and shrinks them. "Today" is frozen at
+  15 September 2026 (`GUIDE_TODAY` in `frontend/scripts/feature-guide-screenshots.mjs`, applied
+  to the server by `scripts/guide_server.py` and to the browser by Playwright), so the pictures
+  and the numbers quoted in this guide don't drift. If you change that date or the demo data
+  (`backend/app/seed.py`), refresh the numbers in the text too. Look through the diff and commit
+  the pictures that changed. Keep each under about 150 KB.
 - **Keep the parts in step:** a new screen gets its own section with the same five headings; a
   new word or colour goes in [the table](#what-the-words-and-colours-mean); a new everyday task
   goes in [Everyday situations](#everyday-situations) and, if it's common, in

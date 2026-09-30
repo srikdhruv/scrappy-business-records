@@ -89,6 +89,7 @@ frontend/scripts/
 scripts/
   build_bundle.py    `make package`: the self-contained zip, self-tested
   shrink_screenshots.py  256-colour PNGs for the pictures in docs/
+  guide_server.py    The real app with the date frozen, for `make guide-screenshots`
   make_icon.py       Draws the app icon (scrappy.ico / scrappy.png) at build time
   install.ps1        Windows installer and updater (`irm ... | iex`)
   install.sh         macOS installer and updater (`curl ... | sh`)

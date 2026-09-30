@@ -1,11 +1,17 @@
 /**
  * Retake the pictures in docs/images/feature-guide/ (`make guide-screenshots`).
  *
- * Runs the real production server (`python -m app`, serving the built UI) three times, each on a
- * free port with its own throwaway data folder: one with the fictional demo data (`app.seed`),
+ * Runs the real app (the same FastAPI app and built UI as `python -m app`, through
+ * scripts/guide_server.py) three times, each on a free port with its own throwaway data folder:
+ * one with the fictional demo data (`app.seed`),
  * one empty (the first-run screen), and a copy of the demo data that is changed and then stopped
  * (Undo, "leaving", a payment after leaving, and the "Can't reach Scrappy Records" banner).
  * Nothing here touches ./.devdata or a real install.
+ *
+ * The date is frozen at GUIDE_TODAY, on the server (scripts/guide_server.py overrides
+ * `app.clock.get_today`) and in the browser (Playwright's clock), so the pictures and the numbers
+ * quoted in docs/feature-guide.md stay the same whenever they're retaken. Change GUIDE_TODAY only
+ * together with those numbers.
  *
  * Needs `make build` first (the make target does it) and Chromium for Playwright
  * (`npx playwright install chromium`). The pictures are 1280 px wide and are shrunk to
@@ -19,6 +25,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { chromium } from '@playwright/test'
+
+/** "Today" in every picture. The guide's text quotes numbers from this day's demo data. */
+const GUIDE_TODAY = '2026-09-15'
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const outDir = path.join(repo, 'docs/images/feature-guide')
@@ -47,7 +56,7 @@ function makeHome(name, { seed }) {
   mkdirSync(path.join(home, 'backups'), { recursive: true })
   const env = { ...process.env, SCRAPPY_HOME: home, SCRAPPY_BACKUP_DIR: path.join(home, 'backups') }
   if (seed) {
-    execFileSync('uv', ['run', '--project', 'backend', 'python', '-m', 'app.seed'], {
+    execFileSync('uv', [...GUIDE_SERVER, 'seed', '--today', GUIDE_TODAY], {
       cwd: repo,
       env,
       stdio: 'inherit',
@@ -56,16 +65,21 @@ function makeHome(name, { seed }) {
   return { home, env }
 }
 
+const GUIDE_SERVER = ['run', '--project', 'backend', 'python', 'scripts/guide_server.py']
 const servers = []
 async function serve({ env }) {
   const port = await freePort()
   // Its own process group, so stopping it stops the server behind `uv run` too.
-  const proc = spawn('uv', ['run', '--project', 'backend', 'python', '-m', 'app'], {
-    cwd: repo,
-    env: { ...env, SCRAPPY_PORT: String(port) },
-    stdio: 'ignore',
-    detached: true,
-  })
+  const proc = spawn(
+    'uv',
+    [...GUIDE_SERVER, 'serve', '--today', GUIDE_TODAY, '--port', String(port)],
+    {
+      cwd: repo,
+      env,
+      stdio: 'ignore',
+      detached: true,
+    },
+  )
   const server = { url: `http://127.0.0.1:${port}`, stop: () => process.kill(-proc.pid, 'SIGTERM') }
   servers.push(server)
   for (let i = 0; i < 300; i++) {
@@ -125,6 +139,8 @@ const context = await browser.newContext({
   locale: 'en-IN',
   deviceScaleFactor: 1,
 })
+// The browser's "today" too (the Paid on date, "Today, 15 Sep 2026"); timers keep running.
+await context.clock.setFixedTime(new Date(`${GUIDE_TODAY}T11:00:00`))
 const page = await context.newPage()
 
 const open = async (server, route) => {
