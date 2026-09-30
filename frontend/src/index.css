@@ -159,3 +159,60 @@
     0 1px 2px rgb(59 42 31 / 0.05),
     0 6px 20px -10px rgb(59 42 31 / 0.14);
 }
+
+/*
+ * Printing (the Report's Print button). The app's own chrome hides itself with `print:hidden`;
+ * these rules make the page white, A4 landscape, and let the report table fit and break cleanly.
+ */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+  html,
+  body {
+    background: #fff;
+  }
+  body {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  [data-sonner-toaster] {
+    display: none !important;
+  }
+  .report-sheet [data-slot='table-container'] {
+    overflow: visible;
+  }
+  .report-sheet table {
+    width: 100%;
+  }
+  .report-sheet th,
+  .report-sheet td {
+    padding: 3pt 4pt;
+    white-space: normal;
+    background: transparent;
+    box-shadow: none;
+  }
+  .report-sheet th:first-child,
+  .report-sheet td:first-child {
+    padding-left: 0;
+  }
+  .report-sheet th:last-child,
+  .report-sheet td:last-child {
+    padding-right: 0;
+  }
+  .report-sheet tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* The headings repeat on every page; the totals come once, at the end. */
+  .report-sheet thead {
+    display: table-header-group;
+  }
+  .report-sheet tfoot {
+    display: table-row-group;
+  }
+  .report-sheet tfoot td {
+    border-top: 1.5pt solid var(--foreground);
+  }
+}

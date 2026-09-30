@@ -33,7 +33,7 @@ export function PageHeader({
         )}
         {description && <div className="text-base text-muted-foreground">{description}</div>}
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 print:hidden">
         {actions}
         <LogPaymentButton prefill={logPayment} />
       </div>

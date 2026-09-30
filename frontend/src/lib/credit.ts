@@ -72,7 +72,12 @@ export function monthNotes(m: {
 
 /** "₹1,500 credit from the 5 Sep 2026 payment (for Sep 2026)": on the month it pays. */
 export function creditSourceText(source: CreditSource): string {
-  return `${formatRupees(source.amount_paise)} credit from the ${formatDate(source.paid_on)} payment (for ${formatMonthShort(source.for_month)})`
+  return `${formatRupees(source.amount_paise)} credit ${creditFromText(source)}`
+}
+
+/** "from the 5 Sep 2026 payment (for Sep 2026)": where credit came from, without the amount. */
+export function creditFromText(source: Pick<CreditSource, 'paid_on' | 'for_month'>): string {
+  return `from the ${formatDate(source.paid_on)} payment (for ${formatMonthShort(source.for_month)})`
 }
 
 /** "₹1,500 extra → Aug 2026": on the month whose payment had it. */

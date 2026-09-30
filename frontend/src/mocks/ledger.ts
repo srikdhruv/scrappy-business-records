@@ -15,6 +15,9 @@ import type {
   MonthStatus,
   OverpaidItem,
   PaymentMethod,
+  ReportResponse,
+  ReportRow,
+  ReportStatus,
   SuggestedPayment,
   YetToPayItem,
 } from '@/api/types'
@@ -27,6 +30,8 @@ import {
   type Allocation,
 } from '@/lib/allocation'
 import { addMonths, monthsBetween, MONTHS_AHEAD } from '@/lib/format'
+import { REPORT_STATUSES, sumRows } from '@/lib/report'
+import { fold } from '@/lib/search'
 
 export interface StudentRow {
   id: number
@@ -407,4 +412,79 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
     overpaid,
     credit_moves: creditMoves,
   }
+}
+
+/** Backend `report_status`: one word for the month on the monthly report. */
+function reportStatus(book: StudentBook, line: LedgerMonth, now: string): ReportStatus {
+  const { student } = book
+  if (!isActive(student, line.month)) {
+    return student.left_month !== null && line.month > student.left_month ? 'left' : 'no_fee'
+  }
+  if (line.expected_paise === 0) return 'no_fee'
+  if (line.remaining_paise === 0)
+    return line.covered_by_credit_paise > 0 ? 'paid_with_credit' : 'paid'
+  if (line.month > now) return 'not_due_yet'
+  return line.paid_direct_paise + line.covered_by_credit_paise === 0 ? 'unpaid' : 'partial'
+}
+
+/**
+ * The monthly report for M (backend `build_report`): every student enrolled in M, with money
+ * logged for or paying M, or still owing a due month before M.
+ */
+export function report(
+  books: StudentBook[],
+  month: string,
+  now: string,
+  today: string,
+): ReportResponse {
+  const rows: ReportRow[] = []
+  const lastBacklogMonth = addMonths(month, -1) < now ? addMonths(month, -1) : now
+  for (const book of books) {
+    const { student } = book
+    const alloc = allocation(book, now)
+    const line = monthLine(book, alloc, month, now)
+    const end =
+      student.left_month !== null && student.left_month < lastBacklogMonth
+        ? student.left_month
+        : lastBacklogMonth
+    const owing =
+      student.joined_month <= end
+        ? monthRange(student.joined_month, end)
+            .map((m) => monthLine(book, alloc, m, now))
+            .filter((l) => l.status === 'unpaid' || l.status === 'partial')
+        : []
+    const enrolled = isActive(student, month)
+    const touched = line.paid_paise > 0 || line.covered_by_credit_paise > 0
+    if (!enrolled && !touched && owing.length === 0) continue
+    rows.push({
+      student_id: student.id,
+      student_name: student.name,
+      batch_label: student.batch_label,
+      phone: student.phone,
+      is_enrolled: enrolled,
+      fee_paise: line.expected_paise,
+      paid_paise: line.paid_paise,
+      paid_direct_paise: line.paid_direct_paise,
+      covered_by_credit_paise: line.covered_by_credit_paise,
+      credit_sources: line.credit_sources,
+      extra_sent_paise: line.extra_sent.reduce((sum, e) => sum + e.amount_paise, 0),
+      extra_sent: line.extra_sent,
+      extra_unused_paise: line.extra_unused_paise,
+      short_paise: line.remaining_paise,
+      status: reportStatus(book, line, now),
+      owed_before_paise: owing.reduce((sum, l) => sum + l.remaining_paise, 0),
+      owed_before_months: owing.map((l) => l.month),
+      owed_now_paise: owedPaise(book, now),
+      credit_paise: creditPaise(book, now),
+      paid_ahead_paise: paidAheadPaise(book, now),
+    })
+  }
+  const rank = (r: ReportRow) => REPORT_STATUSES.indexOf(r.status)
+  rows.sort(
+    (a, b) =>
+      rank(a) - rank(b) ||
+      fold(a.student_name).localeCompare(fold(b.student_name)) ||
+      a.student_id - b.student_id,
+  )
+  return { month, current_month: now, today, rows, totals: sumRows(rows) }
 }
