@@ -516,6 +516,9 @@ def test_dashboard_present_month(school: list[StudentRecord]) -> None:
         still_due_paise=1500_00,
         not_fully_paid_count=1,
         active_student_count=3,
+        logged_paise=1500_00 + 500_00,
+        covered_by_credit_paise=1200_00,
+        sent_elsewhere_paise=0,
     )
     assert [(e.student.id, e.line.status, e.line.remaining_paise) for e in board.yet_to_pay] == [
         (2, PART, 1500_00),
@@ -542,6 +545,7 @@ def test_dashboard_past_month(school: list[StudentRecord]) -> None:
         still_due_paise=2000_00,
         not_fully_paid_count=1,
         active_student_count=4,
+        logged_paise=1500_00 + 1200_00 + 1500_00,
     )
     assert [e.student.id for e in board.yet_to_pay] == [2]
     # Backlog is only months before March.
@@ -685,6 +689,13 @@ def test_dashboard_invariants(
     assert summary.active_student_count == len([s for s in active if lines[s.id].expected_paise])
     assert summary.expected_paise == sum(lines[s.id].expected_paise for s in active)
     assert summary.collected_paise == sum(lines[s.id].counted_paise for s in students)
+    # What was logged for M = what of it pays M + what paid other months + credit; and what
+    # pays M = what of it was logged for M + what other months' payments sent.
+    unused = sum(lines[s.id].extra_unused_paise for s in students)
+    direct = sum(lines[s.id].paid_direct_paise for s in students)
+    assert summary.logged_paise == sum(s.paid(month) for s in students)
+    assert summary.logged_paise == direct + summary.sent_elsewhere_paise + unused
+    assert summary.collected_paise == direct + summary.covered_by_credit_paise
     assert summary.still_due_paise == sum(e.line.remaining_paise for e in board.yet_to_pay)
     assert summary.not_fully_paid_count == len(board.yet_to_pay)
     for b in board.backlog:

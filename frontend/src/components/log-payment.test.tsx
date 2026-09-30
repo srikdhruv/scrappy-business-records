@@ -231,15 +231,18 @@ describe('Log payment form', () => {
     await user.clear(amount)
     await user.type(amount, '3000')
     expect(
-      await dialog.findByText('₹1,500 extra will cover September 2026 (unpaid).'),
+      await dialog.findByText(
+        '₹1,500 more than the October fee: it will pay September 2026 (unpaid).',
+      ),
     ).toBeVisible()
-    expect(amount).toHaveAccessibleDescription(/₹1,500 extra will cover September 2026/)
+    expect(amount).toHaveAccessibleDescription(/it will pay September 2026/)
     // Far above the fee: the same line asks first.
     await user.clear(amount)
     await user.type(amount, '6000')
     expect(
       await dialog.findByText(
-        /If so, ₹4,500 extra will cover September 2026 \(unpaid\) and 2 months ahead/,
+        '₹4,500 more than the October fee: it will pay September 2026 (unpaid), then ' +
+          'November 2026 and December 2026 ahead.',
       ),
     ).toBeVisible()
     expect(dialog.getByText(/That’s much more than the ₹1,500 fee/)).toBeVisible()

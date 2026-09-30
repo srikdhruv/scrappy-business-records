@@ -21,6 +21,9 @@ def test_empty_dashboard_defaults_to_current_month(api: TestClient) -> None:
             "still_due_paise": 0,
             "not_fully_paid_count": 0,
             "active_student_count": 0,
+            "logged_paise": 0,
+            "covered_by_credit_paise": 0,
+            "sent_elsewhere_paise": 0,
         },
         "yet_to_pay": [],
         "backlog": [],
@@ -64,6 +67,9 @@ def test_dashboard_sections(api: TestClient) -> None:
         "still_due_paise": 100000 + 120000,
         "not_fully_paid_count": 2,
         "active_student_count": 3,
+        "logged_paise": 150000 + 100000,
+        "covered_by_credit_paise": 0,
+        "sent_elsewhere_paise": 0,
     }
     assert june["yet_to_pay"] == [
         {
@@ -150,16 +156,28 @@ def test_dashboard_sections(api: TestClient) -> None:
             "from_month": "2026-05",
             "to_month": "2026-03",
             "amount_paise": 50000,
+            "payment_amount_paise": 200000,
+            "payment_pays_until": "2026-05",
+            "payment_needs_check": False,
         }
     ]
-    # Collected for May counts only what pays May: ₹1,500 of Ananya's ₹2,000, and Kabir's.
+    # Collected for May counts only what pays May: ₹1,500 of Ananya's ₹2,000, and Kabir's. The
+    # summary says why it differs from what was logged for May.
     assert may["summary"]["collected_paise"] == 150000 + 200000
+    assert (may["summary"]["logged_paise"], may["summary"]["sent_elsewhere_paise"]) == (
+        200000 + 200000,
+        50000,
+    )
 
     # March: collected counts May's ₹500 that covers it, so nothing is still due.
     march = api.get("/api/dashboard", params={"month": "2026-03"}).json()
     assert (march["summary"]["collected_paise"], march["summary"]["still_due_paise"]) == (
         150000,
         0,
+    )
+    assert (march["summary"]["logged_paise"], march["summary"]["covered_by_credit_paise"]) == (
+        100000,
+        50000,
     )
     assert [m["to_month"] for m in march["credit_moves"]] == ["2026-03"]
 

@@ -1,4 +1,17 @@
-import { creditSourceText, extraSentText, paymentUseText, previewText } from './credit'
+import type { CreditMoveItem } from '@/api/types'
+
+import {
+  checkText,
+  creditSourceText,
+  extraSentText,
+  groupMoves,
+  monthNotes,
+  monthRanges,
+  paymentUseText,
+  previewText,
+} from './credit'
+
+const own = { own_month: '2026-09', own_expected_paise: 150000, own_paise: 150000 }
 
 describe('the words for extra money', () => {
   it('names where a month’s credit came from, and where extra went', () => {
@@ -13,6 +26,35 @@ describe('the words for extra money', () => {
     expect(extraSentText({ to_month: '2026-08', amount_paise: 150000 })).toBe(
       '₹1,500 extra → Aug 2026',
     )
+  })
+
+  it('collapses months in a row into a range', () => {
+    expect(monthRanges(['2026-08'])).toBe('Aug 2026')
+    expect(monthRanges(['2026-11', '2026-10', '2026-12'])).toBe('Oct 2026 to Dec 2026')
+    expect(monthRanges(['2026-06', '2026-08', '2026-09'])).toBe('Jun 2026 and Aug 2026 to Sep 2026')
+  })
+
+  it('merges a month’s notes: same-day payments together, runs of months as one', () => {
+    const notes = monthNotes({
+      month: '2026-08',
+      credit_sources: [
+        { payment_id: 3, paid_on: '2026-09-05', for_month: '2026-09', amount_paise: 50000 },
+        { payment_id: 4, paid_on: '2026-09-05', for_month: '2026-09', amount_paise: 100000 },
+      ],
+      extra_sent: [],
+    })
+    expect(notes).toEqual([
+      { key: 'from-3-4-2026-08', text: '₹1,500 credit from the 5 Sep 2026 payment (for Sep 2026)' },
+    ])
+    const sent = monthNotes({
+      month: '2026-09',
+      credit_sources: [],
+      extra_sent: Array.from({ length: 24 }, (_, i) => ({
+        to_month: `${2026 + Math.floor((9 + i) / 12)}-${String(((9 + i) % 12) + 1).padStart(2, '0')}`,
+        amount_paise: 150000,
+      })),
+    })
+    expect(sent.map((n) => n.text)).toEqual(['₹36,000 extra → Oct 2026 to Sep 2028'])
   })
 
   it('says where a payment’s money went', () => {
@@ -31,40 +73,87 @@ describe('the words for extra money', () => {
         ],
         extra_unused_paise: 20000,
       }),
-    ).toBe('₹1,500 went to Jul 2026 and ₹500 to Aug 2026; ₹200 kept as credit')
+    ).toBe('₹2,000 went to Jul 2026 to Aug 2026; ₹200 kept as credit')
   })
 
-  it('previews what a payment’s extra will cover', () => {
-    expect(previewText({ own_paise: 150000, covers: [], credit_paise: 0 })).toBeNull()
+  it('flags a payment that may be a typo', () => {
+    expect(
+      checkText({ amount_paise: 1500000, for_month: '2026-09', paysUntil: '2027-06', fee: 150000 }),
+    ).toBe('Check: this ₹15,000 payment pays up to Jun 2027')
+    expect(
+      checkText({ amount_paise: 500000, for_month: '2026-05', paysUntil: '2026-05', fee: 150000 }),
+    ).toBe('Check: this ₹5,000 payment is much more than the ₹1,500 fee')
+  })
+
+  it('groups the dashboard’s moves by payment', () => {
+    const move = (to: string, id = 7): CreditMoveItem => ({
+      student_id: 1,
+      student_name: 'Ananya Rao',
+      batch_label: null,
+      phone: null,
+      payment_id: id,
+      paid_on: '2026-09-20',
+      from_month: '2026-09',
+      to_month: to,
+      amount_paise: 150000,
+      payment_amount_paise: id === 7 ? 4500000 : 300000,
+      payment_pays_until: id === 7 ? '2028-09' : '2026-10',
+      payment_needs_check: id === 7,
+    })
+    const groups = groupMoves([move('2026-10'), move('2026-11'), move('2026-10', 8)])
+    expect(groups).toHaveLength(1)
+    expect(groups[0]).toMatchObject({
+      to_months: ['2026-10', '2026-11'],
+      amount_paise: 450000,
+      payment_ids: [7, 8],
+      payment_amount_paise: 4800000,
+      pays_until: '2028-09',
+      needs_check: true,
+    })
+  })
+
+  it('previews a payment by what its own money does', () => {
+    expect(previewText({ ...own, covers: [], credit_paise: 0 })).toBeNull()
     expect(
       previewText({
-        own_paise: 150000,
+        ...own,
         covers: [{ month: '2026-08', amount_paise: 150000, was: 'unpaid', full: true }],
         credit_paise: 0,
       }),
-    ).toBe('₹1,500 extra will cover August 2026 (unpaid).')
+    ).toBe('₹1,500 more than the September fee: it will pay August 2026 (unpaid).')
     expect(
       previewText({
-        own_paise: 150000,
+        ...own,
         covers: [
-          { month: '2026-07', amount_paise: 50000, was: 'part_paid', full: true },
-          { month: '2026-10', amount_paise: 70000, was: 'ahead', full: false },
+          { month: '2026-10', amount_paise: 150000, was: 'ahead', full: true },
+          { month: '2026-11', amount_paise: 50000, was: 'ahead', full: false },
         ],
         credit_paise: 0,
       }),
-    ).toBe('₹1,200 extra will cover July 2026 (part paid) and part of October 2026 (paid ahead).')
+    ).toBe(
+      '₹2,000 more than the September fee: it will pay October 2026 and part of November 2026 ahead.',
+    )
     const ahead = ['2026-10', '2026-11', '2026-12'].map((month, i) => ({
       month,
       amount_paise: 150000,
       was: 'ahead' as const,
       full: i < 2,
     }))
-    expect(previewText({ own_paise: 0, covers: ahead, credit_paise: 30000 })).toBe(
-      '₹4,500 extra will cover 3 months ahead (October 2026 to December 2026, the last in part). ' +
-        '₹300 more will be kept as credit: nothing else is owed.',
+    expect(previewText({ ...own, covers: ahead, credit_paise: 30000 })).toBe(
+      '₹4,800 more than the September fee: it will pay 3 months ahead (October 2026 to December ' +
+        '2026, the last in part), and ₹300 will be kept as credit (nothing else is owed).',
     )
-    expect(previewText({ own_paise: 0, covers: [], credit_paise: 30000 })).toBe(
-      '₹300 extra will be kept as credit: nothing else is owed.',
+    expect(previewText({ ...own, own_paise: 50000, covers: [], credit_paise: 30000 })).toBe(
+      '₹300 more than what’s left of the September fee: nothing else is owed, so it will be kept as credit.',
     )
+    expect(
+      previewText({
+        ...own,
+        own_expected_paise: 0,
+        own_paise: 0,
+        covers: [{ month: '2026-05', amount_paise: 150000, was: 'unpaid', full: true }],
+        credit_paise: 0,
+      }),
+    ).toBe('No fee is due for September, so all ₹1,500 is extra: it will pay May 2026 (unpaid).')
   })
 })

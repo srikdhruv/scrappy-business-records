@@ -45,6 +45,8 @@ describe('student profile', () => {
 
     const september = monthRow('September 2026')
     expect(september.getByText('Paid')).toBeInTheDocument()
+    // Nothing was logged for September, but it isn't "—": it's paid by credit.
+    expect(september.getByText('₹1,500 (credit)')).toBeInTheDocument()
     expect(
       september.getByText(/^₹1,500 credit from the \d+ Oct 2026 payment \(for Oct 2026\)$/),
     ).toBeInTheDocument()
@@ -62,8 +64,36 @@ describe('student profile', () => {
     const dialog = await findDialog('Edit payment')
     expect(dialog.getByText('Now: ₹1,500 went to Sep 2026.')).toBeInTheDocument()
     expect(
-      await dialog.findByText('₹1,500 extra will cover September 2026 (unpaid).'),
+      await dialog.findByText(
+        '₹1,500 more than the October fee: it will pay September 2026 (unpaid).',
+      ),
     ).toBeInTheDocument()
+  })
+
+  it('asks to check a payment that pays many months ahead, in case of a typo', async () => {
+    // ₹15,000 for October on a ₹1,500 fee: October and nine months ahead. Up to date, but odd.
+    const user = userEvent.setup()
+    const student = mockDb.createStudent({
+      name: 'Tanu Test',
+      monthly_fee_paise: 150000,
+      joined_month: '2026-10',
+    })
+    mockDb.createPayment({
+      student_id: student.id,
+      amount_paise: 1500000,
+      paid_on: '2026-10-05',
+      for_month: '2026-10',
+      method: 'upi',
+    })
+    renderApp(`/students/${student.id}`)
+    const balance = within(await screen.findByRole('region', { name: 'Balance' }))
+    expect(balance.getByText('Up to date')).toBeInTheDocument()
+    expect(
+      await balance.findByText('Check: this ₹15,000 payment pays up to Jul 2027'),
+    ).toBeInTheDocument()
+    await user.click(balance.getByRole('button', { name: 'Edit payment' }))
+    const dialog = await findDialog('Edit payment')
+    expect(dialog.getByLabelText('Amount')).toHaveValue('15000')
   })
 
   it('shows extra money no month needed as credit, and opens its payment to fix it', async () => {

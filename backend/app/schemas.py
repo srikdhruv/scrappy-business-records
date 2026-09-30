@@ -582,6 +582,10 @@ class PaymentRead(_ReadModel):
     paid_direct_paise: NonNegativePaise = Field(
         description="The part that pays for_month itself (at most what was left of its fee)."
     )
+    needs_check: bool = Field(
+        description="Worth a glance, in case of a typo: it pays 3 or more other months, or it's "
+        "3 times its month's fee or more."
+    )
     extra_sent: list[ExtraSent] = Field(
         description="The rest, covering other unpaid months, oldest first."
     )
@@ -605,6 +609,17 @@ class DashboardSummary(_ReadModel):
     )
     still_due_paise: NonNegativePaise = Field(
         description="What's left on M, after extra money, over students active in M."
+    )
+    logged_paise: NonNegativePaise = Field(
+        description="Every payment logged for M, as typed: the Payments page's total for M. "
+        "collected = logged - sent_elsewhere - (kept as credit) + covered_by_credit."
+    )
+    covered_by_credit_paise: NonNegativePaise = Field(
+        description="The part of collected_paise that came from payments logged for other months."
+    )
+    sent_elsewhere_paise: NonNegativePaise = Field(
+        description="The part of logged_paise that paid other months (the rest above the fees "
+        "is kept as credit)."
     )
     not_fully_paid_count: int = Field(ge=0, description="Students unpaid or partial for M.")
     active_student_count: int = Field(
@@ -686,6 +701,11 @@ class CreditMoveItem(_ReadModel):
     from_month: Month = Field(description="The month the payment was logged for.")
     to_month: Month = Field(description="The month its extra money covers.")
     amount_paise: PositivePaise
+    payment_amount_paise: PositivePaise = Field(description="The whole payment, as typed.")
+    payment_pays_until: Month = Field(
+        description="The latest month the payment pays (so a screen can say 'pays up to …')."
+    )
+    payment_needs_check: bool = Field(description="See PaymentRead.needs_check.")
 
 
 class DashboardResponse(_ReadModel):

@@ -552,10 +552,7 @@ function PaymentForm({
               That’s much more than the {formatRupees(fee)} fee. Is it right?{' '}
             </span>
           )}
-          {extraText &&
-            (looksLarge
-              ? `If so, ${extraText.charAt(0).toLowerCase()}${extraText.slice(1)}`
-              : extraText)}
+          {extraText}
         </p>
       )}
 

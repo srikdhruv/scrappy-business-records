@@ -121,6 +121,14 @@ describe('payments page', () => {
     expect(row.getByText('₹1,500 went to Sep 2026')).toBeInTheDocument()
   })
 
+  it('says, for one month, how much of the total paid other months', async () => {
+    renderApp('/payments?month=2026-10')
+    await table()
+    expect(
+      await screen.findByText('(as logged; ₹1,500 of it paid other months)'),
+    ).toBeInTheDocument()
+  })
+
   it('edits a payment in the same form', async () => {
     const user = userEvent.setup()
     renderApp('/payments?q=Zara')

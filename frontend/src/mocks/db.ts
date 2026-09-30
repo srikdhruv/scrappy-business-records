@@ -15,6 +15,7 @@ import type {
   StudentReturn,
   StudentUpdate,
 } from '@/api/types'
+import { needsCheck } from '@/lib/allocation'
 import { nextFeeChange, returnFee } from '@/lib/fees'
 import { addMonths, currentMonth, formatMonth, today } from '@/lib/format'
 
@@ -467,6 +468,9 @@ export class MockDb {
       ...payment,
       student_name: student?.name ?? '',
       paid_direct_paise: use?.paid_direct_paise ?? 0,
+      needs_check: use
+        ? needsCheck(use, feeFor(this.book(student!).fees, payment.for_month))
+        : false,
       extra_sent: use?.extra_sent ?? [],
       extra_unused_paise: use?.extra_unused_paise ?? payment.amount_paise,
     }

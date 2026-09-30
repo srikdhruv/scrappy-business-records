@@ -160,11 +160,43 @@ export function monthShare(alloc: Allocation, month: string) {
   }
 }
 
-/** What a new (or edited) payment would change, compared with the student's other payments. */
+/** Backend `CHECK_MONTHS` and `CHECK_FEE_FACTOR` (see `needsCheck`). */
+export const CHECK_MONTHS = 3
+export const CHECK_FEE_FACTOR = 3
+
+/**
+ * A payment that may be a typo (backend `needs_check`): it pays 3 or more other months, or it's
+ * 3 times its month's fee (`fee`, the fee in effect then) or more.
+ */
+export function needsCheck(
+  use: Pick<PaymentUse, 'extra_sent'> & { payment: Pick<AllocPayment, 'amount_paise'> },
+  fee: number,
+): boolean {
+  return (
+    use.extra_sent.length >= CHECK_MONTHS ||
+    (fee > 0 && use.payment.amount_paise >= CHECK_FEE_FACTOR * fee)
+  )
+}
+
+/** The latest month a payment pays (backend `pays_until`): its own, or the last one its extra
+ * went to, whichever is later. */
+export function paysUntil(p: {
+  for_month: string
+  paid_direct_paise: number
+  extra_sent: readonly ExtraSent[]
+}): string {
+  const months = p.extra_sent.map((e) => e.to_month)
+  if (p.paid_direct_paise > 0 || months.length === 0) months.push(p.for_month)
+  return months.reduce((a, b) => (b > a ? b : a))
+}
+
+/** What a new (or edited) payment would do with its own money. */
 export interface PaymentPreview {
-  /** What pays the month it's logged for. */
+  /** The month it's logged for, its fee then (0 if none is due), and how much of it pays it. */
+  own_month: string
+  own_expected_paise: number
   own_paise: number
-  /** Other months it would pay (oldest first), and how they stood before. */
+  /** Other months its extra would pay (oldest first), and how they stood before. */
   covers: {
     month: string
     amount_paise: number
@@ -173,14 +205,14 @@ export interface PaymentPreview {
     /** Whether it's then paid in full. */
     full: boolean
   }[]
-  /** Left over as credit: no month needs it. */
+  /** Its money that no month needs: kept as credit. */
   credit_paise: number
 }
 
 /**
- * The difference `draft` makes. Because the months covered depend only on how much was logged
- * for each month and in total (not on which payment it came from), this is exactly what saving
- * it would change, even when the extra that moves is another payment's.
+ * What saving `draft` does with its own money: exactly what its payment row will say once
+ * saved (`paid_direct_paise`, `extra_sent`, `extra_unused_paise`). When the extra of an older
+ * payment moves on because of it, that's that payment's business, not counted here.
  */
 export function previewPayment(args: {
   others: readonly AllocPayment[]
@@ -192,23 +224,20 @@ export function previewPayment(args: {
   const { others, draft, student, expected, now } = args
   const before = allocate(others, student, expected, now)
   const after = allocate([...others, draft], student, expected, now)
-  const covers: PaymentPreview['covers'] = []
-  let own = 0
-  for (const [month, total] of [...after.counted].sort(([a], [b]) => a.localeCompare(b))) {
-    const was = before.counted.get(month) ?? 0
-    const delta = total - was
-    if (delta <= 0) continue
-    if (month === draft.for_month) {
-      own = delta
-      continue
-    }
-    covers.push({
-      month,
-      amount_paise: delta,
-      was: month > now ? 'ahead' : was === 0 ? 'unpaid' : 'part_paid',
-      full: total >= expected(month),
-    })
+  const use = after.uses.at(-1)!
+  return {
+    own_month: draft.for_month,
+    own_expected_paise: expected(draft.for_month),
+    own_paise: use.paid_direct_paise,
+    covers: use.extra_sent.map(({ to_month, amount_paise }) => {
+      const was = before.counted.get(to_month) ?? 0
+      return {
+        month: to_month,
+        amount_paise,
+        was: to_month > now ? 'ahead' : was === 0 ? 'unpaid' : 'part_paid',
+        full: (after.counted.get(to_month) ?? 0) >= expected(to_month),
+      }
+    }),
+    credit_paise: use.extra_unused_paise,
   }
-  const unused = (a: Allocation) => a.uses.reduce((sum, u) => sum + u.extra_unused_paise, 0)
-  return { own_paise: own, covers, credit_paise: unused(after) - unused(before) }
 }

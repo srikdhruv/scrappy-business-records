@@ -251,6 +251,52 @@ def test_a_month_typed_for_keeps_its_own_payment_before_extra_from_elsewhere() -
     assert by[JUL].extra_sent == (ExtraSent(SEP, FEE),)
 
 
+# --------------------------------------------------------------------------- a typo stands out
+
+
+def test_a_payment_that_pays_many_months_or_is_far_above_the_fee_needs_a_check() -> None:
+    # ₹15,000 on a ₹1,500 fee: pays 9 months ahead. Up to date, but worth a glance.
+    typo = record(p(1, JUN, FEE), p(2, JUL, FEE), p(3, AUG, FEE), p(4, SEP, 10 * FEE))
+    uses = {u.payment.id: u for u in ledger.payment_uses(typo, SEP)}
+    assert ledger.needs_check(typo, uses[4])
+    assert ledger.pays_until(uses[4]) == dt.date(2027, 6, 1)
+    assert not ledger.needs_check(typo, uses[1])
+    assert ledger.pays_until(uses[1]) == JUN
+    # Its own month counts: a September payment whose extra paid August pays up to September.
+    double_sep = record(p(1, JUN, FEE), p(2, JUL, FEE), p(3, SEP, 2 * FEE))
+    assert ledger.pays_until(ledger.payment_uses(double_sep, SEP)[2]) == SEP
+    # Two months at once is ordinary.
+    double = record(p(1, JUN, FEE), p(2, JUL, FEE), p(3, SEP, 2 * FEE))
+    assert not any(ledger.needs_check(double, u) for u in ledger.payment_uses(double, SEP))
+    # Three months' worth pays only two others, but it's 3x the fee.
+    triple = record(p(1, JUN, FEE), p(2, JUL, FEE), p(3, SEP, 3 * FEE))
+    assert [ledger.needs_check(triple, u) for u in ledger.payment_uses(triple, SEP)] == [
+        False,
+        False,
+        True,
+    ]
+    # Three other months paid, though each is small: after a long gap, still worth a look.
+    gap = record(p(1, SEP, FEE + 3 * 500_00), fees=((JUL, 500_00),))
+    [use] = ledger.payment_uses(gap, SEP)
+    assert len(use.sent) == 3 and ledger.needs_check(gap, use)
+    # The dashboard carries it on each move.
+    board = ledger.build_dashboard([typo], SEP, SEP)
+    assert {e.needs_check for e in board.credit_moves} == {True}
+
+
+def test_the_dashboard_summary_explains_collected() -> None:
+    s = record(p(1, JUN, FEE), p(2, JUL, FEE), p(3, SEP, 2 * FEE + 500_00), left=SEP)
+    sep = ledger.build_dashboard([s], SEP, SEP).summary
+    # Logged ₹3,500 for September: ₹1,500 pays it, ₹1,500 paid August, ₹500 kept as credit.
+    assert (sep.logged_paise, sep.collected_paise, sep.sent_elsewhere_paise) == (
+        2 * FEE + 500_00,
+        FEE,
+        FEE,
+    )
+    aug = ledger.build_dashboard([s], AUG, SEP).summary
+    assert (aug.logged_paise, aug.collected_paise, aug.covered_by_credit_paise) == (0, FEE, FEE)
+
+
 # --------------------------------------------------------------------------- edits and deletes
 
 

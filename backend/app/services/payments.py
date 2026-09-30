@@ -44,16 +44,22 @@ _SORT_KEYS: dict[PaymentSort, Callable[[_Row], object]] = {
 }
 
 
-def _uses(students: Iterable[Student], current_month: dt.date) -> dict[int, ledger.PaymentUse]:
-    """Where each payment's money went, by payment id."""
-    return {
-        use.payment.id: use
-        for student in students
-        for use in ledger.payment_uses(to_record(student), current_month)
-    }
+def _uses(
+    students: Iterable[Student], current_month: dt.date
+) -> dict[int, tuple[ledger.PaymentUse, bool]]:
+    """Where each payment's money went, and whether it's worth a glance, by payment id."""
+    out: dict[int, tuple[ledger.PaymentUse, bool]] = {}
+    for student in students:
+        record = to_record(student)
+        for use in ledger.payment_uses(record, current_month):
+            out[use.payment.id] = (use, ledger.needs_check(record, use))
+    return out
 
 
-def payment_read(payment: Payment, student_name: str, use: ledger.PaymentUse) -> PaymentRead:
+def payment_read(
+    payment: Payment, student_name: str, use: tuple[ledger.PaymentUse, bool]
+) -> PaymentRead:
+    use_, check = use
     return PaymentRead(
         id=payment.id,
         student_id=payment.student_id,
@@ -63,9 +69,10 @@ def payment_read(payment: Payment, student_name: str, use: ledger.PaymentUse) ->
         for_month=format_month(payment.for_month),
         method=payment.method,
         note=payment.note,
-        paid_direct_paise=use.direct_paise,
-        extra_sent=extra_sent_read(use.sent),
-        extra_unused_paise=use.unused_paise,
+        paid_direct_paise=use_.direct_paise,
+        needs_check=check,
+        extra_sent=extra_sent_read(use_.sent),
+        extra_unused_paise=use_.unused_paise,
         created_at=payment.created_at,
         updated_at=payment.updated_at,
     )

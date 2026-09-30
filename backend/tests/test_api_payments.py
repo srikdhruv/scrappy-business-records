@@ -21,6 +21,7 @@ def test_create_and_read(api: TestClient) -> None:
         "note": None,
         # Exactly March's fee: all of it pays March.
         "paid_direct_paise": 150000,
+        "needs_check": False,
         "extra_sent": [],
         "extra_unused_paise": 0,
         "created_at": p["created_at"],

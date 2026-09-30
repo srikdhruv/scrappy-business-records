@@ -7,6 +7,8 @@ import {
   allocationMonths,
   expectedFrom,
   monthShare,
+  needsCheck,
+  paysUntil,
   previewPayment,
   type AllocPayment,
 } from './allocation'
@@ -88,7 +90,7 @@ describe('allocate', () => {
 describe('previewPayment', () => {
   const others = [pay(1, '2026-06', 1500), pay(2, '2026-07', 1500)]
 
-  it('says what the extra on a new payment will cover', () => {
+  it('says what the extra on a new payment will pay', () => {
     const preview = previewPayment({
       others,
       draft: pay(99, '2026-09', 3000, '2026-09-10'),
@@ -97,27 +99,49 @@ describe('previewPayment', () => {
       now: NOW,
     })
     expect(preview).toEqual({
+      own_month: '2026-09',
+      own_expected_paise: 150000,
       own_paise: 150000,
       covers: [{ month: '2026-08', amount_paise: 150000, was: 'unpaid', full: true }],
       credit_paise: 0,
     })
   })
 
-  it('counts paying a month that credit already covered as moving that credit on', () => {
-    // September's double payment pays August. A new August payment pays August itself, so the
-    // September extra moves on to October: the net effect is October paid ahead.
+  it('shows only the payment’s own money, as its row will say once saved', () => {
+    // September's ₹3,000 (paid 5 Sep) already pays August. Now ₹3,000 is typed for August:
+    // ₹1,500 over its fee. Whichever payment's extra ends up where, this one's own ₹1,500 is
+    // what the preview names (not ₹3,000 of "net" change).
     const withDouble = [...others, pay(3, '2026-09', 3000)]
-    const preview = previewPayment({
+    for (const paidOn of ['2026-09-10', '2026-09-01']) {
+      const draft = pay(99, '2026-08', 3000, paidOn)
+      const preview = previewPayment({ others: withDouble, draft, student, expected, now: NOW })
+      const saved = allocate([...withDouble, draft], student, expected, NOW).uses.at(-1)!
+      expect(preview.own_paise).toBe(150000)
+      expect(preview.covers.map((c) => [c.month, c.amount_paise])).toEqual(
+        saved.extra_sent.map((e) => [e.to_month, e.amount_paise]),
+      )
+      expect(preview.covers.reduce((sum, c) => sum + c.amount_paise, 0)).toBe(150000)
+    }
+    // Paid after the September payment, its extra goes after that one's: November.
+    const later = previewPayment({
       others: withDouble,
-      draft: pay(99, '2026-08', 1500, '2026-09-10'),
+      draft: pay(99, '2026-08', 3000, '2026-09-10'),
       student,
       expected,
       now: NOW,
     })
-    expect(preview.own_paise).toBe(0)
-    expect(preview.covers).toEqual([
-      { month: '2026-10', amount_paise: 150000, was: 'ahead', full: true },
+    expect(later.covers).toEqual([
+      { month: '2026-11', amount_paise: 150000, was: 'ahead', full: true },
     ])
+    // Paid before it, its extra goes first: October.
+    const earlier = previewPayment({
+      others: withDouble,
+      draft: pay(99, '2026-08', 3000, '2026-09-01'),
+      student,
+      expected,
+      now: NOW,
+    })
+    expect(earlier.covers.map((c) => c.month)).toEqual(['2026-10'])
   })
 
   it('says when money is left over as credit', () => {
@@ -129,6 +153,32 @@ describe('previewPayment', () => {
       expected: expectedFrom(leaving, fees),
       now: NOW,
     })
-    expect(preview).toEqual({ own_paise: 0, covers: [], credit_paise: 200000 })
+    expect(preview).toMatchObject({ own_paise: 0, covers: [], credit_paise: 200000 })
+  })
+})
+
+describe('needsCheck and paysUntil', () => {
+  it('flag a payment that pays 3 or more months, or is 3 times the fee', () => {
+    const use = (months: number, rupees: number) => ({
+      payment: { amount_paise: rupees * 100 },
+      extra_sent: Array.from({ length: months }, (_, i) => ({
+        to_month: `2026-1${i}`,
+        amount_paise: 1,
+      })),
+    })
+    expect(needsCheck(use(1, 3000), 150000)).toBe(false)
+    expect(needsCheck(use(2, 4500), 150000)).toBe(true)
+    expect(needsCheck(use(3, 1800), 150000)).toBe(true)
+    expect(needsCheck(use(0, 9000), 0)).toBe(false)
+  })
+
+  it('name the latest month a payment pays', () => {
+    const extra = [{ to_month: '2026-08', amount_paise: 150000 }]
+    expect(paysUntil({ for_month: '2026-09', paid_direct_paise: 150000, extra_sent: extra })).toBe(
+      '2026-09',
+    )
+    expect(paysUntil({ for_month: '2026-12', paid_direct_paise: 0, extra_sent: extra })).toBe(
+      '2026-08',
+    )
   })
 })

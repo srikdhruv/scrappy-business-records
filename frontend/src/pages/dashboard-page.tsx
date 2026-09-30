@@ -39,6 +39,7 @@ import { StudentFormDialog } from '@/components/student-form'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { addMonths, formatDate, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
+import { checkText, groupMoves, monthRanges } from '@/lib/credit'
 import { plural } from '@/lib/labels'
 import { TONE_TEXT } from '@/lib/status'
 import { cn } from '@/lib/utils'
@@ -113,9 +114,7 @@ export function DashboardPage() {
             <YetToPay data={data} />
             <div className="grid min-w-0 grid-cols-1 gap-6">
               <Backlog items={data.backlog} month={data.month} />
-              {data.credit_moves.length > 0 && (
-                <CreditMoves items={data.credit_moves} month={data.month} />
-              )}
+              {data.credit_moves.length > 0 && <CreditMoves items={data.credit_moves} />}
               {data.overpaid.length > 0 && <Credit items={data.overpaid} />}
             </div>
           </div>
@@ -253,6 +252,7 @@ function SummaryCards({ data }: { data: DashboardResponse }) {
           />
         </div>
         {percent}% of what’s expected
+        <CollectedNote summary={s} name={name} />
       </SummaryCard>
       {ahead ? (
         <SummaryCard
@@ -513,45 +513,90 @@ function Backlog({ items, month }: { items: BacklogItem[]; month: string }) {
  * month's fee pays the oldest months still owed. Shown so a month paid "without a payment",
  * or a payment counted for less than was typed, is never a surprise.
  */
-function CreditMoves({ items, month }: { items: CreditMoveItem[]; month: string }) {
+function CreditMoves({ items }: { items: CreditMoveItem[] }) {
+  // One row per payment (same-day payments for the same month together), however many months
+  // it paid: a slip of ₹45,000 is one row "→ Oct 2026 to Sep 2028", not 24.
+  const groups = groupMoves(items)
   return (
     <Panel
       className="min-w-0"
       title="Extra money used"
-      count={items.length}
-      description={`Money paid above a fee that paid another month, to or from ${formatMonth(month)}.`}
+      count={groups.length}
+      description="Money that paid a different month than it was logged for."
     >
       <ul className="divide-y divide-border/70 border-t border-border/70">
-        {items.map((item) => (
-          <li key={`${item.payment_id}-${item.to_month}`}>
+        {groups.map((g) => (
+          <li key={g.key}>
             <Link
-              to={`/students/${item.student_id}`}
+              to={`/students/${g.student_id}`}
               className="flex min-w-0 items-center gap-3 px-6 py-3.5 transition-colors outline-none hover:bg-muted/30 focus-visible:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
             >
-              <StudentAvatar name={item.student_name} size="sm" />
+              <StudentAvatar name={g.student_name} size="sm" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-bold" title={item.student_name}>
-                  {item.student_name}
+                <span className="block truncate font-bold" title={g.student_name}>
+                  {g.student_name}
                 </span>
                 <span className="block text-sm text-muted-foreground tabular-nums">
-                  {formatRupees(item.amount_paise)} extra from the {formatDate(item.paid_on)}{' '}
-                  payment for {formatMonthShort(item.from_month)}
+                  {formatRupees(g.amount_paise)} extra from the {formatDate(g.paid_on)}{' '}
+                  {g.payment_ids.length > 1 ? 'payments' : 'payment'} for{' '}
+                  {formatMonthShort(g.from_month)}
                 </span>
+                {g.needs_check && (
+                  <span className="block text-sm font-semibold text-partial">
+                    {g.payment_ids.length > 1
+                      ? `Check: these payments pay up to ${formatMonthShort(g.pays_until)}`
+                      : checkText({
+                          amount_paise: g.payment_amount_paise,
+                          for_month: g.from_month,
+                          paysUntil: g.pays_until,
+                          fee: 0,
+                        })}
+                  </span>
+                )}
               </span>
               <span
                 className={cn(
-                  'inline-flex shrink-0 items-center gap-1 font-extrabold whitespace-nowrap',
+                  'inline-flex max-w-[45%] shrink-0 items-center gap-1 text-right font-extrabold',
                   TONE_TEXT.credit,
                 )}
               >
-                <ArrowRightIcon className="size-4" aria-label="pays" />
-                {formatMonthShort(item.to_month)}
+                <ArrowRightIcon className="size-4 shrink-0" aria-label="pays" />
+                {monthRanges(g.to_months)}
               </span>
             </Link>
           </li>
         ))}
       </ul>
     </Panel>
+  )
+}
+
+/**
+ * Why Collected differs from the Payments page's total for this month (what was logged for it):
+ * extra money from other months' payments counts here, and money logged for this month that
+ * paid other months counts there.
+ */
+function CollectedNote({ summary, name }: { summary: DashboardResponse['summary']; name: string }) {
+  const kept =
+    summary.logged_paise -
+    summary.sent_elsewhere_paise -
+    (summary.collected_paise - summary.covered_by_credit_paise)
+  const lines = [
+    summary.covered_by_credit_paise > 0 &&
+      `Includes ${formatRupees(summary.covered_by_credit_paise)} of extra money from other months’ payments.`,
+    summary.sent_elsewhere_paise > 0 &&
+      `${formatRupees(summary.sent_elsewhere_paise)} logged for ${name} paid other months.`,
+    kept > 0 && `${formatRupees(kept)} logged for ${name} is kept as credit.`,
+  ].filter(Boolean)
+  if (lines.length === 0) return null
+  return (
+    <span className="mt-1.5 block text-xs text-muted-foreground">
+      {lines.map((line) => (
+        <span key={String(line)} className="block">
+          {line}
+        </span>
+      ))}
+    </span>
   )
 }
 

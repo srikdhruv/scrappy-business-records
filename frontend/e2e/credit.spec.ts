@@ -48,7 +48,9 @@ test('the real case: this month paid double while last month was unpaid', async 
   await expect(dialog.getByLabel(/^For month:/)).toHaveText(formatMonth(now))
   await dialog.getByLabel('Amount').fill('3000')
   await expect(
-    dialog.getByText(`₹1,500 extra will cover ${formatMonth(missed)} (unpaid).`),
+    dialog.getByText(
+      `₹1,500 more than the ${formatMonth(now).split(' ')[0]} fee: it will pay ${formatMonth(missed)} (unpaid).`,
+    ),
   ).toBeVisible()
   await dialog.getByRole('button', { name: 'Save payment' }).click()
   await expect(page.getByText('Payment saved')).toBeVisible()
@@ -67,6 +69,7 @@ test('the real case: this month paid double while last month was unpaid', async 
   await expect(page.getByRole('heading', { level: 1, name })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Balance' }).getByText('Up to date')).toBeVisible()
   await expect(monthRow(page, missed).getByText('Paid', { exact: true })).toBeVisible()
+  await expect(monthRow(page, missed).getByText('₹1,500 (credit)')).toBeVisible()
   await expect(
     monthRow(page, missed).getByText(
       `₹1,500 credit from the ${formatDate(today())} payment (for ${MONTH_SHORT(now)})`,
@@ -90,7 +93,7 @@ test('the real case: this month paid double while last month was unpaid', async 
   const edit = page.getByRole('dialog', { name: 'Edit payment' })
   await expect(edit.getByText(`Now: ₹1,500 went to ${MONTH_SHORT(missed)}.`)).toBeVisible()
   await edit.getByLabel('Amount').fill('1500')
-  await expect(edit.getByText(/extra will cover/)).toHaveCount(0)
+  await expect(edit.getByText(/it will pay/)).toHaveCount(0)
   await edit.getByRole('button', { name: 'Save changes' }).click()
   await expect(page.getByText('Payment updated')).toBeVisible()
   await page.goto(`/students/${id}`)

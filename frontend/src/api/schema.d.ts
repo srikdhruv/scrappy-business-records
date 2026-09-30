@@ -318,6 +318,22 @@ export interface components {
              * @description Amount in paise, more than 0.
              */
             amount_paise: number;
+            /**
+             * Payment Amount Paise
+             * @description The whole payment, as typed.
+             */
+            payment_amount_paise: number;
+            /**
+             * Payment Pays Until
+             * @description The latest month the payment pays (so a screen can say 'pays up to …').
+             * @example 2026-10
+             */
+            payment_pays_until: string;
+            /**
+             * Payment Needs Check
+             * @description See PaymentRead.needs_check.
+             */
+            payment_needs_check: boolean;
         };
         /**
          * CreditSource
@@ -395,6 +411,21 @@ export interface components {
              * @description What's left on M, after extra money, over students active in M.
              */
             still_due_paise: number;
+            /**
+             * Logged Paise
+             * @description Every payment logged for M, as typed: the Payments page's total for M. collected = logged - sent_elsewhere - (kept as credit) + covered_by_credit.
+             */
+            logged_paise: number;
+            /**
+             * Covered By Credit Paise
+             * @description The part of collected_paise that came from payments logged for other months.
+             */
+            covered_by_credit_paise: number;
+            /**
+             * Sent Elsewhere Paise
+             * @description The part of logged_paise that paid other months (the rest above the fees is kept as credit).
+             */
+            sent_elsewhere_paise: number;
             /**
              * Not Fully Paid Count
              * @description Students unpaid or partial for M.
@@ -670,6 +701,11 @@ export interface components {
              * @description The part that pays for_month itself (at most what was left of its fee).
              */
             paid_direct_paise: number;
+            /**
+             * Needs Check
+             * @description Worth a glance, in case of a typo: it pays 3 or more other months, or it's 3 times its month's fee or more.
+             */
+            needs_check: boolean;
             /**
              * Extra Sent
              * @description The rest, covering other unpaid months, oldest first.

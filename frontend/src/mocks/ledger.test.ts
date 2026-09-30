@@ -156,6 +156,9 @@ describe('mock ledger', () => {
       still_due_paise: 180000,
       not_fully_paid_count: 1,
       active_student_count: 1,
+      logged_paise: 0,
+      covered_by_credit_paise: 0,
+      sent_elsewhere_paise: 0,
     })
     expect(d.yet_to_pay[0]).toMatchObject({ status: 'unpaid', remaining_paise: 180000 })
     expect(d.backlog[0]!.months.map((m) => [m.month, m.status, m.covered_by_credit_paise])).toEqual(

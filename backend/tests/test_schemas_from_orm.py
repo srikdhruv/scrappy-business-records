@@ -59,6 +59,7 @@ def test_payment_read(session: Session) -> None:
         **{c.key: getattr(payment, c.key) for c in Payment.__table__.columns},
         student_name=payment.student_name,
         paid_direct_paise=payment.amount_paise,
+        needs_check=False,
         extra_sent=[],
         extra_unused_paise=0,
     )

@@ -64,9 +64,11 @@ __all__ = [
     "credit",
     "has_left",
     "month_status",
+    "needs_check",
     "owed",
     "paid_ahead",
     "payment_uses",
+    "pays_until",
     "standing_status",
     "student_ledger",
     "suggest_payment",
@@ -77,6 +79,12 @@ MONTHS_AHEAD = 24
 """Payments can be logged for at most this many months after the current month (see
 app/services/bounds.py), so nothing later is ever suggested, and extra money never covers a
 month later than this ("paid ahead" stops here)."""
+
+CHECK_MONTHS = 3
+"""A payment that pays this many other months (or more) is worth a glance: see `needs_check`."""
+
+CHECK_FEE_FACTOR = 3
+"""A payment this many times its month's fee (or more) is worth a glance: see `needs_check`."""
 
 # --------------------------------------------------------------------------- inputs
 
@@ -333,6 +341,25 @@ def payment_uses(student: StudentRecord, current_month: dt.date) -> tuple[Paymen
     return student.allocation(current_month).uses
 
 
+def needs_check(student: StudentRecord, use: PaymentUse) -> bool:
+    """A payment that may be a typo (an extra zero): it pays `CHECK_MONTHS` or more other months,
+    or it's `CHECK_FEE_FACTOR` times its month's fee or more (the fee in effect then, even after
+    leaving; a month with a 0 fee only counts by months). Extra money quietly pays months ahead,
+    so a slip would otherwise just look "paid ahead"."""
+    fee = student.fee_in_effect(use.payment.for_month)
+    too_many_months = len(use.sent) >= CHECK_MONTHS
+    return too_many_months or (fee > 0 and use.payment.amount_paise >= CHECK_FEE_FACTOR * fee)
+
+
+def pays_until(use: PaymentUse) -> dt.date:
+    """The latest month this payment pays: its own month (if it paid any of it) or the last
+    month its extra went to, whichever is later."""
+    months = [e.to_month for e in use.sent]
+    if use.direct_paise or not months:
+        months.append(use.payment.for_month)
+    return max(months)
+
+
 # --------------------------------------------------------------------------- outputs
 
 
@@ -423,6 +450,13 @@ class DashboardSummary:
     still_due_paise: int
     not_fully_paid_count: int
     active_student_count: int
+    logged_paise: int = 0
+    """Every payment logged for M, as typed (the Payments page's total for M)."""
+    covered_by_credit_paise: int = 0
+    """The part of `collected_paise` that came from payments logged for other months."""
+    sent_elsewhere_paise: int = 0
+    """The part of `logged_paise` that paid other months. What's left of `logged_paise` after
+    this and what pays M directly is kept as credit."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -461,6 +495,10 @@ class CreditMoveEntry:
 
     student: StudentRecord
     move: CreditMove
+    use: PaymentUse | None = None
+    """Everything the payment did (so the dashboard can say "pays up to …")."""
+    needs_check: bool = False
+    """See `needs_check`."""
 
 
 @dataclass(frozen=True)
@@ -702,6 +740,7 @@ def build_dashboard(
     ordered = sorted(students, key=_sort_key)
 
     expected_total = collected = paid_ahead_total = still_due = active_count = 0
+    logged = covered_total = sent_total = 0
     yet_to_pay: list[YetToPayEntry] = []
     backlog: list[BacklogEntry] = []
     overpaid: list[OverpaidEntry] = []
@@ -713,6 +752,9 @@ def build_dashboard(
     for s in ordered:
         line = month_line(s, month, current_month)
         collected += line.counted_paise
+        logged += line.paid_paise
+        covered_total += line.covered_by_credit_paise
+        sent_total += sum(e.amount_paise for e in line.extra_sent)
         if s.is_active(month):
             if line.expected_paise > 0:  # a ₹0 month (a month off, a free place) isn't counted
                 active_count += 1
@@ -740,7 +782,10 @@ def build_dashboard(
 
         mine = [mv for mv in alloc.moves if month in (mv.to_month, mv.payment.for_month)]
         mine.sort(key=lambda mv: (mv.to_month, mv.payment.order_key))
-        moves.extend(CreditMoveEntry(s, mv) for mv in mine)
+        use_of = {id(u.payment): u for u in alloc.uses}
+        for mv in mine:
+            use = use_of[id(mv.payment)]
+            moves.append(CreditMoveEntry(s, mv, use, needs_check(s, use)))
 
     return Dashboard(
         month=month,
@@ -751,6 +796,9 @@ def build_dashboard(
             still_due_paise=still_due,
             not_fully_paid_count=len(yet_to_pay),
             active_student_count=active_count,
+            logged_paise=logged,
+            covered_by_credit_paise=covered_total,
+            sent_elsewhere_paise=sent_total,
         ),
         yet_to_pay=tuple(yet_to_pay),
         backlog=tuple(backlog),

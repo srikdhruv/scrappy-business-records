@@ -35,6 +35,9 @@ def get_dashboard(session: Session, month: dt.date, current_month: dt.date) -> D
             still_due_paise=s.still_due_paise,
             not_fully_paid_count=s.not_fully_paid_count,
             active_student_count=s.active_student_count,
+            logged_paise=s.logged_paise,
+            covered_by_credit_paise=s.covered_by_credit_paise,
+            sent_elsewhere_paise=s.sent_elsewhere_paise,
         ),
         yet_to_pay=[
             YetToPayItem(
@@ -98,6 +101,11 @@ def get_dashboard(session: Session, month: dt.date, current_month: dt.date) -> D
                 from_month=format_month(e.move.payment.for_month),
                 to_month=format_month(e.move.to_month),
                 amount_paise=e.move.amount_paise,
+                payment_amount_paise=e.move.payment.amount_paise,
+                payment_pays_until=format_month(
+                    ledger.pays_until(e.use) if e.use else e.move.to_month
+                ),
+                payment_needs_check=e.needs_check,
             )
             for e in board.credit_moves
         ],

@@ -22,7 +22,7 @@ import {
   useStudent,
   useUpdateStudent,
 } from '@/api/queries'
-import type { FeeChangeRead, LedgerMonth, StudentDetail } from '@/api/types'
+import type { FeeChangeRead, LedgerMonth, PaymentRead, StudentDetail } from '@/api/types'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PageHeader } from '@/components/layout/page-header'
 import { useLogPayment } from '@/components/log-payment'
@@ -46,7 +46,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { creditSourceText, extraSentText } from '@/lib/credit'
+import { paysUntil } from '@/lib/allocation'
+import { checkText, monthNotes } from '@/lib/credit'
 import { errorMessage } from '@/lib/errors'
 import { feeAt, newFeeSentence } from '@/lib/fees'
 import { addMonths, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
@@ -236,6 +237,8 @@ function Profile({ student }: { student: StudentDetail }) {
             student={student}
             onLog={logFor}
             onFix={payments.data ? fixMonth : undefined}
+            toCheck={(payments.data ?? []).filter((p) => p.needs_check)}
+            onEdit={openEditPayment}
           />
           <DetailsCard student={student} />
         </div>
@@ -345,11 +348,16 @@ function BalanceCard({
   student,
   onLog,
   onFix,
+  toCheck,
+  onEdit,
 }: {
   student: StudentDetail
   onLog: (month: LedgerMonth) => void
   /** Undefined while the payments are still loading. */
   onFix?: (month: string) => void
+  /** Payments that may be typos (`needs_check`): they pay many months, or far above the fee. */
+  toCheck: PaymentRead[]
+  onEdit: (payment: PaymentRead) => void
 }) {
   const afterLeft = (month: string) => student.left_month !== null && month > student.left_month
   // Credit: months holding money that no month needed (extra money pays owed months first).
@@ -417,6 +425,28 @@ function BalanceCard({
                 : 'Everything due so far has been paid.'}
         </p>
       </div>
+      {toCheck.length > 0 && (
+        // Extra money quietly pays months ahead, so an extra zero would just look "paid
+        // ahead". A gentle nudge to look, never a block.
+        <ul className="grid gap-1.5 rounded-xl bg-partial-soft/70 px-4 py-3">
+          {toCheck.map((p) => (
+            <li key={p.id} className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-base font-semibold text-partial">
+                {checkText({
+                  amount_paise: p.amount_paise,
+                  for_month: p.for_month,
+                  paysUntil: paysUntil(p),
+                  fee: feeAt(student.fee_history, p.for_month),
+                })}
+              </span>
+              <Button variant="outline" size="sm" onClick={() => onEdit(p)}>
+                <PencilIcon aria-hidden />
+                Edit payment
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
       {oldest && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-card/80 px-4 py-3">
           <div className="min-w-0">
@@ -667,10 +697,7 @@ function MonthHistory({
           const afterLeaving = student.left_month !== null && m.month > student.left_month
           // Some of this month's money wasn't needed by any month: credit.
           const extra = m.extra_unused_paise > 0
-          const notes = [
-            ...m.credit_sources.map((c) => creditSourceText(c)),
-            ...m.extra_sent.map((e) => extraSentText(e)),
-          ]
+          const notes = monthNotes(m)
           return (
             <TableRow key={m.month} className={cn(extra && 'bg-credit-soft/40')}>
               <TableCell className="pl-6 font-semibold">{formatMonth(m.month)}</TableCell>
@@ -678,7 +705,21 @@ function MonthHistory({
                 {m.expected_paise > 0 ? formatRupees(m.expected_paise) : '—'}
               </TableCell>
               <TableCell className="text-right font-semibold tabular-nums">
-                {m.paid_paise > 0 ? formatRupees(m.paid_paise) : '—'}
+                {m.paid_paise > 0 ? (
+                  formatRupees(m.paid_paise)
+                ) : m.covered_by_credit_paise > 0 ? (
+                  // Paid entirely by another payment's extra: not "—", which would read as unpaid.
+                  <span className="font-medium text-credit/80">
+                    {formatRupees(m.covered_by_credit_paise)} (credit)
+                  </span>
+                ) : (
+                  '—'
+                )}
+                {m.paid_paise > 0 && m.covered_by_credit_paise > 0 && (
+                  <span className="block text-sm font-medium text-credit/80">
+                    + {formatRupees(m.covered_by_credit_paise)} credit
+                  </span>
+                )}
               </TableCell>
               <TableCell>
                 <div className="flex flex-wrap items-center gap-2">
@@ -696,9 +737,9 @@ function MonthHistory({
                 </div>
                 {notes.length > 0 && (
                   <ul className="mt-1.5 grid justify-items-start gap-1">
-                    {notes.map((text) => (
-                      <li key={text}>
-                        <CreditNote>{text}</CreditNote>
+                    {notes.map((note) => (
+                      <li key={note.key}>
+                        <CreditNote>{note.text}</CreditNote>
                       </li>
                     ))}
                   </ul>

@@ -115,6 +115,43 @@ describe('dashboard', () => {
       expect(list.getAllByText('Not due yet').length).toBeGreaterThan(0)
     })
 
+    it('explains why Collected differs from what was logged for the month', async () => {
+      renderApp('/')
+      const summary = within(await screen.findByRole('group', { name: 'Summary' }))
+      // Aarav's ₹3,000 for October: ₹1,500 of it paid September.
+      expect(summary.getByText('₹1,500 logged for October paid other months.')).toBeInTheDocument()
+    })
+
+    it('says when Collected includes extra money from other months', async () => {
+      renderApp('/?month=2026-09')
+      expect(
+        await screen.findByText('Includes ₹1,500 of extra money from other months’ payments.'),
+      ).toBeInTheDocument()
+    })
+
+    it('shows one row per payment, however many months it paid, and flags a likely typo', async () => {
+      const student = mockDb.createStudent({
+        name: 'Tanu Test',
+        monthly_fee_paise: 150000,
+        joined_month: '2026-10',
+      })
+      mockDb.createPayment({
+        student_id: student.id,
+        amount_paise: 4500000, // ₹45,000: an extra zero or two?
+        paid_on: '2026-10-05',
+        for_month: '2026-10',
+        method: 'upi',
+      })
+      renderApp('/')
+      const used = within(
+        (await screen.findByRole('heading', { name: /Extra money used/ })).closest('section')!,
+      )
+      const rows = used.getAllByRole('link', { name: /Tanu Test/ })
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toHaveTextContent('Nov 2026 to Oct 2028')
+      expect(rows[0]).toHaveTextContent('Check: this ₹45,000 payment pays up to Oct 2028')
+    })
+
     it('shows the month that extra money paid, looking back', async () => {
       renderApp('/?month=2026-09')
       const used = within(

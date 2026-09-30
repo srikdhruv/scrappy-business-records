@@ -18,7 +18,7 @@ import type {
   SuggestedPayment,
   YetToPayItem,
 } from '@/api/types'
-import { allocate, monthShare, type Allocation } from '@/lib/allocation'
+import { allocate, monthShare, needsCheck, paysUntil, type Allocation } from '@/lib/allocation'
 import { addMonths, monthsBetween, MONTHS_AHEAD } from '@/lib/format'
 
 export interface StudentRow {
@@ -264,6 +264,9 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
     still_due_paise: 0,
     not_fully_paid_count: 0,
     active_student_count: 0,
+    logged_paise: 0,
+    covered_by_credit_paise: 0,
+    sent_elsewhere_paise: 0,
   }
   const yetToPay: YetToPayItem[] = []
   const backlog: BacklogItem[] = []
@@ -276,6 +279,9 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
     const line = monthLine(book, alloc, month, now)
     const counted = line.paid_direct_paise + line.covered_by_credit_paise
     summary.collected_paise += counted
+    summary.logged_paise += line.paid_paise
+    summary.covered_by_credit_paise += line.covered_by_credit_paise
+    summary.sent_elsewhere_paise += line.extra_sent.reduce((sum, e) => sum + e.amount_paise, 0)
     const who = {
       student_id: student.id,
       student_name: student.name,
@@ -364,6 +370,7 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
           a.payment.id - b.payment.id,
       )
     for (const mv of mine) {
+      const use = alloc.uses.find((u) => u.payment.id === mv.payment.id)!
       creditMoves.push({
         ...who,
         payment_id: mv.payment.id,
@@ -371,6 +378,9 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
         from_month: mv.payment.for_month,
         to_month: mv.to_month,
         amount_paise: mv.amount_paise,
+        payment_amount_paise: mv.payment.amount_paise,
+        payment_pays_until: paysUntil({ ...use, for_month: mv.payment.for_month }),
+        payment_needs_check: needsCheck(use, feeFor(book.fees, mv.payment.for_month)),
       })
     }
   }
