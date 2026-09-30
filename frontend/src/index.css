@@ -193,6 +193,9 @@
     background: transparent;
     box-shadow: none;
   }
+  .report-sheet td.print-nowrap {
+    white-space: nowrap;
+  }
   .report-sheet th:first-child,
   .report-sheet td:first-child {
     padding-left: 0;
@@ -211,6 +214,7 @@
   }
   .report-sheet tfoot {
     display: table-row-group;
+    background: transparent;
   }
   .report-sheet tfoot td {
     border-top: 1.5pt solid var(--foreground);

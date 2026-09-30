@@ -53,6 +53,7 @@ import {
   REPORT_STATUS,
   STATUS_FILTERS,
   filterRows,
+  formatMonthList,
   isStatusFilter,
   matchesStatus,
   reportDownloadUrl,
@@ -177,7 +178,7 @@ export function ReportPage() {
         <Panel
           bodyClassName="pt-0"
           className={cn(
-            'report-sheet transition-opacity print:rounded-none print:border-0 print:shadow-none',
+            'report-sheet transition-opacity print:rounded-none print:border-0 print:bg-transparent print:shadow-none',
             report.isPlaceholderData && 'opacity-60',
           )}
         >
@@ -338,7 +339,7 @@ function ReportTable({
         ))}
       </TableBody>
       <TableFooter className="bg-muted/60 font-bold">
-        <TableRow className="hover:bg-transparent">
+        <TableRow className="hover:bg-transparent [&>td]:align-top">
           <TableCell className={cn(STICKY, 'bg-muted pl-6 whitespace-normal')}>
             {filtered
               ? `Total of the ${rows.length} shown`
@@ -355,7 +356,7 @@ function ReportTable({
             )}
           </MoneyCell>
           <MoneyCell paise={totals.short_paise} />
-          <TableCell className="text-sm font-semibold whitespace-normal">
+          <TableCell className="font-semibold whitespace-normal">
             {totals.active_student_count > 0 &&
               `${totals.not_fully_paid_count} of ${totals.active_student_count} ${ahead ? 'not paid ahead' : 'not fully paid'}`}
           </TableCell>
@@ -376,7 +377,7 @@ function Row({ row: r }: { row: ReportRow }) {
   const { label, tone } = REPORT_STATUS[r.status]
   const owing = r.status === 'unpaid' || r.status === 'partial'
   return (
-    <TableRow className="group break-inside-avoid">
+    <TableRow className="group break-inside-avoid [&>td]:align-top">
       <TableCell className={cn(STICKY, 'pl-6 whitespace-normal group-hover:bg-muted')}>
         <Link
           to={`/students/${r.student_id}`}
@@ -385,10 +386,8 @@ function Row({ row: r }: { row: ReportRow }) {
           {r.student_name}
         </Link>
       </TableCell>
-      <TableCell className="max-w-44 whitespace-normal text-muted-foreground">
-        {r.batch_label}
-      </TableCell>
-      <TableCell className="text-muted-foreground tabular-nums">{r.phone}</TableCell>
+      <TableCell className="text-muted-foreground">{r.batch_label}</TableCell>
+      <TableCell className="print-nowrap text-muted-foreground tabular-nums">{r.phone}</TableCell>
       <MoneyCell paise={r.fee_paise} />
       <MoneyCell paise={r.paid_paise} />
       <MoneyCell paise={r.covered_by_credit_paise}>
@@ -419,9 +418,7 @@ function Row({ row: r }: { row: ReportRow }) {
         </StatusPill>
       </TableCell>
       <MoneyCell paise={r.owed_before_paise} className={cn(r.owed_before_paise > 0 && 'text-owed')}>
-        {r.owed_before_months.length > 0 && (
-          <Note>{r.owed_before_months.map(formatMonthShort).join(', ')}</Note>
-        )}
+        {r.owed_before_months.length > 0 && <Note>{formatMonthList(r.owed_before_months)}</Note>}
       </MoneyCell>
       <MoneyCell
         paise={r.owed_now_paise}
@@ -485,7 +482,7 @@ function Note({ children, tone }: { children: ReactNode; tone?: 'credit' }) {
 
 /** A heading that may wrap onto two lines, so the table stays narrow. */
 function Wrap({ children }: { children: ReactNode }) {
-  return <span className="inline-block max-w-24 text-right whitespace-normal">{children}</span>
+  return <span className="inline-block max-w-28 text-right whitespace-normal">{children}</span>
 }
 
 function SortButton({
@@ -501,19 +498,25 @@ function SortButton({
 }) {
   const Icon = sorted === 'asc' ? ArrowUpIcon : sorted === 'desc' ? ArrowDownIcon : ArrowUpDownIcon
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className={cn(
-        '-mx-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-semibold transition-colors',
-        'outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50',
-        'print:pointer-events-none',
-        sorted && 'text-foreground',
-        align === 'right' && 'flex-row-reverse',
-      )}
-    >
-      {label}
-      <Icon className={cn('size-4 shrink-0 print:hidden', !sorted && 'opacity-40')} aria-hidden />
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={cn(
+          '-mx-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-semibold transition-colors',
+          'outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50',
+          'print:hidden',
+          sorted && 'text-foreground',
+          align === 'right' && 'flex-row-reverse',
+        )}
+      >
+        {label}
+        <Icon className={cn('size-4 shrink-0', !sorted && 'opacity-40')} aria-hidden />
+      </button>
+      {/* Printed as plain words: Chrome doesn't draw buttons in headings repeated on page 2. */}
+      <span className="hidden font-semibold print:inline" aria-hidden>
+        {label}
+      </span>
+    </>
   )
 }

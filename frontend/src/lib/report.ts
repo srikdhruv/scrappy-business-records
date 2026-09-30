@@ -4,7 +4,7 @@
  * picks, orders and adds up rows.
  */
 import type { ReportRow, ReportStatus, ReportTotals } from '@/api/types'
-import { formatMonth } from '@/lib/format'
+import { formatMonth, formatMonthShort } from '@/lib/format'
 import { fold, studentMatches } from '@/lib/search'
 import type { Tone } from '@/lib/status'
 
@@ -144,4 +144,15 @@ export function reportDownloadUrl(month: string): string {
 /** "Scrappy Records — Fees report, October 2026": the printed page's (and the file's) title. */
 export function reportTitle(month: string): string {
   return `Scrappy Records — Fees report, ${formatMonth(month)}`
+}
+
+/** Months in short, the year once per run of the same year: "Jun, Jul, Aug 2026",
+ * "Dec 2025, Jan 2026". */
+export function formatMonthList(months: string[]): string {
+  return months
+    .map((m, i) => {
+      const sameYearNext = months[i + 1]?.slice(0, 4) === m.slice(0, 4)
+      return sameYearNext ? formatMonthShort(m).split(' ')[0] : formatMonthShort(m)
+    })
+    .join(', ')
 }

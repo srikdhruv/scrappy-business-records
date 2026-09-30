@@ -5,6 +5,7 @@ import { TEST_NOW } from '@/test/render'
 
 import {
   filterRows,
+  formatMonthList,
   isStatusFilter,
   reportDownloadUrl,
   reportTitle,
@@ -159,4 +160,11 @@ describe('report totals', () => {
 it('names the download and the printed page', () => {
   expect(reportDownloadUrl('2026-10')).toBe('/api/report.xlsx?month=2026-10')
   expect(reportTitle('2026-10')).toBe('Scrappy Records — Fees report, October 2026')
+})
+
+it('lists months in short, with the year once per year', () => {
+  expect(formatMonthList(['2026-06', '2026-07', '2026-08'])).toBe('Jun, Jul, Aug 2026')
+  expect(formatMonthList(['2025-12', '2026-01'])).toBe('Dec 2025, Jan 2026')
+  expect(formatMonthList(['2026-04'])).toBe('Apr 2026')
+  expect(formatMonthList([])).toBe('')
 })
