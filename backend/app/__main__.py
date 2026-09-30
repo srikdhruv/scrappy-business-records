@@ -16,7 +16,7 @@ import sys
 
 import uvicorn
 
-from app import config, logs
+from app import config, lifetime, logs
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
@@ -47,7 +47,17 @@ def main() -> None:
     # use, a migration error, a crash) can be seen. See app/logs.py.
     logs.setup_server_log()
     configure_console_logging()
-    uvicorn.Server(server_config()).run()
+    # One server per database, taken before any backup or migration (app/lifetime.py).
+    lock = lifetime.acquire_server_lock()
+    if lock is None:
+        logging.getLogger("scrappy").info(
+            "Another Scrappy Records server is already running or starting; this one is exiting"
+        )
+        return
+    server = uvicorn.Server(server_config())
+    lifetime.start_housekeeping(server)  # polite stop requests, daily backup while running
+    server.run()
+    lock.close()
 
 
 if __name__ == "__main__":

@@ -1,15 +1,19 @@
 """What the Desktop shortcut runs: `pythonw.exe -m app.launcher`.
 
 1. Ask `http://127.0.0.1:<port>/api/health` whether Scrappy Records is already running.
-2. If nothing is listening, start the server (`pythonw.exe -m app`) fully detached, so it keeps
+2. If our server exists but isn't answering yet (its lifetime lock is held, see
+   `app.lifetime`), wait for it rather than start another.
+3. If nothing is listening, start the server (`pythonw.exe -m app`) fully detached, so it keeps
    running after this launcher exits, with its raw output going to `logs/server-console.log`.
-3. Wait for it to answer (about 20 seconds; longer if it is visibly still starting).
-4. Open the default browser at the app.
-5. If anything goes wrong, including another program using the port, show a plain-language
-   message box that names the log file.
+4. Wait for it to answer (about 20 seconds; up to 60 if it is visibly still starting).
+5. Open the default browser at the app.
+6. If anything goes wrong, show a plain-language message box that names the log file. It tells
+   apart another program using the port ("restart the laptop"), our own server stuck on the port
+   ("seems stuck, restart the laptop") and a slow start ("wait a minute, then open it again").
 
 Two launches at once (a double double-click) don't start two servers: the check-and-start step
 holds a lock file, so the second launcher waits, sees the server is up and just opens the browser.
+And a server started anyway exits at once if another one holds the server lock.
 
 Environment switches, for tests and CI:
 - `SCRAPPY_NO_BROWSER=1`: don't open the browser.
@@ -36,7 +40,7 @@ from enum import Enum
 from pathlib import Path
 from typing import IO
 
-from app import config, logs
+from app import config, lifetime, logs
 
 log = logging.getLogger("scrappy.launcher")
 
@@ -123,7 +127,7 @@ def single_instance(timeout: float = LOCK_TIMEOUT) -> Iterator[None]:
     try:
         while True:
             try:
-                _lock(handle)
+                lifetime.lock_file(handle)
                 locked = True
                 break
             except OSError:
@@ -135,32 +139,8 @@ def single_instance(timeout: float = LOCK_TIMEOUT) -> Iterator[None]:
     finally:
         if locked:
             with contextlib.suppress(OSError):
-                _unlock(handle)
+                lifetime.unlock_file(handle)
         handle.close()
-
-
-def _lock(handle: IO[bytes]) -> None:
-    if IS_WINDOWS:
-        import msvcrt
-
-        handle.seek(0)
-        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-    else:
-        import fcntl
-
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-
-def _unlock(handle: IO[bytes]) -> None:
-    if IS_WINDOWS:
-        import msvcrt
-
-        handle.seek(0)
-        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-    else:
-        import fcntl
-
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 # --------------------------------------------------------------------------- starting the server
@@ -226,6 +206,26 @@ def _port_in_use_message(port: int) -> str:
     )
 
 
+def _stuck_message() -> str:
+    return (
+        f"{APP_TITLE} seems to be stuck: it is running but not answering.\n\n"
+        "Restart the laptop, then open Scrappy Records again."
+    )
+
+
+def _still_starting_message() -> str:
+    return (
+        f"{APP_TITLE} is still starting. This can take a while the first time.\n\n"
+        "Please wait a minute, then double-click Scrappy Records again."
+    )
+
+
+def _timeout_error(port: int) -> LaunchError:
+    if lifetime.server_lock_held() and not port_is_free(port):
+        return LaunchError(_stuck_message())
+    return LaunchError(_still_starting_message())
+
+
 def _looks_like_port_clash() -> bool:
     for path in (logs.console_log_file(), logs.log_file()):
         with contextlib.suppress(OSError):
@@ -239,28 +239,37 @@ def _looks_like_port_clash() -> bool:
 
 
 def wait_until_up(port: int, proc: subprocess.Popen[bytes] | None) -> None:
-    """Poll /api/health until the app answers. Raises LaunchError with a friendly message."""
+    """Poll /api/health until the app answers. Raises LaunchError with a friendly message.
+
+    `proc` is the server we just started, or None when waiting for one that already exists.
+    """
     started = time.monotonic()
     while True:
         status = check_health(port, timeout=1.0)
         if status is Status.OURS:
             log.info("The server is up after %.1f s", time.monotonic() - started)
             return
-        elapsed = time.monotonic() - started
-        exited = proc is not None and proc.poll() is not None
-        if exited:
+        if proc is not None and proc.poll() is not None:
             # One more look: another launcher's server may have won the race for the port.
             if check_health(port) is Status.OURS:
                 return
-            log.error("The server stopped straight away (exit code %s)", proc.returncode)
-            if _looks_like_port_clash():
-                raise LaunchError(_port_in_use_message(port))
-            raise LaunchError(f"{APP_TITLE} couldn't start.")
-        still_starting = proc is not None and not exited
+            if proc.returncode == 0:
+                # It found another server holding the server lock (app/lifetime.py), which is
+                # still starting. Wait for that one instead.
+                log.info("Another Scrappy Records server is starting; waiting for it")
+                proc = None
+            else:
+                log.error("The server stopped straight away (exit code %s)", proc.returncode)
+                if _looks_like_port_clash():
+                    raise LaunchError(_port_in_use_message(port))
+                raise LaunchError(f"{APP_TITLE} couldn't start.")
+        # 20 s for a server that has vanished; 60 s while one is visibly still starting.
+        still_starting = (proc is not None) or lifetime.server_lock_held()
         limit = SLOW_START_TIMEOUT if still_starting else START_TIMEOUT
+        elapsed = time.monotonic() - started
         if elapsed >= limit:
             log.error("The server didn't answer within %.0f s (last check: %s)", elapsed, status)
-            raise LaunchError(f"{APP_TITLE} is taking too long to start.")
+            raise _timeout_error(port)
         time.sleep(POLL_INTERVAL)
 
 
@@ -272,10 +281,20 @@ def ensure_server(port: int) -> subprocess.Popen[bytes] | None:
             if status is Status.OURS:
                 log.info("Scrappy Records is already running on port %d", port)
                 return None
+            if lifetime.server_lock_held():
+                # Our own server has the port but isn't answering: busy, or stuck.
+                log.warning("Our server holds port %d but isn't answering; waiting", port)
+                wait_until_up(port, None)
+                return None
             if status is Status.OTHER:
                 log.error("Something else is using port %d", port)
                 raise LaunchError(_port_in_use_message(port))
             # DOWN: the port only looked busy (e.g. a server that just stopped). Start ours.
+        elif lifetime.server_lock_held():
+            # Our server is starting (backups, migrations) and hasn't opened the port yet.
+            log.info("Scrappy Records is starting; waiting for it")
+            wait_until_up(port, None)
+            return None
         proc = start_server(port)
         wait_until_up(port, proc)
         return proc

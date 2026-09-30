@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from app import launcher, logs
+from app import launcher, lifetime, logs
 
 
 def _free_port() -> int:
@@ -96,6 +96,39 @@ def test_port_taken_by_another_program_shows_a_message(
     err = capsys.readouterr().err
     assert f"port {port}" in err
     assert str(logs.log_file()) in err
+
+
+def test_our_own_server_stuck_on_the_port_is_not_called_another_program(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(launcher, "SLOW_START_TIMEOUT", 0.5)
+    held = lifetime.acquire_server_lock()  # "our server" is running...
+    try:
+        with _fake_server(b"<html>hung</html>", 503) as port:  # ...but not answering properly
+            monkeypatch.setenv("SCRAPPY_PORT", str(port))
+            assert launcher.main() == 1
+    finally:
+        held.close()
+    err = capsys.readouterr().err
+    assert "seems to be stuck" in err
+    assert "another program" not in err
+
+
+def test_a_server_still_starting_is_waited_for_not_duplicated(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(launcher, "SLOW_START_TIMEOUT", 0.5)
+    started: list[int] = []
+    monkeypatch.setattr(launcher, "start_server", lambda port: started.append(port))
+    port = _free_port()
+    monkeypatch.setenv("SCRAPPY_PORT", str(port))
+    held = lifetime.acquire_server_lock()  # our server is busy with startup, port not open yet
+    try:
+        assert launcher.main() == 1
+    finally:
+        held.close()
+    assert started == [], "must not start a second server"
+    assert "wait a minute, then double-click" in capsys.readouterr().err
 
 
 def test_bad_port_setting_shows_a_message(

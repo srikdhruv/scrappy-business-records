@@ -2,21 +2,32 @@
 
 | When                          | File                                     | Kept            |
 |-------------------------------|------------------------------------------|-----------------|
-| First server start of the day | `records-YYYY-MM-DD.db`                  | newest 30       |
+| First time the server runs on a day | `records-YYYY-MM-DD.db`            | newest 30       |
 | Before an update (installer)  | `records-pre-update-YYYYMMDD-HHMMSS.db`   | until deleted   |
 | Before a database upgrade     | `records-pre-migration-YYYYMMDD-HHMMSS.db` | until deleted  |
 | By hand                       | `records-manual-YYYYMMDD-HHMMSS.db`       | until deleted   |
 
+The daily backup is taken at server start, and again by the running server whenever the date
+changes (`app.lifetime`), so a laptop that only ever sleeps still gets one a day.
+
 Copies use SQLite's online backup API, so they are consistent even while the server is running.
+The live database is opened read-write (never created): if a crash left a "hot" rollback journal
+(`records.db-journal`), SQLite rolls the unfinished transaction back first, as it would for the
+app. A read-only connection can't do that and fails with "attempt to write a readonly database".
 Each copy is written to a temporary name first and renamed into place, so a half-written file
 never looks like a finished backup.
 
-If the backup folder can't be written (for example, macOS refuses access to Documents), the copy
-goes to `<data folder>/backups` instead, and the problem is logged.
+If the backup folder can't be written (for example, macOS refuses access to Documents, or
+Windows' Controlled Folder Access or a OneDrive lock blocks it), the copy goes to
+`<data folder>/backups` instead, and the problem is logged.
 
 Command line (used by the installers before an update):
 
     python -m app.backup --reason pre-update
+
+Compatibility: `scripts/install.ps1` and `install.sh` always come from `main`, but run this
+command with the *installed* (older) bundle's Python. Keep `--reason pre-update` working, with
+exit code 0 meaning "backed up, or nothing to back up".
 """
 
 from __future__ import annotations
@@ -49,8 +60,8 @@ def _copy_database(source: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_name(target.name + ".partial")
     partial.unlink(missing_ok=True)
-    # Read-only, so a backup can never create or change the live database.
-    src = sqlite3.connect(f"{source.resolve().as_uri()}?mode=ro", uri=True)
+    # mode=rw: never creates the database, but can roll back a hot journal (see the docstring).
+    src = sqlite3.connect(f"{source.resolve().as_uri()}?mode=rw", uri=True, timeout=30)
     try:
         dst = sqlite3.connect(partial)
         try:
@@ -77,7 +88,8 @@ def _write(name: str) -> Path | None:
     try:
         target = config.backup_dir() / name
         _copy_database(source, target)
-    except OSError as exc:
+    except (OSError, sqlite3.Error) as exc:
+        # sqlite3 reports an unwritable folder as "unable to open database file".
         target = fallback_dir() / name
         log.warning(
             "Couldn't write the backup to %s (%s); saving it to %s instead",

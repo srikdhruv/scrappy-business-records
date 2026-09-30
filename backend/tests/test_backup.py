@@ -1,5 +1,7 @@
 import datetime as dt
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -98,6 +100,67 @@ def test_falls_back_to_data_folder_when_backup_folder_is_unwritable(
     assert target is not None
     assert target.parent == config.data_dir() / "backups"
     assert _rows(target) == 1
+
+
+def test_falls_back_when_sqlite_cant_open_the_backup_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Controlled Folder Access or a OneDrive lock shows up as a sqlite3 error, not OSError."""
+    _make_db()
+    real_connect = sqlite3.connect
+    blocked = str(config.backup_dir())
+
+    def connect(database, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if str(database).startswith(blocked):
+            raise sqlite3.OperationalError("unable to open database file")
+        return real_connect(database, *args, **kwargs)
+
+    monkeypatch.setattr(backup.sqlite3, "connect", connect)
+    target = backup.backup("pre-migration")
+    assert target is not None
+    assert target.parent == config.data_dir() / "backups"
+    assert _rows(target) == 1
+
+
+def _leave_hot_journal(db: Path) -> None:
+    """Start a big transaction in another process and kill it before it commits, the way a
+    force-killed server or a power cut would. SQLite leaves `records.db-journal` behind."""
+    child = (
+        "import os, sqlite3\n"
+        f"c = sqlite3.connect({str(db)!r}, isolation_level=None)\n"
+        "c.execute('PRAGMA cache_size=2')\n"  # tiny cache: changes spill into the file
+        "c.execute('BEGIN')\n"
+        "c.execute(\"UPDATE filler SET x = 'changed'\")\n"
+        "os._exit(1)\n"
+    )
+    subprocess.run([sys.executable, "-c", child], check=False, timeout=60)
+    assert Path(f"{db}-journal").exists(), "the test needs a hot journal to be meaningful"
+
+
+def test_backup_and_startup_survive_a_hot_journal() -> None:
+    with TestClient(create_app()):
+        pass
+    db = config.db_path()
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE filler (x TEXT)")
+        conn.executemany("INSERT INTO filler VALUES (?)", [("original" * 50,)] * 2000)
+    conn.close()
+    _leave_hot_journal(db)
+
+    target = backup.backup("pre-update")
+    assert target is not None
+    conn = sqlite3.connect(target)
+    try:
+        # The unfinished transaction was rolled back, not copied half-done.
+        assert conn.execute("SELECT DISTINCT x FROM filler").fetchall() == [("original" * 50,)]
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    finally:
+        conn.close()
+
+    _leave_hot_journal(db)
+    with TestClient(create_app()) as client:  # daily backup, migrations check, serve
+        assert client.get("/api/health").status_code == 200
+    assert (config.backup_dir() / f"records-{dt.date.today():%Y-%m-%d}.db").is_file()
 
 
 def test_cli(capsys: pytest.CaptureFixture[str]) -> None:
