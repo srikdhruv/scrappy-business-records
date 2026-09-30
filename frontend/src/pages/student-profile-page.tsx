@@ -39,7 +39,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { errorMessage } from '@/lib/errors'
-import { formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
+import { addMonths, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
 import { firstName, formatMonthCount, plural, tenurePhrase } from '@/lib/labels'
 import { cn } from '@/lib/utils'
 
@@ -345,13 +345,17 @@ function BalanceCard({
     (m) => m.is_due && (m.status === 'unpaid' || m.status === 'partial'),
   )
   const oldest = owed[0]
-  // "(Jul, Aug)": which months, when there are only a few.
+  // Which months: "(Jul, Aug)", or a run like "(Jun–Sep)", else "(5 months)".
+  const abbr = (month: string) => formatMonth(month).slice(0, 3)
+  const inARow = owed.every((m, i) => i === 0 || m.month === addMonths(owed[i - 1]!.month, 1))
   const owedMonths =
-    owed.length > 0 && owed.length <= 3
-      ? `(${owed.map((m) => formatMonth(m.month).slice(0, 3)).join(', ')})`
-      : owed.length > 3
-        ? `(${owed.length} months)`
-        : ''
+    owed.length === 0
+      ? ''
+      : owed.length <= 3
+        ? `(${owed.map((m) => abbr(m.month)).join(', ')})`
+        : inARow && owed.length < 12
+          ? `(${abbr(owed[0]!.month)}–${abbr(owed.at(-1)!.month)})`
+          : `(${owed.length} months)`
   return (
     <section
       aria-label="Balance"
@@ -392,7 +396,7 @@ function BalanceCard({
         )}
         <p className="mt-2 text-base text-foreground/80">
           {student.status === 'owes'
-            ? `Not fully paid for ${plural(owed.length, 'month')}.`
+            ? `${plural(owed.length, 'month')} not fully paid.`
             : student.status === 'credit'
               ? `Paid ${formatRupees(credit)} more than was due.`
               : aheadTo
