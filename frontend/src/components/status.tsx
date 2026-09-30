@@ -60,8 +60,8 @@ const MONTH_STATUS: Record<MonthStatus, { tone: Tone; label: string; icon?: Luci
 }
 
 /**
- * A month's status. Months after the current one aren't due yet, so what's paid for them, up to
- * the fee, is "Paid ahead". More than the fee is "Paid extra" in any month.
+ * A month's status. Months after the current one aren't due yet, so what pays them is "Paid
+ * ahead". "Paid extra" is a month holding money no month needed (credit), in any month.
  */
 export function MonthStatusBadge({
   status,

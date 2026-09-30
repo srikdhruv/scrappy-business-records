@@ -17,7 +17,10 @@ name. **Back to** (under the month) brings you back to this month.
   student, month and amount are filled in for you: check the amount and press **Enter**.
 - **Earlier months still owed:** anyone who still owes for previous months, the months, and how
   much in total. Click a name to open their profile.
-- **Paid too much:** months where someone paid more than their fee.
+- **Extra money used** (only when there is some): money paid above a fee that went to another
+  month, for example Vihaan's September payment paying August.
+- **Extra kept as credit** (only when there is some): money nobody's months need, usually from
+  someone who has left.
 
 A month that hasn't started yet shows who has **not paid ahead** for it yet, marked **Not due
 yet**. Nothing counts as owed until the month comes.
@@ -37,13 +40,16 @@ When everyone has paid, you'll see **Everyone's paid for** the month 🎉.
 6. Press **Enter**, or click **Save payment**. (Enter works straight after clicking UPI, Cash
    or Other too.)
 
-If the amount is much more than their fee, the form asks "Is it right?" in case of an extra zero.
-You can still save it.
+If the amount is more than what's left of that month's fee, the form says where the extra will
+go, for example "₹1,500 extra will cover August 2026 (unpaid)". If it's much more than their
+fee, it asks "Is it right?" first, in case of an extra zero. You can still save it.
 
 That's it. The dashboard updates straight away. If you saved by mistake, click **Undo** in the
 message that appears.
 
-> If a parent pays for two months at once, log two payments, one for each month.
+> If a parent pays for two months at once, just log it once, with the whole amount. The extra
+> pays the oldest month they still owe (then later months ahead), and both months show as paid.
+> The payment itself stays exactly as you typed it.
 
 ## Adding a new student
 
@@ -102,15 +108,13 @@ For a month off (no fee for one month), see
 
 - **Wrong payment:** go to **Payments**, find it (search, filter, or click a column heading to
   sort), then click **Edit** or **Delete**. You can also do this from the student's profile.
-- **Paid too much:** the **Balance** box on the student's profile lists each month that was paid
-  extra (for example "July 2026 · ₹2,500 paid for a ₹2,000 fee"). Click **Edit payment** next to
-  it, and change the amount or the month if it was meant for another month. If they also still
-  owe for a month, the box says **Owes** first, with a note such as "Paid ₹500 extra in Jul
-  2026", so you can match the two up. Paying early for months that haven't started yet is
-  different: that shows as **Paid ahead**, and there is nothing to fix.
-- **Paid for a month after they left:** that can't be right (they owe nothing then), so the
-  profile says so, for example "₹1,500 paid for Oct 2026, after they left — was it for Jul?".
-  Click **Edit payment** and change its month.
+- **Paid more than the fee:** nothing to fix. The extra pays the oldest month they still owe,
+  and the profile's **Month by month** says so on both months ("₹1,500 extra → Aug 2026" and
+  "₹1,500 credit from the 5 Sep 2026 payment (for Sep 2026)"). The same goes for a payment
+  logged for a month after they left, or while they were away. Paying early for months that
+  haven't started yet shows as **Paid ahead**, and there is nothing to fix either.
+- **Credit:** only when they've paid more than every fee they owe (usually after leaving). The
+  **Balance** box lists the payment with **Edit payment**, in case it was typed wrong.
 - **Student added by mistake:** open their profile and click **Delete**. This also deletes their
   payments, and the app will ask you to confirm first.
 

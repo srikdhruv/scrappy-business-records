@@ -4,8 +4,8 @@ A small, private app for someone who runs a class (dance, music, tuition…) to 
 for which month** — all in one place, on their own laptop. No accounts, no cloud, no internet
 needed once installed.
 
-- **Dashboard:** who hasn't paid this month, what's still owed from earlier months, and who
-  overpaid.
+- **Dashboard:** who hasn't paid this month, what's still owed from earlier months, and where
+  money paid above a fee went (it pays the oldest month still owed, automatically).
 - **Students:** add, edit and archive students, each with a profile and their full payment history.
 - **Payments:** log a payment for a student and month; see, sort and fix every payment.
 

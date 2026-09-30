@@ -77,7 +77,8 @@ export function ComeBackDialog({
       ? `in ${formatMonthSpan(start, addMonths(next.effective_month, -1))}`
       : `from ${formatMonth(start)} onwards`
   }
-  // Money already logged for a month away counts as paid extra once that month has no fee.
+  // Money already logged for a month away is all extra once that month has no fee: it pays the
+  // oldest month still owed instead (PRD ledger rule 10).
   const paidWhileAway = away
     ? student.months.filter((m) => m.month >= firstAway && m.month <= lastAway && m.paid_paise > 0)
     : []
@@ -203,7 +204,7 @@ export function ComeBackDialog({
                   {paidWhileAway
                     .map((m) => `${formatRupees(m.paid_paise)} paid for ${formatMonth(m.month)}`)
                     .join(', ')}{' '}
-                  will then show as paid extra. You can move it to another month afterwards.
+                  will then be extra, and pay the oldest month they still owe (or their fee ahead).
                 </p>
               )}
             </div>
