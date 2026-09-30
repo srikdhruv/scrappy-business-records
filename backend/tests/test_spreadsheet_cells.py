@@ -41,7 +41,8 @@ def test_money(value: object, paise: int | None) -> None:
 
 
 @pytest.mark.parametrize(
-    "value", ["abc", "-1500", -1, "1500.555", 1500.555, True, float("nan"), "₹", "15 00 x"]
+    "value",
+    ["abc", "-1500", -1, "1500.555", 1500.555, True, float("nan"), "₹", "15 00 x", "₹500 700"],
 )
 def test_money_rejects(value: object) -> None:
     with pytest.raises(CellError):
@@ -65,6 +66,9 @@ def test_money_rejects(value: object) -> None:
         ("2026-10-05 00:00:00", dt.date(2026, 10, 5)),
         ("Oct 5, 2026", dt.date(2026, 10, 5)),
         (46300, dt.date(2026, 10, 5)),  # an Excel day number, from a cell without a date format
+        ("46300", dt.date(2026, 10, 5)),  # ...that became text
+        ("05/10/2026 10:30", dt.date(2026, 10, 5)),  # a time after it is ignored
+        ("5 Oct 2026 4:15 pm", dt.date(2026, 10, 5)),
         (None, None),
     ],
 )
@@ -89,6 +93,7 @@ def test_dates_rejected(value: object) -> None:
         ("2026-10", "2026-10"),
         ("2026/10", "2026-10"),
         ("10/2026", "2026-10"),
+        ("10/26", "2026-10"),
         ("05/10/2026", "2026-10"),
         (dt.date(2026, 10, 1), "2026-10"),
         (dt.datetime(2026, 10, 17), "2026-10"),

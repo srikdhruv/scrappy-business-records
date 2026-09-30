@@ -997,8 +997,11 @@ class ImportPaymentStatus(enum.StrEnum):
     unassigned = "unassigned"
     """From the file's Unassigned payments sheet: kept as unassigned."""
     duplicate = "duplicate"
-    """The same student, amount, paid-on date and month as a payment already here, or as an
-    earlier row in the file. Skipped."""
+    """Exactly like a payment already here, or an earlier row of the file: the same student,
+    amount, paid-on date, month, method and note. Skipped unless the owner says Add anyway."""
+    possible_duplicate = "possible_duplicate"
+    """The same student, amount, paid-on date and month as a payment already here (or an
+    earlier row), but a different method or note. Skipped unless the owner says Add anyway."""
     problem = "problem"
     """Can't be added (see `reason`). Skipped."""
 
@@ -1013,6 +1016,8 @@ class ImportPaymentChoice(enum.StrEnum):
     """Keep it as unassigned."""
     skip = "skip"
     """Don't add it."""
+    add = "add"
+    """Add it anyway, even though it looks like a duplicate (two instalments on one day)."""
 
 
 class ImportFee(_Model):
@@ -1023,7 +1028,7 @@ class ImportFee(_Model):
     kind: FeeKind = FeeKind.fee
 
 
-MAX_IMPORT_ROWS = 5000
+MAX_IMPORT_ROWS = 100_000
 
 
 class ImportStudent(_Model):
@@ -1086,6 +1091,10 @@ class ImportStudentPreview(_ReadModel):
     student_id: int | None = Field(
         description="The student already here that it is (`exists`) or looks like (`similar`)."
     )
+    add_by_default: bool = Field(
+        description="`similar` only: added unless the owner says Skip (a brother or sister "
+        "sharing a phone with an earlier row of the file)."
+    )
     data: ImportStudent | None = Field(
         description="The row to send back to add it; null for a problem."
     )
@@ -1118,6 +1127,7 @@ class ImportPreview(_ReadModel):
     filename: str | None
     sheets: list[str] = Field(description="The sheets that were read.")
     ignored_sheets: list[str] = Field(description="Sheets that weren't students or payments.")
+    hidden_sheets: list[str] = Field(description="Hidden sheets, which are never read.")
     students: list[ImportStudentPreview]
     payments: list[ImportPaymentPreview]
     fee_changes: int = Field(
@@ -1154,7 +1164,7 @@ class ImportCommit(_Model):
 
     filename: ShortText = None
     students: list[ImportStudentDecision] = Field(default=[], max_length=MAX_IMPORT_ROWS)
-    payments: list[ImportPaymentDecision] = Field(default=[], max_length=2 * MAX_IMPORT_ROWS)
+    payments: list[ImportPaymentDecision] = Field(default=[], max_length=MAX_IMPORT_ROWS)
 
 
 class ImportResult(_ReadModel):

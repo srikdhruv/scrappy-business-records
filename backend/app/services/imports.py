@@ -43,7 +43,7 @@ from sqlalchemy.orm import Session
 from app import backup
 from app.db import lock_for_writing
 from app.errors import unprocessable
-from app.models import FeeChange, FeeKind, Payment, Student, UnassignedPayment
+from app.models import FeeChange, FeeKind, Payment, PaymentMethod, Student, UnassignedPayment
 from app.months import format_month, parse_month
 from app.schemas import (
     MAX_AMOUNT_PAISE,
@@ -61,8 +61,9 @@ from app.schemas import (
 )
 from app.services import spreadsheet as sheet_io
 from app.services.bounds import EARLIEST_DATE, latest_month
+from app.services.matching import PeopleIndex, Person, text_digits, text_key
 from app.services.spreadsheet import CellError, Col, SheetKind
-from app.services.text import looks_like_phone, name_key, phone_digits, student_matches
+from app.services.text import name_key, phone_digits
 
 # --------------------------------------------------------------------------- plain words
 
@@ -111,14 +112,14 @@ _LABELS = {
 
 
 def _plain(error: ValidationError) -> str:
-    """The first problem in plain words, e.g. "Phone is too long (at most 200 characters)"."""
+    """The first problem in plain words, e.g. "Phone is too long (max 200 characters)"."""
     first = error.errors()[0]
     loc = [str(p) for p in first.get("loc", ()) if not isinstance(p, int)]
     label = _LABELS.get(loc[0], loc[0]) if loc else "This row"
     kind = first.get("type", "")
     ctx = first.get("ctx") or {}
-    if kind == "string_too_long":
-        return f"{label} is too long (at most {ctx.get('max_length')} characters)"
+    if kind in ("string_too_long", "too_long"):
+        return f"{label} is too long (max {ctx.get('max_length')} characters)"
     if kind == "less_than_equal":
         return f"{label} is more than {_rupees(MAX_AMOUNT_PAISE)}, the most it can be"
     if kind == "greater_than":
@@ -183,43 +184,57 @@ def payment_problem(data: ImportPayment, today: dt.date) -> str | None:
 # --------------------------------------------------------------------------- what's here
 
 
+def _norm_note(note: str | None) -> str:
+    return (note or "").strip()
+
+
+# A payment as the duplicate check sees it: what, when and for which month; then how and why.
+_PayKey = tuple[Any, int, dt.date, str]
+_PayExtra = tuple[str, str]
+
+
 @dataclass
 class _Known:
     """The records as they are now, indexed for matching."""
 
     students: dict[int, Student]
-    by_name: dict[tuple[str, ...], list[Student]]
-    by_phone: dict[str, list[Student]]
-    payment_keys: set[tuple[int, int, dt.date, str]]
-    unassigned_keys: set[tuple[tuple[str, ...], int, dt.date, str]]
+    people: PeopleIndex[int]
+    payments: dict[_PayKey, list[_PayExtra]]  # by (student id, amount, paid on, month)
+    unassigned: dict[_PayKey, list[_PayExtra]]  # by (name as written, amount, paid on, month)
 
 
 def _load_known(session: Session) -> _Known:
     students = {s.id: s for s in session.scalars(select(Student).order_by(Student.id))}
-    by_name: dict[tuple[str, ...], list[Student]] = defaultdict(list)
-    by_phone: dict[str, list[Student]] = defaultdict(list)
-    for s in students.values():
-        by_name[name_key(s.name)].append(s)
-        if digits := phone_digits(s.phone):
-            by_phone[digits].append(s)
-    payment_keys = {
-        (sid, amount, paid_on, format_month(for_month))
-        for sid, amount, paid_on, for_month in session.execute(
-            select(Payment.student_id, Payment.amount_paise, Payment.paid_on, Payment.for_month)
+    people = PeopleIndex(Person(s.id, s.name, s.phone) for s in students.values())
+    payments: dict[_PayKey, list[_PayExtra]] = defaultdict(list)
+    for sid, amount, paid_on, for_month, method, note in session.execute(
+        select(
+            Payment.student_id,
+            Payment.amount_paise,
+            Payment.paid_on,
+            Payment.for_month,
+            Payment.method,
+            Payment.note,
         )
-    }
-    unassigned_keys = {
-        (name_key(text), amount, paid_on, format_month(for_month))
-        for text, amount, paid_on, for_month in session.execute(
-            select(
-                UnassignedPayment.student_text,
-                UnassignedPayment.amount_paise,
-                UnassignedPayment.paid_on,
-                UnassignedPayment.for_month,
-            )
+    ):
+        payments[(sid, amount, paid_on, format_month(for_month))].append(
+            (PaymentMethod(method).value, _norm_note(note))
         )
-    }
-    return _Known(students, by_name, by_phone, payment_keys, unassigned_keys)
+    unassigned: dict[_PayKey, list[_PayExtra]] = defaultdict(list)
+    for text, amount, paid_on, for_month, method, note in session.execute(
+        select(
+            UnassignedPayment.student_text,
+            UnassignedPayment.amount_paise,
+            UnassignedPayment.paid_on,
+            UnassignedPayment.for_month,
+            UnassignedPayment.method,
+            UnassignedPayment.note,
+        )
+    ):
+        unassigned[(name_key(text), amount, paid_on, format_month(for_month))].append(
+            (PaymentMethod(method).value, _norm_note(note))
+        )
+    return _Known(students, people, payments, unassigned)
 
 
 def _describe(student: Student) -> str:
@@ -236,21 +251,75 @@ class StudentPlan:
     reason: str | None = None
     student_id: int | None = None  # exists: who it is; similar: who it looks like
     same_as: int | None = None  # exists in the file: the earlier row it repeats
+    add_by_default: bool = False  # similar: added unless the owner says Skip
+
+
+def _different_people(a: ImportStudent, b: ImportStudent) -> bool:
+    """Two rows that both carry a Student ID (a Download everything file) are the same person
+    only if the ID is the same: two "Priya S" with no phone, or siblings sharing a parent's
+    phone, stay two people."""
+    return bool(a.ref and b.ref and a.ref != b.ref)
 
 
 def classify_students(
     rows: Sequence[ImportStudent], known: _Known, current_month: dt.date
 ) -> list[StudentPlan]:
     plans: list[StudentPlan] = []
+    by_ref: dict[str, StudentPlan] = {}
+    in_file: PeopleIndex[int] = PeopleIndex()  # earlier rows, by row number
+    by_row: dict[int, StudentPlan] = {}
+    claimed: dict[int, int] = {}  # student here -> the row (with a Student ID) that is them
+    every_row_has_an_id = True  # so far: then rows are only compared with what's here
+
+    def add(plan: StudentPlan) -> None:
+        plans.append(plan)
+        by_row[plan.data.row] = plan
+        if plan.status is not ImportStudentStatus.problem:
+            in_file.add(Person(plan.data.row, plan.data.name, plan.data.phone))
+            if plan.data.ref:
+                by_ref.setdefault(plan.data.ref, plan)
+
+    def earlier(people: list[Person[int]], data: ImportStudent) -> list[StudentPlan]:
+        if data.ref and every_row_has_an_id:
+            return []
+        return [
+            by_row[p.ident] for p in people if not _different_people(by_row[p.ident].data, data)
+        ]
+
     for data in rows:
         if problem := student_problem(data, current_month):
-            plans.append(StudentPlan(data, ImportStudentStatus.problem, problem))
+            add(StudentPlan(data, ImportStudentStatus.problem, problem))
             continue
+        every_row_has_an_id = every_row_has_an_id and bool(data.ref)
         key, digits = name_key(data.name), phone_digits(data.phone)
-        same_name = known.by_name.get(key, [])
-        same = next((s for s in same_name if phone_digits(s.phone) == digits), None)
-        if same is not None:
-            plans.append(
+
+        # The same Student ID twice in one file: the same person.
+        if data.ref and data.ref in by_ref:
+            first = by_ref[data.ref]
+            add(
+                StudentPlan(
+                    data,
+                    ImportStudentStatus.exists,
+                    f"Same Student ID as row {first.data.row} in this file",
+                    student_id=first.student_id,
+                    same_as=first.same_as or first.data.row,
+                )
+            )
+            continue
+
+        same_name = [known.students[p.ident] for p in known.people.same_name(key)]
+        exact = [s for s in same_name if phone_digits(s.phone) == digits]
+        if data.ref:
+            # Uploading a file back into the app it came from: its IDs are the same.
+            exact.sort(key=lambda s: str(s.id) != data.ref)
+            free = [s for s in exact if s.id not in claimed]
+        else:
+            free = exact
+        if free:
+            same = free[0]
+            if data.ref:
+                claimed[same.id] = data.row
+            add(
                 StudentPlan(
                     data,
                     ImportStudentStatus.exists,
@@ -259,29 +328,37 @@ def classify_students(
                 )
             )
             continue
-        earlier = [p for p in plans if p.status is not ImportStudentStatus.problem]
-        repeat = next(
-            (
-                p
-                for p in earlier
-                if name_key(p.data.name) == key and phone_digits(p.data.phone) == digits
-            ),
-            None,
+        if exact:  # every one of them is already another row of this file
+            other = exact[0]
+            add(
+                StudentPlan(
+                    data,
+                    ImportStudentStatus.similar,
+                    f"Same name and phone as {_describe(other)}, who is already row "
+                    f"{claimed[other.id]} of this file",
+                    student_id=other.id,
+                )
+            )
+            continue
+
+        file_same = earlier(
+            [p for p in in_file.same_name(key) if phone_digits(p.phone) == digits], data
         )
-        if repeat is not None:
-            plans.append(
+        if file_same:
+            first = file_same[0]
+            add(
                 StudentPlan(
                     data,
                     ImportStudentStatus.exists,
-                    f"Same as row {repeat.data.row} in this file",
-                    student_id=repeat.student_id,
-                    same_as=repeat.same_as or repeat.data.row,
+                    f"Same as row {first.data.row} in this file",
+                    student_id=first.student_id,
+                    same_as=first.same_as or first.data.row,
                 )
             )
             continue
         if same_name:
             other = same_name[0]
-            plans.append(
+            add(
                 StudentPlan(
                     data,
                     ImportStudentStatus.similar,
@@ -290,10 +367,10 @@ def classify_students(
                 )
             )
             continue
-        same_phone = known.by_phone.get(digits, []) if digits else []
+        same_phone = [known.students[p.ident] for p in known.people.same_phone(digits)]
         if same_phone:
             other = same_phone[0]
-            plans.append(
+            add(
                 StudentPlan(
                     data,
                     ImportStudentStatus.similar,
@@ -302,25 +379,53 @@ def classify_students(
                 )
             )
             continue
-        look_alike = next(
-            (
-                p
-                for p in earlier
-                if name_key(p.data.name) == key or (digits and phone_digits(p.data.phone) == digits)
-            ),
-            None,
-        )
-        if look_alike is not None:
-            what = "name" if name_key(look_alike.data.name) == key else "phone"
-            plans.append(
+        file_name = earlier(in_file.same_name(key), data)
+        if file_name:
+            add(
                 StudentPlan(
                     data,
                     ImportStudentStatus.similar,
-                    f"Same {what} as row {look_alike.data.row} in this file",
+                    f"Same name as row {file_name[0].data.row} in this file",
                 )
             )
             continue
-        plans.append(StudentPlan(data, ImportStudentStatus.new))
+        file_phone = earlier(in_file.same_phone(digits), data)
+        if file_phone:
+            # Brothers and sisters often share a parent's phone: added unless she says Skip.
+            add(
+                StudentPlan(
+                    data,
+                    ImportStudentStatus.similar,
+                    f"Same phone as {file_phone[0].data.name} (row {file_phone[0].data.row}), "
+                    "perhaps a brother or sister",
+                    add_by_default=True,
+                )
+            )
+            continue
+        near = [known.students[p.ident] for p in known.people.near(key)]
+        if near:
+            other = near[0]
+            add(
+                StudentPlan(
+                    data,
+                    ImportStudentStatus.similar,
+                    f"Name is very close to {_describe(other)}",
+                    student_id=other.id,
+                )
+            )
+            continue
+        file_near = [] if data.ref and every_row_has_an_id else earlier(in_file.near(key), data)
+        if file_near:
+            add(
+                StudentPlan(
+                    data,
+                    ImportStudentStatus.similar,
+                    f"Name is very close to {file_near[0].data.name} "
+                    f"(row {file_near[0].data.row}) in this file",
+                )
+            )
+            continue
+        add(StudentPlan(data, ImportStudentStatus.new))
     return plans
 
 
@@ -335,61 +440,28 @@ class PaymentPlan:
     student_id: int | None = None
     student_row: int | None = None
     candidate_ids: list[int] = field(default_factory=list)
-
-
-def _suggestions(text: str, known: _Known, limit: int = 5) -> list[int]:
-    """Students the Students search finds for `text`, for a payment that matched no one."""
-    found = [
-        s.id
-        for s in known.students.values()
-        if student_matches(
-            text, name=s.name, phone=s.phone, guardian_name=s.guardian_name, batch_label=None
-        )
-    ]
-    if not found:  # try each word on its own: "Ananya R" still suggests Ananya Rao
-        words = [w for w in text.split() if len(w) >= 3]
-        found = [
-            s.id
-            for s in known.students.values()
-            if any(student_matches(w, name=s.name, phone=s.phone) for w in words)
-        ]
-    return sorted(found, key=lambda i: known.students[i].name.casefold())[:limit]
+    by_id: bool = False  # linked by the file's Student ID (a Download everything file)
 
 
 def _by_name(ids: Iterable[int], known: _Known) -> list[int]:
-    return sorted(ids, key=lambda i: (known.students[i].name.casefold(), i))
+    return sorted(set(ids), key=lambda i: (known.students[i].name.casefold(), i))
 
 
-def _match(
-    data: ImportPayment, known: _Known, in_file: Sequence[StudentPlan]
-) -> tuple[set[tuple[str, int]], set[tuple[str, int]], set[int]]:
-    """Who a payment row names, as ("here", student id) or ("file", row) pairs.
+class _Suggester:
+    """Students a payment may be from, when none matched: the Students search's words, then a
+    name a letter or two apart. Remembered per name, as a file often repeats one."""
 
-    Strong: the same name and phone digits. Weak: the same name where one of them has no phone,
-    or the same phone digits under another name ("or phone digits", as the search finds). A
-    student with the same name but a different phone is no match (a conflict): only offered.
-    """
-    text = data.student_text
-    key = () if looks_like_phone(text) else name_key(text)
-    digits = phone_digits(data.phone) or (phone_digits(text) if looks_like_phone(text) else "")
-    people = [("here", s.id, s.name, s.phone) for s in known.students.values()] + [
-        ("file", p.data.row, p.data.name, p.data.phone) for p in in_file
-    ]
-    strong: set[tuple[str, int]] = set()
-    weak: set[tuple[str, int]] = set()
-    conflicts: set[int] = set()
-    for where, ident, name, phone in people:
-        same_name = bool(key) and name_key(name) == key
-        theirs = phone_digits(phone)
-        same_phone = bool(digits) and theirs == digits
-        if same_name and same_phone:
-            strong.add((where, ident))
-        elif same_name and digits and theirs:
-            if where == "here":
-                conflicts.add(ident)
-        elif same_name or same_phone:
-            weak.add((where, ident))
-    return strong, weak, conflicts
+    def __init__(self, known: _Known) -> None:
+        self.known = known
+        self.cache: dict[tuple[str, ...], list[int]] = {}
+
+    def __call__(self, key: tuple[str, ...], limit: int = 5) -> list[int]:
+        if key not in self.cache:
+            people = self.known.people
+            found = _by_name((p.ident for p in people.words(key)), self.known)
+            found += [i for i in _by_name((p.ident for p in people.near(key)), self.known)]
+            self.cache[key] = list(dict.fromkeys(found))[:limit]
+        return self.cache[key]
 
 
 def classify_payments(
@@ -398,20 +470,31 @@ def classify_payments(
     known: _Known,
     today: dt.date,
 ) -> list[PaymentPlan]:
-    """Who each payment goes to (before any duplicate check; see `_dedupe`)."""
-    by_ref = {p.data.ref: p for p in students if p.data.ref}
-    by_row = {p.data.row: p for p in students}
-    in_file = [
-        p for p in students if p.status in (ImportStudentStatus.new, ImportStudentStatus.similar)
-    ]
+    """Who each payment goes to (before any duplicate check; see `_dedupe`).
 
-    def to_file_student(plan: StudentPlan) -> PaymentPlan | None:
+    Given to a student automatically only when the name matches (with the same phone, or where
+    one of them has no phone), or when the row has only a phone number and it's theirs. The
+    same phone under a different name, or more than one match, needs the owner's choice."""
+    by_ref = {p.data.ref: p for p in students if p.data.ref and p.same_as is None}
+    by_row = {p.data.row: p for p in students}
+    in_file: PeopleIndex[int] = PeopleIndex(
+        Person(p.data.row, p.data.name, p.data.phone)
+        for p in students
+        if p.status in (ImportStudentStatus.new, ImportStudentStatus.similar)
+    )
+    suggest = _Suggester(known)
+
+    def to_file_student(data: ImportPayment, plan: StudentPlan, by_id: bool) -> PaymentPlan | None:
         if plan.same_as is not None:
             plan = by_row.get(plan.same_as, plan)
         if plan.status is ImportStudentStatus.exists and plan.student_id is not None:
-            return PaymentPlan(data, ImportPaymentStatus.ready, student_id=plan.student_id)
+            return PaymentPlan(
+                data, ImportPaymentStatus.ready, student_id=plan.student_id, by_id=by_id
+            )
         if plan.status is ImportStudentStatus.new:
-            return PaymentPlan(data, ImportPaymentStatus.ready, student_row=plan.data.row)
+            return PaymentPlan(
+                data, ImportPaymentStatus.ready, student_row=plan.data.row, by_id=by_id
+            )
         if plan.status is ImportStudentStatus.similar:
             return PaymentPlan(
                 data,
@@ -419,6 +502,7 @@ def classify_payments(
                 f"Goes with your choice for {plan.data.name} (row {plan.data.row}): to them if "
                 "you add them, otherwise kept as unassigned",
                 student_row=plan.data.row,
+                by_id=by_id,
             )
         return None
 
@@ -428,29 +512,48 @@ def classify_payments(
             plans.append(PaymentPlan(data, ImportPaymentStatus.problem, problem))
             continue
         if data.unassigned:
-            plans.append(PaymentPlan(data, ImportPaymentStatus.unassigned))
+            plans.append(PaymentPlan(data, ImportPaymentStatus.unassigned, by_id=True))
             continue
         if data.student_ref and data.student_ref in by_ref:
-            linked = to_file_student(by_ref[data.student_ref])
+            linked = to_file_student(data, by_ref[data.student_ref], by_id=True)
             if linked is not None:
                 plans.append(linked)
                 continue
 
         text = data.student_text
-        strong, weak, conflicts = _match(data, known, in_file)
-        found = strong or weak
+        key, digits = text_key(text), text_digits(text, data.phone)
+        # ("here", student id) or ("file", row): the same name, and a phone that agrees.
+        named: list[tuple[str, int]] = []
+        strong: list[tuple[str, int]] = []
+        conflicts: list[int] = []
+        for where, people in (("here", known.people), ("file", in_file)):
+            for p in people.same_name(key):
+                theirs = p.digits
+                if digits and theirs == digits:
+                    strong.append((where, p.ident))
+                elif digits and theirs:
+                    if where == "here":
+                        conflicts.append(p.ident)
+                else:
+                    named.append((where, p.ident))
+        phone_only = [
+            (where, p.ident)
+            for where, people in (("here", known.people), ("file", in_file))
+            for p in people.same_phone(digits)
+            if p.key != key
+        ]
+        found = strong or named or (phone_only if not key else [])
         if len(found) == 1:
             [(where, ident)] = found
             if where == "here":
                 plans.append(PaymentPlan(data, ImportPaymentStatus.ready, student_id=ident))
             else:
-                linked = to_file_student(by_row[ident])
+                linked = to_file_student(data, by_row[ident], by_id=False)
                 assert linked is not None
                 plans.append(linked)
             continue
-        here = [ident for where, ident in found if where == "here"]
-        new = [ident for where, ident in found if where == "file"]
-        if here or new:
+        here = [i for w, i in found if w == "here"]
+        if found:
             plans.append(
                 PaymentPlan(
                     data,
@@ -461,16 +564,27 @@ def classify_payments(
                 )
             )
             continue
+        by_phone = [i for w, i in phone_only if w == "here"]
+        if by_phone:
+            first = known.students[by_phone[0]]
+            reason = (
+                f"Same phone as {first.name}, but the name is “{text}”. Choose who paid, or "
+                "keep it as unassigned"
+            )
+        elif conflicts:
+            reason = (
+                f"“{text}” has a different phone from the student of that name. Choose who "
+                "paid, or keep it as unassigned"
+            )
+        else:
+            reason = f"No student called “{text}”. Choose who paid, or keep it as unassigned"
+        offered = _by_name(by_phone, known) + _by_name(conflicts, known) + suggest(key)
         plans.append(
             PaymentPlan(
                 data,
                 ImportPaymentStatus.needs_student,
-                f"No student called “{text}”. Choose who paid, or keep it as unassigned"
-                if not conflicts
-                else f"“{text}” has a different phone from the student of that name. Choose who "
-                "paid, or keep it as unassigned",
-                candidate_ids=_by_name(conflicts, known)
-                + [i for i in _suggestions(text, known) if i not in conflicts],
+                reason,
+                candidate_ids=list(dict.fromkeys(offered))[:6],
             )
         )
     return plans
@@ -481,7 +595,7 @@ _Target = tuple[str, int] | tuple[str]
 
 
 def _default_target(plan: PaymentPlan, added_rows: set[int]) -> _Target | None:
-    if plan.status in (ImportPaymentStatus.problem, ImportPaymentStatus.duplicate):
+    if plan.status is ImportPaymentStatus.problem:
         return None
     if plan.student_id is not None:
         return ("student", plan.student_id)
@@ -490,37 +604,72 @@ def _default_target(plan: PaymentPlan, added_rows: set[int]) -> _Target | None:
     return ("unassigned",)
 
 
+_METHOD_WORDS = {"upi": "UPI", "cash": "Cash", "other": "Other"}
+
+
 def _dedupe(
-    plans: Sequence[PaymentPlan], targets: list[_Target | None], known: _Known
-) -> list[str | None]:
-    """For each payment, why it's a duplicate where it's going (or None), in file order."""
-    seen: dict[tuple[Any, ...], int] = {}
-    reasons: list[str | None] = []
-    for plan, target in zip(plans, targets, strict=True):
+    plans: Sequence[PaymentPlan],
+    targets: Sequence[_Target | None],
+    known: _Known,
+    add_anyway: Sequence[bool] | None = None,
+) -> list[tuple[ImportPaymentStatus, str] | None]:
+    """Which payments are already here, or repeat an earlier row: `duplicate` when everything
+    is the same (method and note too), `possible_duplicate` when only the student, amount,
+    paid-on date and month are. None for the others, in file order.
+
+    Counted one for one: two identical payments in the file and one here means one of them is
+    new. Rows linked by Student ID (a Download everything file) are never duplicates of each
+    other, so restoring one brings back genuine repeats (two instalments on the same day)."""
+    available = {k: list(v) for k, v in known.payments.items()}
+    available_unassigned = {k: list(v) for k, v in known.unassigned.items()}
+    seen: dict[tuple[Any, ...], list[tuple[int, _PayExtra, bool]]] = defaultdict(list)
+    results: list[tuple[ImportPaymentStatus, str] | None] = []
+    for i, (plan, target) in enumerate(zip(plans, targets, strict=True)):
         if target is None:
-            reasons.append(None)
+            results.append(None)
             continue
         d = plan.data
+        extra: _PayExtra = (d.method.value, _norm_note(d.note))
         what = (d.amount_paise, d.paid_on, d.for_month)
         if target[0] == "unassigned":
-            key: tuple[Any, ...] = ("u", name_key(d.student_text), *what)
-            here = (name_key(d.student_text), *what) in known.unassigned_keys
-            already = "Already waiting in Unassigned payments"
+            pool = available_unassigned.get((name_key(d.student_text), *what), [])
+            file_key: tuple[Any, ...] = ("u", name_key(d.student_text), *what)
+            where = "waiting in Unassigned payments"
         else:
-            key = (target, *what)
-            here = target[0] == "student" and (target[1], *what) in known.payment_keys
-            already = (
-                f"Already logged: {_rupees(d.amount_paise)} paid on {_day_words(d.paid_on)} "
-                f"for {_month_words(d.for_month)}"
-            )
-        if here:
-            reasons.append(already)
-        elif key in seen:
-            reasons.append(f"Same as row {seen[key]} in this file")
+            pool = available.get((target[1], *what), []) if target[0] == "student" else []
+            file_key = (target, *what)
+            where = "logged"
+        forced = bool(add_anyway and add_anyway[i])
+        described = (
+            f"{_rupees(d.amount_paise)} paid on {_day_words(d.paid_on)} for "
+            f"{_month_words(d.for_month)}"
+        )
+        result: tuple[ImportPaymentStatus, str] | None = None
+        if pool:
+            if extra in pool:
+                pool.remove(extra)
+                result = (ImportPaymentStatus.duplicate, f"Already {where}: {described}")
+            else:
+                method, _ = pool.pop(0)
+                result = (
+                    ImportPaymentStatus.possible_duplicate,
+                    f"Possibly already {where}: {described}, by {_METHOD_WORDS[method]}",
+                )
         else:
-            seen[key] = d.row
-            reasons.append(None)
-    return reasons
+            earlier = [e for e in seen[file_key] if not (plan.by_id and e[2])]
+            if earlier:
+                row, their_extra, _ = earlier[0]
+                result = (
+                    (ImportPaymentStatus.duplicate, f"Same as row {row} in this file")
+                    if their_extra == extra
+                    else (
+                        ImportPaymentStatus.possible_duplicate,
+                        f"Like row {row} in this file (the same amount, day and month)",
+                    )
+                )
+        seen[file_key].append((d.row, extra, plan.by_id))
+        results.append(None if forced else result)
+    return results
 
 
 # --------------------------------------------------------------------------- reading a file
@@ -619,13 +768,14 @@ def _parse(book: sheet_io.Workbook, current_month: dt.date) -> _Parsed:
                     ImportStudentPreview(
                         row=row.number,
                         sheet=sheet.title,
-                        name=name,
-                        phone=phone,
+                        name=name[:200],
+                        phone=phone[:200] if phone else None,
                         monthly_fee_paise=fee,
                         joined_month=joined,
                         status=ImportStudentStatus.problem,
                         reason=problem,
                         student_id=None,
+                        add_by_default=False,
                         data=None,
                     )
                 )
@@ -674,12 +824,12 @@ def _parse(book: sheet_io.Workbook, current_month: dt.date) -> _Parsed:
                     ImportPaymentPreview(
                         row=row.number,
                         sheet=sheet.title,
-                        student_text=student,
+                        student_text=student[:200],
                         amount_paise=amount,
                         paid_on=paid_on,
                         for_month=for_month,
                         method=method,
-                        note=note,
+                        note=note[:500] if note else None,
                         status=ImportPaymentStatus.problem,
                         reason=problem,
                         student_id=None,
@@ -712,7 +862,7 @@ def preview(
     known = _load_known(session)
     splans = classify_students(parsed.student_rows, known, current_month)
     pplans = classify_payments(parsed.payment_rows, splans, known, today)
-    added = {p.data.row for p in splans if p.status is ImportStudentStatus.new}
+    added = {p.data.row for p in splans if _added_by_default(p)}
     duplicates = _dedupe(pplans, [_default_target(p, added) for p in pplans], known)
 
     students_sheet = next((s.title for s in book.of(SheetKind.students)), "Students")
@@ -727,6 +877,7 @@ def preview(
             status=p.status,
             reason=p.reason,
             student_id=p.student_id,
+            add_by_default=p.add_by_default,
             data=p.data if p.status is not ImportStudentStatus.problem else None,
         )
         for p in splans
@@ -735,9 +886,7 @@ def preview(
     unassigned_sheet = next((s.title for s in book.of(SheetKind.unassigned)), "Unassigned payments")
     payments = []
     for p, duplicate in zip(pplans, duplicates, strict=True):
-        status, reason = (
-            (ImportPaymentStatus.duplicate, duplicate) if duplicate else (p.status, p.reason)
-        )
+        status, reason = duplicate if duplicate else (p.status, p.reason)
         d = p.data
         payments.append(
             ImportPaymentPreview(
@@ -761,12 +910,19 @@ def preview(
         filename=filename,
         sheets=parsed.sheets,
         ignored_sheets=parsed.ignored,
+        hidden_sheets=book.hidden,
         students=sorted([*students, *parsed.students], key=lambda r: r.row),
         payments=sorted([*payments, *parsed.payments], key=lambda r: (r.sheet, r.row)),
         fee_changes=sum(
             len(p.data.fees or ()) for p in splans if p.status is ImportStudentStatus.new
         ),
         current_month=format_month(current_month),
+    )
+
+
+def _added_by_default(plan: StudentPlan) -> bool:
+    return plan.status is ImportStudentStatus.new or (
+        plan.status is ImportStudentStatus.similar and plan.add_by_default
     )
 
 
@@ -799,7 +955,7 @@ def commit(
     for plan, decision in zip(splans, body.students, strict=True):
         if decision.add is False:
             continue
-        if plan.status is ImportStudentStatus.new or (
+        if _added_by_default(plan) or (
             plan.status is ImportStudentStatus.similar and decision.add is True
         ):
             added_rows.add(plan.data.row)
@@ -820,7 +976,8 @@ def commit(
             targets.append(("student", chosen) if chosen in known.students else ("unassigned",))
         else:
             targets.append(_default_target(plan, added_rows))
-    duplicates = _dedupe(pplans, targets, known)
+    add_anyway = [d.choice is ImportPaymentChoice.add for d in body.payments]
+    duplicates = _dedupe(pplans, targets, known, add_anyway)
     targets = [None if dup else t for t, dup in zip(targets, duplicates, strict=True)]
 
     total = len(student_rows) + len(payment_rows)

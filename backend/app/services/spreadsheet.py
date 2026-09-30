@@ -23,7 +23,8 @@ import math
 import re
 import warnings
 import zipfile
-from collections.abc import Iterable
+from collections import defaultdict
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -34,7 +35,10 @@ from app.months import format_month
 MAX_FILE_BYTES = 5 * 1024 * 1024
 """The largest file accepted (5 MB): years of records are far smaller."""
 MAX_ROWS = 5000
-"""The most rows read from one sheet."""
+"""The most rows read from one sheet of a list someone made."""
+MAX_ROWS_WITH_IDS = 100_000
+"""The most rows in all, and in a sheet with the app's Student ID column (a Download everything
+file, which is as big as the records)."""
 _MAX_UNZIPPED_BYTES = 80 * 1024 * 1024  # an .xlsx is a zip; refuse one that balloons
 _MAX_ZIP_ENTRIES = 2000
 _HEADER_SEARCH_ROWS = 10  # the headings may be below a title or a blank row or two
@@ -129,10 +133,12 @@ _STUDENT_HEADINGS = {
     Col.ignored: ("status", "owes", "owed"),
 }
 
+_STRICT_AMOUNT = ("amount", "amount paid", "paid", "payment", "amount received")
+
 _PAYMENT_HEADINGS = {
     Col.student: ("student", "name", "student name", "name as written", "paid by"),
     Col.phone: _STUDENT_HEADINGS[Col.phone],
-    Col.amount: ("amount", "amount paid", "paid", "payment", "amount received"),
+    Col.amount: (*_STRICT_AMOUNT, "fee", "fees", "fee paid", "fees paid", "fees received"),
     Col.paid_on: ("paid on", "date", "payment date", "paid date", "date paid", "received on"),
     Col.for_month: ("for month", "month", "fee month", "for the month"),
     Col.method: ("method", "mode", "payment method", "payment mode", "how they paid"),
@@ -222,6 +228,7 @@ class Sheet:
 class Workbook:
     sheets: list[Sheet]
     ignored: list[str]  # titles of sheets that weren't read
+    hidden: list[str] = field(default_factory=list)  # hidden sheets, never read
 
     def of(self, kind: SheetKind) -> list[Sheet]:
         return [s for s in self.sheets if s.kind is kind]
@@ -253,11 +260,59 @@ def _check_container(data: bytes) -> None:
         raise BadFile("This file is too big to read. Upload one with fewer rows.")
 
 
+def _merged(ws: Any) -> dict[int, list[tuple[int, int, int]]]:
+    """A sheet's merged cells, by row: (first column, last column, the range's first row). Read
+    straight from the sheet's XML, as read-only sheets don't keep them. Empty if unreadable."""
+    from xml.etree.ElementTree import iterparse
+
+    from openpyxl.utils.cell import range_boundaries
+
+    by_row: dict[int, list[tuple[int, int, int]]] = defaultdict(list)
+    try:
+        with ws._get_source() as source:  # the sheet's XML inside the .xlsx
+            for _, element in iterparse(source):
+                if element.tag.endswith("}mergeCell"):
+                    first_col, first_row, last_col, last_row = range_boundaries(element.get("ref"))
+                    for r in range(first_row, min(last_row, first_row + MAX_ROWS_WITH_IDS) + 1):
+                        by_row[r].append((first_col, last_col, first_row))
+                element.clear()
+    except Exception:  # never let an odd merge stop the upload; the cells just stay empty
+        return {}
+    return by_row
+
+
+def _fill_merged(
+    rows: Iterable[tuple[Any, ...]], merged: dict[int, list[tuple[int, int, int]]]
+) -> Iterator[tuple[Any, ...]]:
+    """Rows with each merged range's value copied into all of its cells, as it looks in Excel
+    (a name merged down three rows is the name on each of them)."""
+    if not merged:
+        yield from rows
+        return
+    first_values: dict[tuple[int, int], Any] = {}
+    for number, values in enumerate(rows, start=1):
+        ranges = merged.get(number)
+        if not ranges:
+            yield values
+            continue
+        filled = list(values)
+        for first_col, last_col, first_row in ranges:
+            if len(filled) < last_col:
+                filled += [None] * (last_col - len(filled))
+            if number == first_row:
+                first_values[(first_row, first_col)] = filled[first_col - 1]
+            value = first_values.get((first_row, first_col))
+            for c in range(first_col, last_col + 1):
+                filled[c - 1] = value
+        yield tuple(filled)
+
+
 def read_workbook(data: bytes) -> Workbook:
     """Find the student, payment and fee-history sheets in an .xlsx file, and read their rows.
 
-    Raises `BadFile` for anything that isn't a readable .xlsx, a sheet with more than
-    `MAX_ROWS` rows, or a file with nothing the app recognizes.
+    Hidden sheets are left out (and listed). Merged cells count as their value in every cell.
+    Raises `BadFile` for anything that isn't a readable .xlsx, too many rows, or a file with
+    nothing the app recognizes.
     """
     if len(data) > MAX_FILE_BYTES:
         raise BadFile("This file is bigger than 5 MB. Upload a smaller one.")
@@ -278,17 +333,32 @@ def read_workbook(data: bytes) -> Workbook:
 
     sheets: list[Sheet] = []
     ignored: list[str] = []
+    hidden: list[str] = []
+    total = 0
     try:
         for ws in book.worksheets:
             title = str(ws.title)
             if title == TEMPLATE_HELP_SHEET:
                 continue
-            sheet = _read_sheet(title, ws.iter_rows(values_only=True))
+            if getattr(ws, "sheet_state", "visible") != "visible":
+                hidden.append(title)
+                continue
+            # The size a file claims for a sheet can be out of date; never trust it, or rows
+            # past it would be silently left out.
+            ws.reset_dimensions()
+            rows = _fill_merged(ws.iter_rows(values_only=True), _merged(ws))
+            sheet = _read_sheet(title, rows)
             # One sheet of each kind: a second one is left out, and said so.
             if sheet is None or any(s.kind is sheet.kind for s in sheets):
                 ignored.append(title)
-            else:
-                sheets.append(sheet)
+                continue
+            sheets.append(sheet)
+            total += len(sheet.rows)
+            if total > MAX_ROWS_WITH_IDS:
+                raise BadFile(
+                    f"This file has more than {MAX_ROWS_WITH_IDS:,} rows. Split it into smaller "
+                    "files and upload them one at a time."
+                )
     except BadFile:
         raise
     except Exception:
@@ -302,15 +372,15 @@ def read_workbook(data: bytes) -> Workbook:
     readable = (SheetKind.students, SheetKind.payments, SheetKind.unassigned)
     if not any(s.kind in readable for s in sheets):
         raise BadFile(
-            "Couldn't find students or payments in this file. The first row needs headings: "
-            "Name and Monthly fee for students, or Student, Amount and Paid on for payments. "
-            "Download a blank template to see how."
+            "Couldn't find students or payments in this file: no headings in the first 10 rows "
+            "of any sheet. It needs headings such as Name and Monthly fee for students, or "
+            "Student, Amount and Paid on for payments. Download a blank template to see how."
         )
     if not any(s.kind is SheetKind.students for s in sheets):
         # A fee history means nothing without its students.
         ignored += [s.title for s in sheets if s.kind is SheetKind.fee_history]
         sheets = [s for s in sheets if s.kind is not SheetKind.fee_history]
-    return Workbook(sheets=sheets, ignored=ignored)
+    return Workbook(sheets=sheets, ignored=ignored, hidden=hidden)
 
 
 def _blank(value: object) -> bool:
@@ -321,6 +391,7 @@ def _read_sheet(title: str, rows: Iterable[tuple[Any, ...]]) -> Sheet | None:
     """The sheet's kind, columns and non-empty rows, or None if it isn't one the app reads."""
     by_title = _TITLES.get(normalize_heading(title))
     sheet: Sheet | None = None
+    limit = MAX_ROWS
     for number, values in enumerate(rows, start=1):
         if sheet is None:
             if number > _HEADER_SEARCH_ROWS:
@@ -332,13 +403,16 @@ def _read_sheet(title: str, rows: Iterable[tuple[Any, ...]]) -> Sheet | None:
                 cols = _columns(kind, values)
                 if _complete(kind, cols):
                     sheet = Sheet(title=title, kind=kind, columns=cols)
+                    # The app's own Download everything sheets carry Student IDs: those can be
+                    # as big as the records are.
+                    limit = MAX_ROWS_WITH_IDS if Col.ref in cols else MAX_ROWS
                     break
             continue
         if all(_blank(v) for v in values):
             continue
-        if len(sheet.rows) >= MAX_ROWS:
+        if len(sheet.rows) >= limit:
             raise BadFile(
-                f"The sheet “{title}” has more than {MAX_ROWS:,} rows. Split it into smaller "
+                f"The sheet “{title}” has more than {limit:,} rows. Split it into smaller "
                 "files and upload them one at a time."
             )
         cells = {col: values[i] if i < len(values) else None for col, i in sheet.columns.items()}
@@ -347,11 +421,14 @@ def _read_sheet(title: str, rows: Iterable[tuple[Any, ...]]) -> Sheet | None:
 
 
 def _guess_order(values: tuple[Any, ...]) -> list[SheetKind]:
-    """Which kinds to try for a sheet with a name of its own: payments first if it has an
-    amount column (a payments list always has names too), then students, then fee history."""
+    """Which kinds to try for a sheet with a name of its own. Payments first if it has an
+    amount, a date or a payment-method column (a payments list has names too, and "Name | Date
+    | Fees | Mode" is a list of payments); else students first; fee history when it says so."""
     headings = {normalize_heading(v) for v in values}
     order = [SheetKind.students, SheetKind.payments, SheetKind.fee_history]
-    if headings & set(_PAYMENT_HEADINGS[Col.amount]):
+    paymentish = set(_STRICT_AMOUNT) | set(_PAYMENT_HEADINGS[Col.paid_on])
+    paymentish |= set(_PAYMENT_HEADINGS[Col.method])
+    if headings & paymentish:
         order = [SheetKind.payments, SheetKind.students, SheetKind.fee_history]
     if headings & set(_FEE_HEADINGS[Col.fee_from]) and headings & set(_FEE_HEADINGS[Col.kind]):
         order = [SheetKind.fee_history, *[k for k in order if k is not SheetKind.fee_history]]
@@ -399,6 +476,9 @@ def money(value: object) -> int | None:
             raise CellError(f"“{value}” has more than 2 decimal places")
         return int(paise)
     raw = str(value).strip()
+    if re.search(r"\d[\s,]*\s[\s,]*\d", raw):
+        # "₹500 700" is two amounts, or a typo: never ₹5,00,700.
+        raise CellError(f"“{raw[:40]}” looks like more than one amount. Write one amount per row")
     cleaned = _MONEY_NOISE.sub("", re.sub(r"\s", "", raw))
     if cleaned.startswith("-"):
         raise CellError("can't be less than ₹0")
@@ -451,10 +531,17 @@ def _make_date(year: int, month: int, day: int) -> dt.date | None:
         return None
 
 
+# A time after a date ("05/10/2026 10:30", "5 Oct 2026 4:15 pm") is ignored.
+_TIME = r"(?:[\s,t]+\d{1,2}[:.]\d{2}(?:[:.]\d{2})?\s*(?:am|pm)?)?"
 _ISO_DATE = re.compile(r"^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[ t].*)?$", re.IGNORECASE)
-_DMY = re.compile(r"^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2}|\d{4})$")
-_D_MON_Y = re.compile(r"^(\d{1,2})(?:st|nd|rd|th)?[\s\-/.,]*([a-z]+)[\s\-/.,']*(\d{2}|\d{4})$")
-_MON_D_Y = re.compile(r"^([a-z]+)[\s\-/.]*(\d{1,2})(?:st|nd|rd|th)?[\s,\-/.']+(\d{2}|\d{4})$")
+_DMY = re.compile(r"^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2}|\d{4})" + _TIME + "$")
+_D_MON_Y = re.compile(
+    r"^(\d{1,2})(?:st|nd|rd|th)?[\s\-/.,]*([a-z]+)[\s\-/.,']*(\d{2}|\d{4})" + _TIME + "$"
+)
+_MON_D_Y = re.compile(
+    r"^([a-z]+)[\s\-/.]*(\d{1,2})(?:st|nd|rd|th)?[\s,\-/.']+(\d{2}|\d{4})" + _TIME + "$"
+)
+_SERIAL_TEXT = re.compile(r"^\d{5}(\.\d+)?$")
 
 
 def date(value: object) -> dt.date | None:
@@ -474,7 +561,9 @@ def date(value: object) -> dt.date | None:
     raw = str(value).strip()
     s = raw.lower()
     found: dt.date | None = None
-    if m := _ISO_DATE.match(s):
+    if _SERIAL_TEXT.match(s):  # an Excel day number that became text, e.g. "46300"
+        found = _serial(float(s))
+    elif m := _ISO_DATE.match(s):
         found = _make_date(int(m[1]), int(m[2]), int(m[3]))
     elif m := _DMY.match(s):
         found = _make_date(_year(m[3]), int(m[2]), int(m[1]))
@@ -490,6 +579,7 @@ def date(value: object) -> dt.date | None:
 _MON_Y = re.compile(r"^([a-z]+)[\s\-/.,']*(\d{2}|\d{4})$")
 _Y_M = re.compile(r"^(\d{4})[-/.](\d{1,2})$")
 _M_Y = re.compile(r"^(\d{1,2})[-/.](\d{4})$")
+_M_YY = re.compile(r"^(\d{1,2})[-/.](\d{2})$")  # "10/26": October 2026
 
 
 def month(value: object) -> str | None:
@@ -514,6 +604,8 @@ def month(value: object) -> str | None:
             found = (int(m[1]), int(m[2]))
         elif m := _M_Y.match(s):
             found = (int(m[2]), int(m[1]))
+        elif m := _M_YY.match(s):
+            found = (_year(m[2]), int(m[1]))
         else:
             try:
                 d = date(value)

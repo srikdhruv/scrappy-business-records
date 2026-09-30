@@ -109,7 +109,7 @@ def test_the_same_stray_uploaded_twice_is_kept_once(api: TestClient) -> None:
     [row] = shown["payments"]
     assert (row["status"], row["reason"]) == (
         "duplicate",
-        "Already waiting in Unassigned payments",
+        "Already waiting in Unassigned payments: ₹1,500 paid on 2 Jun 2026 for Jun 2026",
     )
     commit(api, shown)
     assert len(api.get("/api/unassigned-payments").json()) == 1

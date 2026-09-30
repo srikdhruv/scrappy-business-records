@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime as dt
 import io
+import json
 from collections import Counter
 from typing import Any
 
@@ -33,21 +34,31 @@ def values(ws: Worksheet) -> list[list[Any]]:
 # --------------------------------------------------------------------------- the round trip
 
 
+def _strip(item: Json) -> Json:
+    return {k: v for k, v in item.items() if k not in ("id", "student_id", "created_at",
+                                                        "updated_at")}  # fmt: skip
+
+
 def _records(api: TestClient) -> Json:
-    """Everything the app knows, without ids or timestamps, so two apps can be compared."""
+    """Everything the app knows, without ids or timestamps, so two apps can be compared: every
+    student in full (their ledger month by month), every payment with who it belongs to, every
+    unassigned payment, and the Dashboard for every month from the first payment to a year
+    ahead. Students with the same name stay apart (as a multiset of whole records)."""
     students = api.get("/api/students", params={"status": "all"}).json()
-    names = {s["id"]: s["name"] for s in students}
-    details = {}
+    details: dict[int, Json] = {}
     for s in students:
-        d = api.get(f"/api/students/{s['id']}").json()
-        for key in ("id", "created_at", "updated_at"):
-            d.pop(key)
-        d["fee_history"] = [{k: v for k, v in f.items() if k != "id"} for f in d["fee_history"]]
+        d = _strip(api.get(f"/api/students/{s['id']}").json())
+        d["fee_history"] = [_strip(f) for f in d["fee_history"]]
         if d["next_fee_change"]:
-            d["next_fee_change"].pop("id")
-        details[(d["name"], d["phone"])] = d
+            d["next_fee_change"] = _strip(d["next_fee_change"])
+        details[s["id"]] = d
+    who = {
+        sid: json.dumps({k: d[k] for k in ("name", "phone", "joined_month", "batch_label",
+                                           "notes", "guardian_name")}, sort_keys=True)
+        for sid, d in details.items()
+    }  # fmt: skip
     payments = Counter(
-        (names[p["student_id"]], p["amount_paise"], p["paid_on"], p["for_month"], p["method"],
+        (who[p["student_id"]], p["amount_paise"], p["paid_on"], p["for_month"], p["method"],
          p["note"])
         for p in api.get("/api/payments").json()
     )  # fmt: skip
@@ -56,18 +67,25 @@ def _records(api: TestClient) -> Json:
                              "method", "note", "source"))
         for u in api.get("/api/unassigned-payments").json()
     )  # fmt: skip
-    board = api.get("/api/dashboard").json()
-    strip_ids = [
-        {k: v for k, v in item.items() if k != "student_id"}
-        for part in ("yet_to_pay", "backlog", "overpaid")
-        for item in board[part]
-    ]
+    dashboards = {}
+    month = "2024-01"
+    while month <= "2027-06":
+        board = api.get("/api/dashboard", params={"month": month}).json()
+        dashboards[month] = {
+            "summary": board["summary"],
+            "lists": [
+                json.dumps(_strip(item), sort_keys=True)
+                for part in ("yet_to_pay", "backlog", "overpaid")
+                for item in board[part]
+            ],
+        }
+        year, mon = int(month[:4]), int(month[5:])
+        month = f"{year + mon // 12}-{mon % 12 + 1:02d}"
     return {
-        "students": details,
+        "students": sorted(json.dumps(d, sort_keys=True) for d in details.values()),
         "payments": payments,
         "unassigned": unassigned,
-        "summary": board["summary"],
-        "dashboard": strip_ids,
+        "dashboards": dashboards,
     }
 
 
@@ -140,6 +158,50 @@ def test_download_everything_restores_everything_into_an_empty_app(api: TestClie
     # Uploading it again adds nothing: everything is already here.
     again = preview(api, response.content)
     assert {s["status"] for s in again["students"]} == {"exists"}
+    assert {p["status"] for p in again["payments"]} == {"duplicate"}
+    assert commit(api, again)["backup_file"] is None
+    assert _records(api) == before
+
+
+def _look_alikes(api: TestClient) -> None:
+    """People an upload could easily mix up: two "Priya S" with no phone, brothers and sisters
+    sharing a parent's phone, students with no phone at all, a hyphenated name, and two
+    identical payments on one day (two instalments)."""
+    first = make_student(api, name="Priya S", joined_month="2026-01", batch_label="Mon")
+    second = make_student(api, name="Priya S", joined_month="2026-03", batch_label="Tue")
+    for student, month in ((first, "2026-01"), (first, "2026-02"), (second, "2026-03")):
+        pay(api, student["id"], month)
+    sisters = [
+        make_student(api, name=name, phone="98765 43210", guardian_name="Lakshmi Iyer",
+                     joined_month="2026-02", monthly_fee_paise=120000)
+        for name in ("Tara Iyer", "Meera Iyer", "Anu Iyer")
+    ]  # fmt: skip
+    for sister in sisters:
+        pay(api, sister["id"], "2026-02", 120000)
+        pay(api, sister["id"], "2026-03", 60000, paid_on="2026-03-04")
+        pay(api, sister["id"], "2026-03", 60000, paid_on="2026-03-04")  # the same, twice
+    lone = make_student(api, name="Mary-Jane Dsouza", joined_month="2026-04")
+    pay(api, lone["id"], "2026-04", 150000, note="=cash")
+
+
+def test_download_everything_keeps_look_alikes_apart(api: TestClient) -> None:
+    """Restoring into an empty app never merges or drops anyone, even people with the same
+    name, or the same phone, and genuine repeated payments all come back."""
+    _look_alikes(api)
+    before = _records(api)
+    content = api.get("/api/export/everything.xlsx").content
+    _wipe(api)
+
+    shown = preview(api, content)
+    assert [s["status"] for s in shown["students"]] == ["new"] * 6
+    assert {p["status"] for p in shown["payments"]} == {"ready"}
+    result = commit(api, shown)
+    assert (result["students_added"], result["payments_added"]) == (6, 13)
+    assert _records(api) == before
+
+    # Back into the same app: every row is recognised as already here, and nothing is added.
+    again = preview(api, content)
+    assert [s["status"] for s in again["students"]] == ["exists"] * 6
     assert {p["status"] for p in again["payments"]} == {"duplicate"}
     assert commit(api, again)["backup_file"] is None
     assert _records(api) == before

@@ -18,37 +18,31 @@ from app.models import Payment, Student, UnassignedPayment
 from app.months import format_month
 from app.schemas import PaymentRead, UnassignedPaymentRead
 from app.services.bounds import check_month, valid_id
+from app.services.matching import PeopleIndex, Person, text_digits, text_key
 from app.services.payments import get_payment
-from app.services.text import looks_like_phone, name_key, phone_digits, student_matches
 
 
-def _suggested(row: UnassignedPayment, students: list[Student]) -> list[int]:
-    """Who it may be, best first: the same name or phone digits, then anyone the Students
-    search finds for the name as written (or any of its longer words)."""
+def _suggested(row: UnassignedPayment, index: PeopleIndex[int], names: dict[int, str]) -> list[int]:
+    """Who it may be, best first: the same phone digits, then the same name, then anyone whose
+    name has its words, then a name a letter or two apart. At most 5."""
     text = row.student_text
-    key = () if looks_like_phone(text) else name_key(text)
-    digits = phone_digits(row.phone) or (phone_digits(text) if looks_like_phone(text) else "")
-    by_name = sorted(students, key=lambda s: s.name.casefold())
-    exact = [
-        s.id
-        for s in by_name
-        if (key and name_key(s.name) == key) or (digits and phone_digits(s.phone) == digits)
-    ]
+    key, digits = text_key(text), text_digits(text, row.phone)
+
+    def ordered(people: list[Person[int]]) -> list[int]:
+        return sorted((p.ident for p in people), key=lambda i: (names[i].casefold(), i))
+
     found = [
-        s.id
-        for s in by_name
-        if s.id not in exact
-        and (
-            student_matches(text, name=s.name, phone=s.phone, guardian_name=s.guardian_name)
-            or any(
-                student_matches(w, name=s.name, phone=s.phone) for w in text.split() if len(w) >= 3
-            )
-        )
+        *ordered(index.same_phone(digits)),
+        *ordered(index.same_name(key)),
+        *ordered(index.words(key)),
+        *ordered(index.near(key)),
     ]
-    return [*exact, *found][:5]
+    return list(dict.fromkeys(found))[:5]
 
 
-def _read(row: UnassignedPayment, students: list[Student]) -> UnassignedPaymentRead:
+def _read(
+    row: UnassignedPayment, index: PeopleIndex[int], names: dict[int, str]
+) -> UnassignedPaymentRead:
     return UnassignedPaymentRead(
         id=row.id,
         student_text=row.student_text,
@@ -60,7 +54,7 @@ def _read(row: UnassignedPayment, students: list[Student]) -> UnassignedPaymentR
         note=row.note,
         source=row.source,
         created_at=row.created_at,  # type: ignore[arg-type]
-        suggested_student_ids=_suggested(row, students),
+        suggested_student_ids=_suggested(row, index, names),
     )
 
 
@@ -71,8 +65,10 @@ def list_unassigned(session: Session) -> list[UnassignedPaymentRead]:
     ).all()
     if not rows:
         return []
-    students = list(session.scalars(select(Student)))
-    return [_read(r, students) for r in rows]
+    students = list(session.execute(select(Student.id, Student.name, Student.phone)))
+    index = PeopleIndex(Person(sid, name, phone) for sid, name, phone in students)
+    names = {sid: name for sid, name, _ in students}
+    return [_read(r, index, names) for r in rows]
 
 
 def _get_row(session: Session, row_id: int) -> UnassignedPayment:

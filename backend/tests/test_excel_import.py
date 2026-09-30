@@ -521,7 +521,8 @@ def test_real_date_cells_and_money_formats(api: TestClient) -> None:
         (150000, "2026-05-02", "2026-05"),
         (150050, "2026-05-02", "2026-05"),
     ]
-    assert rows[3]["status"] == "duplicate"  # same as row 2 (the 2 May is day first)
+    # Like row 2 (the 2 May is day first), but UPI, not cash: possibly the same payment.
+    assert rows[3]["status"] == "possible_duplicate"
     assert rows[4]["status"] == "ready"
 
 

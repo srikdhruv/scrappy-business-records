@@ -56,8 +56,32 @@ def fold_loose(text: str) -> str:
 
 def name_key(name: str | None) -> tuple[str, ...]:
     """A name's words, folded and sorted, so "Rao Ananya", "ananya  rao" and "Ananya Rao" are
-    the same name. Empty for a blank name."""
-    return tuple(sorted(fold_loose(name or "").split()))
+    the same name. A hyphen separates words ("Mary-Jane" is "Mary Jane"); apostrophes don't
+    ("O'Brien" is "OBrien"). Empty for a blank name."""
+    return tuple(sorted(fold_loose((name or "").replace("-", " ")).split()))
+
+
+def within_edits(a: str, b: str, limit: int) -> bool:
+    """Whether `a` can become `b` with at most `limit` single-letter changes (insert, delete or
+    replace), stopping early once it can't."""
+    if abs(len(a) - len(b)) > limit:
+        return False
+    previous = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        current = [i]
+        for j, cb in enumerate(b, start=1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (ca != cb)))
+        if min(current) > limit:
+            return False
+        previous = current
+    return previous[-1] <= limit
+
+
+def near_miss_limit(name: str) -> int:
+    """How many letters two names may differ by and still "look similar": none under 5 letters
+    (too many real names are that close), 1 up to 9, 2 from 10."""
+    size = len(name.replace(" ", ""))
+    return 0 if size < 5 else 1 if size < 10 else 2
 
 
 def phone_digits(text: str | None) -> str:

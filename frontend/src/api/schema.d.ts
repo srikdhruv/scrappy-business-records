@@ -849,7 +849,7 @@ export interface components {
          * ImportPaymentChoice
          * @enum {string}
          */
-        ImportPaymentChoice: "auto" | "student" | "unassigned" | "skip";
+        ImportPaymentChoice: "auto" | "student" | "unassigned" | "skip" | "add";
         /** ImportPaymentDecision */
         ImportPaymentDecision: {
             data: components["schemas"]["ImportPayment"];
@@ -904,7 +904,7 @@ export interface components {
          * @description What adding an uploaded payment row would do.
          * @enum {string}
          */
-        ImportPaymentStatus: "ready" | "needs_student" | "follows_student" | "unassigned" | "duplicate" | "problem";
+        ImportPaymentStatus: "ready" | "needs_student" | "follows_student" | "unassigned" | "duplicate" | "possible_duplicate" | "problem";
         /**
          * ImportPreview
          * @description What adding an uploaded file would do. Nothing has been saved.
@@ -922,6 +922,11 @@ export interface components {
              * @description Sheets that weren't students or payments.
              */
             ignored_sheets: string[];
+            /**
+             * Hidden Sheets
+             * @description Hidden sheets, which are never read.
+             */
+            hidden_sheets: string[];
             /** Students */
             students: components["schemas"]["ImportStudentPreview"][];
             /** Payments */
@@ -1043,6 +1048,11 @@ export interface components {
              * @description The student already here that it is (`exists`) or looks like (`similar`).
              */
             student_id: number | null;
+            /**
+             * Add By Default
+             * @description `similar` only: added unless the owner says Skip (a brother or sister sharing a phone with an earlier row of the file).
+             */
+            add_by_default: boolean;
             /** @description The row to send back to add it; null for a problem. */
             data: components["schemas"]["ImportStudent"] | null;
         };
