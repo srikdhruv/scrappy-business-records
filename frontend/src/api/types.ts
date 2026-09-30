@@ -41,5 +41,10 @@ export type {
   StudentUpdate,
   SuggestedPayment,
   SuggestionReason,
+  UpdateAttemptRead,
+  UpdateCheckError,
+  UpdateInfo,
+  UpdateOutcome,
+  UpdateReason,
   YetToPayItem,
 } from './schema'

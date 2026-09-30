@@ -1,6 +1,7 @@
 /**
  * The gear button at the bottom left (in the top bar on a narrow window) and its small menu:
- * Send feedback, and About. Future settings (the business name, say) go here too.
+ * Send feedback, and About. Future settings (the business name, say) go here too. A dot on the
+ * gear, and "New version" next to About, when a new version can be installed (ADR 0006).
  *
  * The dialogs live in `SettingsDialogs`, rendered once by the app shell, so the two gear
  * buttons (wide and narrow layouts) open the same ones.
@@ -17,6 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { UpdateDot, useUpdate } from '@/components/update'
 import { cn } from '@/lib/utils'
 
 export type SettingsDialog = 'feedback' | 'about' | null
@@ -31,21 +33,23 @@ export function SettingsMenu({
   showLabel?: boolean
   className?: string
 }) {
+  const { ready } = useUpdate()
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
           size={showLabel ? 'default' : 'icon'}
-          aria-label="Settings"
+          aria-label={ready ? 'Settings (a new version is ready)' : 'Settings'}
           className={cn(
-            'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
+            'relative text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
             showLabel && 'justify-start px-3 font-bold',
             className,
           )}
         >
           <SettingsIcon className="size-5" aria-hidden />
           {showLabel && 'Settings'}
+          <UpdateDot className={showLabel ? 'top-1.5 left-6' : 'top-1.5 right-1.5'} />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="start" className="w-56">
@@ -61,6 +65,11 @@ export function SettingsMenu({
         <DropdownMenuItem className="py-2 text-base" onSelect={() => onOpen('about')}>
           <InfoIcon className="size-4" aria-hidden />
           About
+          {ready && (
+            <span className="ml-auto rounded-full bg-primary/15 px-2 py-0.5 text-xs font-bold text-primary-strong">
+              New version
+            </span>
+          )}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

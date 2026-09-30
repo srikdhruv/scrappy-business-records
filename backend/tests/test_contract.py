@@ -58,7 +58,7 @@ def test_status_codes(client: TestClient) -> None:
     assert "201" in paths["/api/feedback"]["post"]["responses"]
     assert "404" in paths["/api/feedback/{feedback_id}"]["get"]["responses"]
     assert "202" in paths["/api/update/start"]["post"]["responses"]
-    assert {"403", "409", "415", "502"} <= set(paths["/api/update/start"]["post"]["responses"])
+    assert {"403", "409", "415", "424"} <= set(paths["/api/update/start"]["post"]["responses"])
     assert "404" in paths["/api/students/{student_id}"]["get"]["responses"]
 
 

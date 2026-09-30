@@ -96,7 +96,10 @@ def check_for_update(updater: Updater = Depends(get_updater)) -> UpdateInfo:
             "description": "Can't update now (already updating, "
             "up to date, or `version` isn't the latest).",
         },
-        502: {"model": ErrorResponse, "description": "The installer couldn't be downloaded."},
+        424: {
+            "model": ErrorResponse,
+            "description": "The installer couldn't be downloaded.",
+        },
     },
 )
 def start_update(body: UpdateStart, updater: Updater = Depends(get_updater)) -> UpdateInfo:

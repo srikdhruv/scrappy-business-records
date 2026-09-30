@@ -20,6 +20,7 @@ import { useLocation } from 'react-router'
 
 import { useAbout, useFeedbackStatus, useSendFeedback } from '@/api/queries'
 import type { FeedbackCategory } from '@/api/types'
+import { TrackUnsaved } from '@/components/track-unsaved'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -76,7 +77,11 @@ export function FeedbackDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* A fresh form (and picture) each time it opens. */}
-      {open && <FeedbackForm onClose={() => onOpenChange(false)} />}
+      {open && (
+        <TrackUnsaved>
+          <FeedbackForm onClose={() => onOpenChange(false)} />
+        </TrackUnsaved>
+      )}
     </Dialog>
   )
 }

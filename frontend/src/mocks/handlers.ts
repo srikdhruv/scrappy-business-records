@@ -16,6 +16,7 @@ import type {
   StudentListFilter,
   StudentReturn,
   StudentUpdate,
+  UpdateInfo,
 } from '@/api/types'
 
 import { MockHttpError, type MockDb } from './db'
@@ -43,14 +44,30 @@ function idParam(value: string | readonly string[] | undefined): number {
 export interface HandlerOptions {
   /** Simulated network latency in ms, so loading states are visible in the browser. */
   latency?: number
+  /** Pretend this newer version is out (`?demo=update`). */
+  updateVersion?: string
 }
 
-export function createHandlers(db: MockDb, { latency = 0 }: HandlerOptions = {}) {
+export function createHandlers(db: MockDb, { latency = 0, updateVersion }: HandlerOptions = {}) {
   const wait = async () => {
     if (latency > 0) await delay(latency)
   }
   // Feedback: saved "on the laptop", then "sent" the first time anyone asks.
   const feedback = new Map<string, FeedbackRead>()
+  // Updates: up to date. `?demo=update` (browser.ts) or a test's own handler says otherwise.
+  const update: UpdateInfo = {
+    current: '0.1.0',
+    latest: updateVersion ?? '0.1.0',
+    update_available: Boolean(updateVersion),
+    notes: updateVersion ? 'What’s new\n• A button to update the app from inside it' : '',
+    checked_at: new Date().toISOString(),
+    can_update: Boolean(updateVersion),
+    reason: updateVersion ? null : 'up_to_date',
+    check_error: null,
+    last_attempt: null,
+    page_waiting: false,
+    log_file: 'C:\\Users\\Demo\\AppData\\Local\\ScrappyRecords\\logs\\update.log',
+  }
 
   return [
     http.get(api('/health'), () =>
@@ -160,6 +177,21 @@ export function createHandlers(db: MockDb, { latency = 0 }: HandlerOptions = {})
         feedback_waiting: [...feedback.values()].filter((f) => f.status === 'pending').length,
       }),
     ),
+
+    http.get(api('/update'), () => HttpResponse.json(update)),
+    http.post(api('/update/check'), async () => {
+      await wait()
+      update.checked_at = new Date().toISOString()
+      return HttpResponse.json(update)
+    }),
+    // The pretend app can't really update: it says so, as a laptop without internet would.
+    http.post(api('/update/start'), async () => {
+      await wait()
+      return HttpResponse.json(
+        { detail: 'Couldn’t download the update (this is the demo). Nothing was changed.' },
+        { status: 424 },
+      )
+    }),
 
     http.post(api('/feedback'), async ({ request }) => {
       await wait()

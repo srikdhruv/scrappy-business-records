@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react'
 
 import { useHealth, useServerReachable } from '@/api/queries'
 import { SettingsDialogs, SettingsMenu, type SettingsDialog } from '@/components/settings-menu'
+import { UpdateBanner } from '@/components/update'
 import { UNREACHABLE_MESSAGE } from '@/lib/errors'
 import { cn } from '@/lib/utils'
 
@@ -150,6 +151,7 @@ export function AppShell() {
       <main className="min-w-0 flex-1 px-5 py-6 sm:px-8 lg:px-10 lg:py-8 print:p-0">
         <div className="mx-auto w-full max-w-6xl print:max-w-none">
           {!reachable && <UnreachableBanner />}
+          <UpdateBanner />
           <Outlet />
         </div>
       </main>

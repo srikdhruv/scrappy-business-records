@@ -2792,7 +2792,7 @@ export interface operations {
                 };
             };
             /** @description The installer couldn't be downloaded. */
-            502: {
+            424: {
                 headers: {
                     [name: string]: unknown;
                 };

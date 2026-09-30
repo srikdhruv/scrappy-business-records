@@ -147,6 +147,15 @@ export function formatDate(date: string): string {
   return `${Number(m[3])} ${name} ${m[1]}`
 }
 
+/** A moment (an ISO timestamp) in the laptop's own time: "30 Sep 2026, 10:05". */
+export function formatDateTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const name = MONTH_NAMES[d.getMonth()]!.slice(0, 3)
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return `${d.getDate()} ${name} ${d.getFullYear()}, ${time}`
+}
+
 /** "2026-10" -> "October 2026". */
 export function formatMonth(month: string): string {
   const { year, month: m } = parseMonth(month)

@@ -44,6 +44,7 @@ import {
 import type { CreditSource, PaymentMethod, PaymentRead } from '@/api/types'
 import { MonthPicker } from '@/components/month-picker'
 import { StudentCombobox } from '@/components/student-combobox'
+import { TrackUnsaved } from '@/components/track-unsaved'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -139,16 +140,19 @@ export function LogPaymentProvider({ children }: { children: ReactNode }) {
       <Dialog open={state.open} onOpenChange={(open) => !open && close()}>
         {state.open && (
           <DialogContent className="sm:max-w-xl" aria-describedby={undefined}>
-            <PaymentForm
-              key={state.key}
-              mode={state.mode}
-              prefill={state.mode === 'create' ? state.prefill : undefined}
-              payment={state.mode === 'edit' ? state.payment : undefined}
-              onDone={(didSave) =>
-                close(didSave && state.mode === 'create' ? state.prefill.focusAfterSave : undefined)
-              }
-              onUndo={undo}
-            />
+            <TrackUnsaved key={state.key}>
+              <PaymentForm
+                mode={state.mode}
+                prefill={state.mode === 'create' ? state.prefill : undefined}
+                payment={state.mode === 'edit' ? state.payment : undefined}
+                onDone={(didSave) =>
+                  close(
+                    didSave && state.mode === 'create' ? state.prefill.focusAfterSave : undefined,
+                  )
+                }
+                onUndo={undo}
+              />
+            </TrackUnsaved>
           </DialogContent>
         )}
       </Dialog>

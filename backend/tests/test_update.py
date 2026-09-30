@@ -610,11 +610,11 @@ def test_start_only_the_version_the_page_showed(rig: Rig) -> None:
 
 def test_start_download_fails_changes_nothing(rig: Rig) -> None:
     def fail(url: str, dest: Path) -> None:
-        raise UpdateError(502, "Couldn't download the update. Nothing was changed.")
+        raise UpdateError(424, "Couldn't download the update. Nothing was changed.")
 
     rig.updater.runner.download = fail
     response = rig.client.post("/api/update/start", json={"version": NEXT}, headers=GOOD_HEADERS)
-    assert response.status_code == 502
+    assert response.status_code == 424
     assert "Nothing was changed" in response.json()["detail"]
     assert rig.spawned.calls == []
     assert not (config.log_dir() / "update-attempt.json").exists()
@@ -698,7 +698,7 @@ def test_download_installer(feed: FakeFeed, tmp_path: Path) -> None:
         feed.installer = body
         with pytest.raises(UpdateError) as e:
             updater.download_installer(f"{base}/installer/install.ps1", dest)
-        assert e.value.status == 502
+        assert e.value.status == 424
     with pytest.raises(UpdateError):
         updater.download_installer("http://example.com/install.ps1", dest)  # not https
     with pytest.raises(UpdateError):
@@ -882,7 +882,7 @@ anything = st.one_of(
     path=st.sampled_from(["/api/update/start", "/api/update/check", "/api/update"]),
 )
 def test_no_500(rig: Rig, body: Any, headers: dict[str, str], path: str) -> None:
-    rig.updater.runner.download = lambda url, dest: (_ for _ in ()).throw(UpdateError(502, "no"))
+    rig.updater.runner.download = lambda url, dest: (_ for _ in ()).throw(UpdateError(424, "no"))
     merged = {**GOOD_HEADERS, **headers}
     method = "get" if path == "/api/update" else "post"
     response = rig.client.request(method, path, content=json.dumps(body), headers=merged)

@@ -455,14 +455,15 @@ class UpdateError(Exception):
 
 
 def download_installer(url: str, dest: Path, timeout: float = INSTALLER_TIMEOUT) -> None:
-    """Fetch the installer script to `dest`. Raises UpdateError (502) if it can't."""
+    """Fetch the installer script to `dest`. Raises UpdateError (424) if it can't: not 502,
+    which the page reads as "the app isn't answering"."""
     cant = (
         "Couldn't download the update. Check that the laptop is connected to the internet, "
         "then try again. Nothing was changed."
     )
     if not usable_url(url):
         log.error("The installer address isn't https: %s", url)
-        raise UpdateError(502, cant)
+        raise UpdateError(424, cant)
     request = urllib.request.Request(
         url, headers={"User-Agent": f"scrappy-records/{__version__} (update)"}
     )
@@ -472,11 +473,11 @@ def download_installer(url: str, dest: Path, timeout: float = INSTALLER_TIMEOUT)
             body = response.read(_MAX_INSTALLER_BYTES + 1)
     except (OSError, http.client.HTTPException, ValueError) as e:
         log.warning("Couldn't download the installer from %s: %s", url, e)
-        raise UpdateError(502, cant) from e
+        raise UpdateError(424, cant) from e
     if not body or len(body) > _MAX_INSTALLER_BYTES or body.lstrip()[:1] == b"<":
         # Empty, huge, or a web page (a Wi-Fi login page, an error page) instead of a script.
         log.warning("The installer from %s doesn't look like a script (%d bytes)", url, len(body))
-        raise UpdateError(502, cant)
+        raise UpdateError(424, cant)
     dest.write_bytes(body)
 
 

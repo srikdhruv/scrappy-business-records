@@ -33,6 +33,7 @@ import {
   rupeesToPaise,
 } from '@/lib/format'
 import { firstName } from '@/lib/labels'
+import { useTrackUnsaved } from '@/lib/unsaved'
 
 export function ComeBackDialog({
   student,
@@ -50,6 +51,7 @@ export function ComeBackDialog({
   // The fee from the month they're back: worked out like the server does, until it's typed.
   const [typedFee, setTypedFee] = useState<string | null>(null)
   const [feeError, setFeeError] = useState<string | null>(null)
+  const onTyped = useTrackUnsaved(open)
   const comeBack = useReturnStudent()
   // Blocks a second save while the first is still on its way (a double click or Enter).
   const saving = useRef(false)
@@ -114,6 +116,7 @@ export function ComeBackDialog({
       <DialogContent>
         <form
           className="grid gap-5"
+          onInputCapture={onTyped}
           onSubmit={(e) => {
             e.preventDefault()
             void save()
