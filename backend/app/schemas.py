@@ -1072,3 +1072,73 @@ class FeedbackRead(_ReadModel):
         description="Whether this copy is trying to send it (sending is on and it isn't done). "
         "If false and still pending, it waits for a version that sends."
     )
+
+
+# --------------------------------------------------------------------------- updates (ADR 0006)
+
+
+class UpdateReason(enum.StrEnum):
+    """Why "Update now" isn't offered (`can_update` is false)."""
+
+    checks_off = "checks_off"  # this copy doesn't look for updates (tests, dev mode)
+    not_checked_yet = "not_checked_yet"  # no answer yet since the app started
+    check_failed = "check_failed"  # couldn't ask (offline, rate-limited...): see check_error
+    up_to_date = "up_to_date"  # this is the newest version
+    updating = "updating"  # an update is already running
+    not_installed = "not_installed"  # running from source, not an installed copy
+    unsupported = "unsupported"  # this computer can't update itself (not Windows/Apple Silicon)
+    no_download = "no_download"  # the new release has no download for this computer
+
+
+class UpdateCheckError(enum.StrEnum):
+    """What went wrong the last time the app looked for an update."""
+
+    offline = "offline"  # no internet, or GitHub didn't answer in time
+    rate_limited = "rate_limited"  # GitHub asked us to wait (it allows 60 checks an hour)
+    bad_answer = "bad_answer"  # GitHub answered with something that isn't a release
+
+
+class UpdateOutcome(enum.StrEnum):
+    running = "running"
+    failed = "failed"
+    succeeded = "succeeded"
+
+
+class UpdateAttemptRead(_ReadModel):
+    """The last time "Update now" was clicked on this laptop, and how it ended."""
+
+    from_version: str = Field(examples=["0.2.0"])
+    to_version: str = Field(examples=["0.3.0"])
+    started_at: UtcDatetime
+    finished_at: UtcDatetime | None
+    outcome: UpdateOutcome
+    detail: str = Field(description="In plain words, when it failed.")
+
+
+class UpdateInfo(_ReadModel):
+    """Is there a newer version, and can this copy update itself?"""
+
+    current: str = Field(description="The running version.", examples=["0.2.0"])
+    latest: str | None = Field(
+        description="The newest published release, or null if not known yet.", examples=["0.3.0"]
+    )
+    update_available: bool = Field(description="`latest` is newer than `current`.")
+    notes: str = Field(description="The release's notes, as plain text (trimmed).")
+    checked_at: UtcDatetime | None = Field(description="When the check last got an answer.")
+    can_update: bool = Field(description="Whether Update now can be offered.")
+    reason: UpdateReason | None = Field(description="Why not, when `can_update` is false.")
+    check_error: UpdateCheckError | None = Field(
+        description="What went wrong the last time it looked, if it did."
+    )
+    last_attempt: UpdateAttemptRead | None
+    page_waiting: bool = Field(
+        description="A page that started an update asked in the last 30 s whether the app is "
+        "back (the launcher then doesn't open another browser tab)."
+    )
+    log_file: str = Field(description="Where the installer's output goes (update.log).")
+
+
+class UpdateStart(_Model):
+    """Start updating to `version`, which must be the `latest` the page showed."""
+
+    version: str = Field(max_length=40, examples=["0.3.0"])

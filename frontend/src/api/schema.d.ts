@@ -14,7 +14,7 @@ export interface paths {
         /**
          * Get Health
          * @description Liveness check. The launcher uses `app == "scrappy-records"` to recognise a running copy
-         *     of this app on the port.
+         *     of this app on the port; a page that is updating polls it until `version` changes.
          */
         get: operations["getHealth"];
         put?: never;
@@ -298,6 +298,68 @@ export interface paths {
         get: operations["getFeedback"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Update
+         * @description What the last check found (it never waits for the internet).
+         */
+        get: operations["getUpdate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/update/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check For Update
+         * @description About → Check for updates: ask GitHub now (up to 15 s), then answer like GET.
+         */
+        post: operations["checkForUpdate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/update/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Update
+         * @description Update now: download the new release's installer and start it, detached. It stops this
+         *     server, backs up, installs `version` and opens the app again. The page then polls
+         *     `/api/health?waiting_for_update=true` until the version changes.
+         */
+        post: operations["startUpdate"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1641,6 +1703,117 @@ export interface components {
          * @enum {string}
          */
         SuggestionReason: "owed" | "next_unpaid" | "all_paid";
+        /**
+         * UpdateAttemptRead
+         * @description The last time "Update now" was clicked on this laptop, and how it ended.
+         */
+        UpdateAttemptRead: {
+            /**
+             * From Version
+             * @example 0.2.0
+             */
+            from_version: string;
+            /**
+             * To Version
+             * @example 0.3.0
+             */
+            to_version: string;
+            /**
+             * Started At
+             * Format: date-time
+             * @description UTC timestamp, e.g. 2026-10-05T09:30:00Z
+             */
+            started_at: string;
+            /** Finished At */
+            finished_at: string | null;
+            outcome: components["schemas"]["UpdateOutcome"];
+            /**
+             * Detail
+             * @description In plain words, when it failed.
+             */
+            detail: string;
+        };
+        /**
+         * UpdateCheckError
+         * @description What went wrong the last time the app looked for an update.
+         * @enum {string}
+         */
+        UpdateCheckError: "offline" | "rate_limited" | "bad_answer";
+        /**
+         * UpdateInfo
+         * @description Is there a newer version, and can this copy update itself?
+         */
+        UpdateInfo: {
+            /**
+             * Current
+             * @description The running version.
+             * @example 0.2.0
+             */
+            current: string;
+            /**
+             * Latest
+             * @description The newest published release, or null if not known yet.
+             * @example 0.3.0
+             */
+            latest: string | null;
+            /**
+             * Update Available
+             * @description `latest` is newer than `current`.
+             */
+            update_available: boolean;
+            /**
+             * Notes
+             * @description The release's notes, as plain text (trimmed).
+             */
+            notes: string;
+            /**
+             * Checked At
+             * @description When the check last got an answer.
+             */
+            checked_at: string | null;
+            /**
+             * Can Update
+             * @description Whether Update now can be offered.
+             */
+            can_update: boolean;
+            /** @description Why not, when `can_update` is false. */
+            reason: components["schemas"]["UpdateReason"] | null;
+            /** @description What went wrong the last time it looked, if it did. */
+            check_error: components["schemas"]["UpdateCheckError"] | null;
+            last_attempt: components["schemas"]["UpdateAttemptRead"] | null;
+            /**
+             * Page Waiting
+             * @description A page that started an update asked in the last 30 s whether the app is back (the launcher then doesn't open another browser tab).
+             */
+            page_waiting: boolean;
+            /**
+             * Log File
+             * @description Where the installer's output goes (update.log).
+             */
+            log_file: string;
+        };
+        /**
+         * UpdateOutcome
+         * @enum {string}
+         */
+        UpdateOutcome: "running" | "failed" | "succeeded";
+        /**
+         * UpdateReason
+         * @description Why "Update now" isn't offered (`can_update` is false).
+         * @enum {string}
+         */
+        UpdateReason: "checks_off" | "not_checked_yet" | "check_failed" | "up_to_date" | "updating" | "not_installed" | "unsupported" | "no_download";
+        /**
+         * UpdateStart
+         * @description Start updating to `version`, which must be the `latest` the page showed.
+         */
+        UpdateStart: {
+            /**
+             * Version
+             * @example 0.3.0
+             */
+            version: string;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1750,13 +1923,22 @@ export type StudentReturn = components['schemas']['StudentReturn'];
 export type StudentUpdate = components['schemas']['StudentUpdate'];
 export type SuggestedPayment = components['schemas']['SuggestedPayment'];
 export type SuggestionReason = components['schemas']['SuggestionReason'];
+export type UpdateAttemptRead = components['schemas']['UpdateAttemptRead'];
+export type UpdateCheckError = components['schemas']['UpdateCheckError'];
+export type UpdateInfo = components['schemas']['UpdateInfo'];
+export type UpdateOutcome = components['schemas']['UpdateOutcome'];
+export type UpdateReason = components['schemas']['UpdateReason'];
+export type UpdateStart = components['schemas']['UpdateStart'];
 export type ValidationError = components['schemas']['ValidationError'];
 export type YetToPayItem = components['schemas']['YetToPayItem'];
 export type $defs = Record<string, never>;
 export interface operations {
     getHealth: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Sent by a page waiting for an update to finish. The launcher then knows that page will reload itself, and doesn't open another browser tab (ADR 0006). Older versions' pages send it to newer servers: keep accepting it. */
+                waiting_for_update?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1770,6 +1952,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2480,6 +2671,133 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getUpdate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateInfo"];
+                };
+            };
+        };
+    };
+    checkForUpdate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateInfo"];
+                };
+            };
+            /** @description Not sent by the app's own page. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not sent as JSON. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    startUpdate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateStart"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateInfo"];
+                };
+            };
+            /** @description Not sent by the app's own page. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Can't update now (already updating, up to date, or `version` isn't the latest). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not sent as JSON. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description The installer couldn't be downloaded. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

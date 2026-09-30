@@ -77,7 +77,7 @@ def usable_url(url: str) -> bool:
         return False
 
 
-def _ssl_context() -> ssl.SSLContext:
+def ssl_context() -> ssl.SSLContext:
     context = ssl.create_default_context()
     # The bundled Python may not find the operating system's certificates (macOS); certifi's
     # list is always there.
@@ -110,7 +110,7 @@ def post_feedback(url: str, payload: dict[str, Any], timeout: float) -> SendResu
     )
     retry_after = 0.0
     try:
-        context = _ssl_context() if url.startswith("https:") else None
+        context = ssl_context() if url.startswith("https:") else None
         with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
             status = response.status
             raw = response.read(_MAX_ANSWER_BYTES)

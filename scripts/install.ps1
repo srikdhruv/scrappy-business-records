@@ -20,6 +20,17 @@
 #                        [SCRAPPY_SHORTCUT_DIR]
 #   [SCRAPPY_TEST_FORCE_FILE_COPY_BACKUP=1]  Testing only: skip the app's own pre-update backup,
 #                        so CI can check the file-copy fallback.
+#   [SCRAPPY_TEST_FAIL_AFTER_BACKUP=<file>]  Testing only: if <file> exists, delete it and fail
+#                        just after the backup, so CI can check what a failed update does.
+#
+# Started by the app itself (Settings -> Update now, docs/adr/0006-in-app-update.md): the app
+# downloads THIS file from the new release's tag and runs it, detached and with no window, as
+#   powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File install.ps1 -Version <tag>
+# with SCRAPPY_UPDATE_FROM_APP=1 and SCRAPPY_INSTALL_ROOT (the running copy's folder) set, and
+# the output going to logs\update.log. Then nothing may ask a question (there is nobody to
+# answer), and the app must end up open again: the new version if it worked, else the old one
+# (if this closed it). Older apps start newer copies of this file this way, so keep all of that
+# working in every release (docs/runbooks/release.md, "Updating from inside the app").
 #
 # What it does (docs/adr/0003-distribution-and-install.md):
 #   1. downloads scrappy-records-windows-x64.zip from the GitHub release to %TEMP%, and unpacks
@@ -259,6 +270,19 @@ namespace ScrappyRecordsInstall {
     }
 }
 
+function Start-ScrappyApp([string]$AppDir, [switch]$AfterUpdate) {
+    # Open the app (the launcher starts the server and the browser). After an update started
+    # from the app, the launcher doesn't open a second tab if the old page is still waiting.
+    $pythonw = Join-Path $AppDir 'python\pythonw.exe'
+    if (-not (Test-Path -LiteralPath $pythonw)) { throw "$pythonw is missing" }
+    if ($AfterUpdate) { $env:SCRAPPY_AFTER_UPDATE = '1' }
+    try {
+        Start-Process -FilePath $pythonw -ArgumentList '-m', 'app.launcher' -WorkingDirectory $AppDir
+    } finally {
+        if ($AfterUpdate) { Remove-Item Env:SCRAPPY_AFTER_UPDATE -ErrorAction SilentlyContinue }
+    }
+}
+
 function Get-ScrappyHint([string]$Message) {
     if ($Message -match 'SSL|TLS|secure channel') {
         return 'Windows could not make a secure connection. Run Windows Update, then try again.'
@@ -317,8 +341,13 @@ function Install-ScrappyRecords {
     $dataDir = if ($env:SCRAPPY_DATA_DIR) { $env:SCRAPPY_DATA_DIR } else { Join-Path $homeDir 'data' }
     $database = Join-Path $dataDir 'records.db'
 
+    # Started by the app's Update now button (see the top of this file).
+    $fromApp = ($env:SCRAPPY_UPDATE_FROM_APP -eq '1')
+    if ($fromApp) { Write-ScrappyStep "Started from the app, to install $(if ($ZipPath) { $ZipPath } else { $Version })." }
+
     $downloaded = $false
     $swapped = $false
+    $stopped = 0
     $warnings = @()
     try {
         # 1. Get the zip and unpack it next to the current copy.
@@ -359,6 +388,10 @@ function Install-ScrappyRecords {
             Write-ScrappyStep 'Saving a backup copy of your data...'
             Backup-ScrappyData @($appDir, $newDir) $database
         }
+        if ($env:SCRAPPY_TEST_FAIL_AFTER_BACKUP -and (Test-Path -LiteralPath $env:SCRAPPY_TEST_FAIL_AFTER_BACKUP)) {
+            Remove-Item -LiteralPath $env:SCRAPPY_TEST_FAIL_AFTER_BACKUP -Force
+            throw 'Test hook: failing after the backup, as asked.'
+        }
 
         # 4. Swap the new copy in.
         Write-ScrappyStep "Installing version $newVersion..."
@@ -383,6 +416,16 @@ function Install-ScrappyRecords {
         if ($downloaded -and -not $swapped) {
             Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue
         }
+        if ($fromApp -and $stopped -gt 0 -and -not $swapped) {
+            # The app closed itself for this update: open the version that is still installed
+            # again, so the owner isn't left without it (its page then says the update failed).
+            try {
+                Write-ScrappyStep 'Opening the version that is still installed again...'
+                Start-ScrappyApp $appDir -AfterUpdate
+            } catch {
+                Write-ScrappyStep "Couldn't open it again ($($_.Exception.Message))."
+            }
+        }
         if (-not $homeWasSet) { Remove-Item Env:SCRAPPY_HOME -ErrorAction SilentlyContinue }
         throw
     }
@@ -406,7 +449,7 @@ function Install-ScrappyRecords {
     if (-not $NoLaunch) {
         try {
             Write-ScrappyStep 'Opening Scrappy Records in your browser...'
-            Start-Process -FilePath $pythonw -ArgumentList '-m', 'app.launcher' -WorkingDirectory $appDir
+            Start-ScrappyApp $appDir -AfterUpdate:$fromApp
         } catch {
             $warnings += "The app didn't open by itself ($($_.Exception.Message)). Double-click Scrappy Records on your Desktop."
         }

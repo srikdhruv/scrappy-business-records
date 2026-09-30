@@ -33,6 +33,7 @@ FIELDS = [
     "route",
     "client",
     "screenshot",
+    "version",
 ]
 
 scalars = st.one_of(
@@ -78,6 +79,9 @@ routes = st.sampled_from(
         ("get", "/api/about"),
         ("post", "/api/feedback"),
         ("get", "/api/feedback/{id}"),
+        ("get", "/api/update"),
+        ("post", "/api/update/check"),
+        ("post", "/api/update/start"),
     ]
 )
 params = st.dictionaries(

@@ -5,7 +5,8 @@ Startup order (see docs/architecture.md, "Lifecycle"):
 2. daily backup, and a pre-migration backup if the schema is behind (`app.backup`);
 3. `alembic upgrade head`;
 4. start sending any saved feedback, if a relay is set (`app.feedback_sender`, ADR 0005);
-5. serve requests.
+5. settle the last in-app update, and start looking for new versions (`app.updater`, ADR 0006);
+6. serve requests.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse
 from sqlalchemy.exc import IntegrityError
 
-from app import __version__, backup, config, errors, feedback_sender, migrate
+from app import __version__, backup, config, errors, feedback_sender, migrate, updater
 from app.db import dispose_engines
 from app.routers import api_router
 
@@ -52,7 +53,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Sends saved feedback in the background, if a relay is set (ADR 0005). None otherwise.
     sender = feedback_sender.start_if_enabled()
     app.state.feedback_sender = sender
+    # Settles the last "Update now", and looks for new versions if checks are on (ADR 0006).
+    app.state.updater = updater.Updater().start()
     yield
+    app.state.updater.stop()
     if sender is not None:
         sender.stop()
     dispose_engines()

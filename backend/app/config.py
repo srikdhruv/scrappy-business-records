@@ -10,6 +10,9 @@ the app somewhere else by setting environment variables before (or even after) i
 | `SCRAPPY_BACKUP_DIR` | `Documents\\ScrappyRecords Backups`    | Backups                     |
 | `SCRAPPY_PORT`       | `8765`                                | Server port                 |
 | `SCRAPPY_FEEDBACK_URL` | `FEEDBACK_URL` below                | Feedback relay; empty = off |
+| `SCRAPPY_UPDATE_FEED_URL` | `UPDATE_FEED_URL` below          | Update check; empty = off   |
+| `SCRAPPY_UPDATE_INSTALLER_URL` | `INSTALLER_URL` below       | Tests: the installer to run |
+| `SCRAPPY_UPDATE_ZIP` | (unset)                               | Tests: install this zip     |
 
 On macOS the home is `~/Library/Application Support/ScrappyRecords`.
 """
@@ -36,6 +39,18 @@ outbound call at runtime, and only feedback the owner chose to send goes there (
 Empty means sending is off: feedback is still saved on the laptop and goes out once a version
 with a URL is installed. Set it when the relay is deployed
 (docs/runbooks/feedback-relay-setup.md)."""
+
+
+REPO = "srikdhruv/scrappy-business-records"
+
+UPDATE_FEED_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
+"""Where the app looks for a new version (ADR 0006): GitHub's public "latest release", which
+skips drafts and prereleases. Only public release information is read; nothing about the owner
+or her records is sent. At startup, then every 12 hours, and when she clicks Check for updates."""
+
+INSTALLER_URL = f"https://raw.githubusercontent.com/{REPO}/{{tag}}/scripts/{{script}}"
+"""The installer that "Update now" runs, taken from the NEW release's tag, so the installer and
+the release it installs always match. `{script}` is `install.ps1` or `install.sh`."""
 
 
 def _env_path(name: str) -> Path | None:
@@ -88,6 +103,26 @@ def feedback_url() -> str:
     when set to empty, which turns sending off: tests and dev mode do that)."""
     value = os.environ.get("SCRAPPY_FEEDBACK_URL")
     return (FEEDBACK_URL if value is None else value).strip()
+
+
+def update_feed_url() -> str:
+    """Where the update check looks. `SCRAPPY_UPDATE_FEED_URL` overrides `UPDATE_FEED_URL`;
+    empty turns the check off (tests and dev mode). Tests point it at a fake feed."""
+    value = os.environ.get("SCRAPPY_UPDATE_FEED_URL")
+    return (UPDATE_FEED_URL if value is None else value).strip()
+
+
+def update_installer_url(tag: str, script: str) -> str:
+    """The installer for release `tag`. `SCRAPPY_UPDATE_INSTALLER_URL` overrides it (CI serves
+    this commit's script from a local server); `{tag}` and `{script}` in it are filled in."""
+    template = os.environ.get("SCRAPPY_UPDATE_INSTALLER_URL", "").strip() or INSTALLER_URL
+    return template.replace("{tag}", tag).replace("{script}", script)
+
+
+def update_zip() -> str:
+    """Testing only: a local zip the installer installs instead of downloading the release
+    (`SCRAPPY_UPDATE_ZIP`, passed on as the installer's `-ZipPath`)."""
+    return os.environ.get("SCRAPPY_UPDATE_ZIP", "").strip()
 
 
 def feedback_dir() -> Path:

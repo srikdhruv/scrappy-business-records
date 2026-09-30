@@ -16,6 +16,16 @@
 #                        ~/Library/Application Support/ScrappyRecords. [SCRAPPY_INSTALL_ROOT]
 #   --apps-dir DIR       Testing only: put "Scrappy Records.app" here instead of
 #                        ~/Applications.                            [SCRAPPY_APPS_DIR]
+#   [SCRAPPY_TEST_FAIL_AFTER_BACKUP=FILE]  Testing only: if FILE exists, delete it and fail just
+#                        after the backup, so CI can check what a failed update does.
+#
+# Started by the app itself (Settings -> Update now, docs/adr/0006-in-app-update.md): the app
+# downloads THIS file from the new release's tag and runs it in its own session as
+#   /bin/sh install.sh --version <tag>
+# with SCRAPPY_UPDATE_FROM_APP=1 and SCRAPPY_INSTALL_ROOT (the running copy's folder) set, and
+# the output going to logs/update.log. Nothing may ask a question, and the app must end up open
+# again: the new version if it worked, else the old one (if this closed it). Older apps start
+# newer copies of this file this way: keep it working (docs/runbooks/release.md).
 #
 # Same steps as scripts/install.ps1: download and unpack to app.new, stop the running app, back
 # up the data, swap app.new in for app (the data folder is never touched), create the launcher,
@@ -55,6 +65,7 @@ app_pids() {
 stop_running_app() {
     pids=$(app_pids "$1")
     [ -n "$pids" ] || return 0
+    stopped_app=1
     kill $pids 2>/dev/null || true
     i=0
     while [ $i -lt 20 ] && [ -n "$(app_pids "$1")" ]; do
@@ -97,12 +108,30 @@ backup_data() {
     fail "Couldn't save a backup copy of your data, so nothing was changed. Restart the Mac and try again."
 }
 
+# On any failure after the app was closed for an update started from the app, open the version
+# that is installed now (the old one, or the new one if only a later step failed), so the owner
+# isn't left without it.
+on_exit() {
+    status=$1
+    [ -z "${tmp:-}" ] || rm -rf "$tmp"
+    if [ "$status" != 0 ] && [ "$from_app" = 1 ] && [ "$stopped_app" = 1 ] && [ "$launched" = 0 ] &&
+        [ -x "${app_dir:-}/python/bin/python3" ]; then
+        printf 'Opening the version that is installed again...\n' >&2
+        (cd "$app_dir" && SCRAPPY_AFTER_UPDATE=1 ./python/bin/python3 -m app.launcher) >/dev/null 2>&1 || true
+    fi
+}
+
 applescript_string() {
     # Quote a value for an AppleScript string literal.
     printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 }
 
 main() {
+    from_app="${SCRAPPY_UPDATE_FROM_APP:-0}"
+    stopped_app=0
+    launched=0
+    tmp=""
+    trap 'on_exit $?' EXIT
     zip_path="${SCRAPPY_INSTALL_ZIP:-}"
     version=""
     no_launch="${SCRAPPY_NO_LAUNCH:-0}"
@@ -120,6 +149,7 @@ main() {
     done
 
     printf '\n\033[36mInstalling Scrappy Records\033[0m\n'
+    [ "$from_app" != 1 ] || say "Started from the app, to install ${zip_path:-$version}."
 
     [ "$(uname -s)" = "Darwin" ] || fail "This installer is for macOS. On Windows, use install.ps1."
     [ "$(uname -m)" = "arm64" ] || fail "Scrappy Records needs a Mac with Apple Silicon (M1 or newer)."
@@ -141,7 +171,6 @@ main() {
 
     # 1. Get the zip.
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/scrappy-install.XXXXXX")
-    trap 'rm -rf "$tmp"' EXIT
     if [ -n "$zip_path" ]; then
         [ -f "$zip_path" ] || fail "No such file: $zip_path"
         say "Using $zip_path"
@@ -176,6 +205,10 @@ main() {
     if [ -f "$database" ]; then
         say "Saving a backup copy of your data..."
         backup_data "$database" "$app_dir" "$new_dir"
+    fi
+    if [ -n "${SCRAPPY_TEST_FAIL_AFTER_BACKUP:-}" ] && [ -f "$SCRAPPY_TEST_FAIL_AFTER_BACKUP" ]; then
+        rm -f "$SCRAPPY_TEST_FAIL_AFTER_BACKUP"
+        fail "Test hook: failing after the backup, as asked."
     fi
 
     # 5. Swap.
@@ -215,6 +248,10 @@ main() {
     # 7. Open the app.
     if [ "$no_launch" != "1" ]; then
         say "Opening Scrappy Records in your browser..."
+        launched=1
+        # After an update from the app, the launcher doesn't open a second tab if the old page
+        # is still waiting (it reloads itself).
+        [ "$from_app" != 1 ] || export SCRAPPY_AFTER_UPDATE=1
         (cd "$app_dir" && ./python/bin/python3 -m app.launcher) ||
             say "The app didn't open by itself. Open it from $apps_dir."
     fi

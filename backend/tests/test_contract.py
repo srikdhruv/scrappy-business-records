@@ -30,6 +30,9 @@ EXPECTED_OPERATIONS = {
     ("get", "/api/about"): "getAbout",
     ("post", "/api/feedback"): "createFeedback",
     ("get", "/api/feedback/{feedback_id}"): "getFeedback",
+    ("get", "/api/update"): "getUpdate",
+    ("post", "/api/update/check"): "checkForUpdate",
+    ("post", "/api/update/start"): "startUpdate",
 }
 
 
@@ -54,6 +57,8 @@ def test_status_codes(client: TestClient) -> None:
     assert "200" in paths["/api/students/{student_id}/return"]["post"]["responses"]
     assert "201" in paths["/api/feedback"]["post"]["responses"]
     assert "404" in paths["/api/feedback/{feedback_id}"]["get"]["responses"]
+    assert "202" in paths["/api/update/start"]["post"]["responses"]
+    assert {"403", "409", "415", "502"} <= set(paths["/api/update/start"]["post"]["responses"])
     assert "404" in paths["/api/students/{student_id}"]["get"]["responses"]
 
 
@@ -61,7 +66,12 @@ def test_422_uses_validation_shape_and_404_uses_error_response(client: TestClien
     schema = client.get("/api/openapi.json").json()
     for path, ops in schema["paths"].items():
         for method, op in ops.items():
-            if (method, path) in {("get", "/api/health"), ("get", "/api/about")}:
+            no_input = {
+                ("get", "/api/about"),
+                ("get", "/api/update"),
+                ("post", "/api/update/check"),
+            }
+            if (method, path) in no_input:
                 continue  # takes no input, so it can't fail validation
             ref = op["responses"]["422"]["content"]["application/json"]["schema"]["$ref"]
             assert ref.endswith("/HTTPValidationError"), (method, path)

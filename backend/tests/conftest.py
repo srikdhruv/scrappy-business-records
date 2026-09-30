@@ -22,6 +22,10 @@ def scrappy_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pa
     monkeypatch.delenv("SCRAPPY_PORT", raising=False)
     # Never send feedback anywhere from a test (tests that send use a fake relay).
     monkeypatch.setenv("SCRAPPY_FEEDBACK_URL", "")
+    # Never look for updates on GitHub from a test (tests that do use a fake feed).
+    monkeypatch.setenv("SCRAPPY_UPDATE_FEED_URL", "")
+    for name in ("SCRAPPY_UPDATE_INSTALLER_URL", "SCRAPPY_UPDATE_ZIP"):
+        monkeypatch.delenv(name, raising=False)
     yield home
     dispose_engines()
 
