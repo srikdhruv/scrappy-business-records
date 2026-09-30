@@ -109,12 +109,20 @@ These rules decide every number the app shows.
    **Overpaid** by its full amount.
 5. **Months that count as due.** Only months up to and including the **current month** count as
    owed. A payment for a future month is "paid ahead" and is not an overpayment: future months
-   never appear in *Backlog* or *Overpaid*, but the payment does count towards the balance.
-6. **Balance.** A student's balance is `sum(all payments) − sum(expected for active months up to
-   the current month)`.
-   - Negative: **Owes ₹X**.
-   - Positive: **Credit ₹X**.
-   - Zero: **Up to date**.
+   never appear in *Backlog* or *Overpaid*, and aren't credit (rule 10). They are shown as
+   **Paid ahead**.
+6. **Standing.** What a student is shown as, overall (the students list and the profile):
+   - **Owes ₹X** if any due month (an active month up to the current month) is Unpaid or
+     Partial. ₹X is the sum of what's left on those months (`owed_paise`). Money paid ahead or
+     paid too much for another month never cancels this out, because payments are kept exactly
+     as typed (rule 10).
+   - Otherwise **Credit ₹X** if some due month was paid too much (`credit_paise`).
+   - Otherwise **Up to date**.
+
+   Money paid ahead is shown next to the standing ("Paid ahead to November 2026"). The net
+   figure `sum(all payments) − sum(expected for due months)` is still returned as
+   `balance_paise`, for reference, but no headline uses it: a net 0 can hide months still owed
+   (for example July paid twice instead of August).
 7. **Changing a fee** always asks "from which month?" and records a fee change. Earlier months
    keep their old expected amount.
 8. **Active or Left.** A student is **Active** until their left month has passed: they have no
@@ -139,8 +147,8 @@ These rules decide every number the app shows.
     wasn't enrolled in. Payments for future months are "paid ahead", not credit. Payments stay
     exactly as they were typed: credit is never moved to other months or split automatically.
     Instead, wherever a student is shown as owing (*Yet to pay*, *Backlog*, the students list
-    and the profile), their credit is shown next to it ("has ₹X credit"), so the owner can fix
-    the payment's month.
+    and the profile), their credit is shown next to it ("Paid ₹X extra in July 2026"), so the
+    owner can fix the payment's month.
 
 ### Dashboard for a selected month M
 

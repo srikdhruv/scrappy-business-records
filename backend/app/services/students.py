@@ -85,6 +85,8 @@ def _read_fields(student: Student, led: ledger.StudentLedger) -> dict[str, objec
         "monthly_fee_paise": led.monthly_fee_paise,
         "balance_paise": led.balance_paise,
         "status": led.status,
+        "owed_paise": led.owed_paise,
+        "paid_ahead_paise": led.paid_ahead_paise,
         "credit_paise": led.credit_paise,
         "tenure_months": led.tenure_months,
         "current_month": led.current_month,

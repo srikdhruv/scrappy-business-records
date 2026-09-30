@@ -45,11 +45,13 @@ __all__ = [
     "StudentRecord",
     "Suggestion",
     "YetToPayEntry",
-    "balance_status",
     "build_dashboard",
     "credit",
     "has_left",
     "month_status",
+    "owed",
+    "paid_ahead",
+    "standing_status",
     "student_ledger",
     "suggest_payment",
     "tenure_months",
@@ -175,9 +177,16 @@ class StudentLedger:
     is_active: bool
     """False once the left month has passed (see `has_left`)."""
     balance_paise: int
+    """Rule 6's net balance. Kept for reference; the headline is `status` (see
+    `standing_status`), because a net figure lets money paid ahead or paid twice hide months
+    that are still owed."""
     status: BalanceStatus
+    owed_paise: int
+    """See `owed`."""
     credit_paise: int
     """See `credit`."""
+    paid_ahead_paise: int
+    """See `paid_ahead`."""
     tenure_months: int
     """See `tenure_months`."""
     monthly_fee_paise: int
@@ -247,11 +256,14 @@ def month_status(expected_paise: int, paid_paise: int) -> MonthStatus:
     return MonthStatus.partial
 
 
-def balance_status(balance_paise: int) -> BalanceStatus:
-    """Rule 6: negative owes, positive is credit, zero is up to date."""
-    if balance_paise < 0:
+def standing_status(owed_paise: int, credit_paise: int) -> BalanceStatus:
+    """Rule 6: a student who still owes for any due month **owes**, whatever else they paid;
+    otherwise money paid too much for a due month is **credit**; otherwise **up to date**.
+    Paying ahead for later months never hides what's owed and isn't credit (see `paid_ahead`).
+    """
+    if owed_paise > 0:
         return BalanceStatus.owes
-    if balance_paise > 0:
+    if credit_paise > 0:
         return BalanceStatus.credit
     return BalanceStatus.up_to_date
 
@@ -285,6 +297,21 @@ def balance(student: StudentRecord, current_month: dt.date) -> int:
     return sum(p.amount_paise for p in student.payments) - expected_to_date(student, current_month)
 
 
+def owed(student: StudentRecord, current_month: dt.date) -> int:
+    """What's still owed: the sum of what's left on every due month (active months up to and
+    including the current month) that is Unpaid or Partial. Extra money in another month doesn't
+    reduce it: payments are kept exactly as they were logged."""
+    return sum(
+        month_line(student, m, current_month).remaining_paise
+        for m in due_months(student, current_month)
+    )
+
+
+def paid_ahead(student: StudentRecord, current_month: dt.date) -> int:
+    """Money paid for months after the current month (rule 5: not due yet, not credit)."""
+    return sum(paid for m, paid in student.paid_by_month.items() if m > current_month)
+
+
 def credit(student: StudentRecord, current_month: dt.date) -> int:
     """Money in overpaid months: the sum of max(0, paid - expected) over months up to and
     including the current month. That includes payments for months the student isn't active
@@ -297,9 +324,12 @@ def credit(student: StudentRecord, current_month: dt.date) -> int:
 
 
 def tenure_months(student: StudentRecord, current_month: dt.date) -> int:
-    """How many months they have been a student: `joined_month` up to the current month (or
-    `left_month`, if earlier), counting both. 0 if they haven't joined yet."""
-    return len(due_months(student, current_month))
+    """How long they have been a student, in whole months: from `joined_month` to the current
+    month (or to `left_month`, if earlier). 0 in the month they join, or if they haven't joined
+    yet. Joined in August, now September: 1."""
+    last = current_month if student.left_month is None else min(current_month, student.left_month)
+    elapsed = (last.year - student.joined_month.year) * 12 + last.month - student.joined_month.month
+    return max(0, elapsed)
 
 
 def history_range(student: StudentRecord, current_month: dt.date) -> list[dt.date]:
@@ -365,7 +395,8 @@ def suggest_payment(student: StudentRecord, current_month: dt.date) -> Suggestio
 def student_ledger(student: StudentRecord, current_month: dt.date) -> StudentLedger:
     """Everything the student list and profile show about one student."""
     current_month = first_of_month(current_month)
-    bal = balance(student, current_month)
+    owed_paise = owed(student, current_month)
+    credit_paise = credit(student, current_month)
     return StudentLedger(
         student=student,
         current_month=current_month,
@@ -373,9 +404,11 @@ def student_ledger(student: StudentRecord, current_month: dt.date) -> StudentLed
             month_line(student, m, current_month) for m in history_range(student, current_month)
         ),
         is_active=not has_left(student, current_month),
-        balance_paise=bal,
-        status=balance_status(bal),
-        credit_paise=credit(student, current_month),
+        balance_paise=balance(student, current_month),
+        status=standing_status(owed_paise, credit_paise),
+        owed_paise=owed_paise,
+        credit_paise=credit_paise,
+        paid_ahead_paise=paid_ahead(student, current_month),
         tenure_months=tenure_months(student, current_month),
         monthly_fee_paise=current_fee(student, current_month),
         total_paid_paise=sum(p.amount_paise for p in student.payments),

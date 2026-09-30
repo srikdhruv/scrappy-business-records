@@ -372,10 +372,21 @@ class StudentRead(_ReadModel):
     )
     monthly_fee_paise: NonNegativePaise = Field(description="Fee in effect this month.")
     balance_paise: SignedPaise = Field(
-        description="All payments minus everything expected up to this month. "
-        "Negative means they owe; positive means credit."
+        description="Net: all payments minus everything expected up to this month. For "
+        "reference only: money paid ahead or paid twice can cancel out months still owed, so "
+        "headlines use `status` and `owed_paise`."
     )
-    status: BalanceStatus
+    status: BalanceStatus = Field(
+        description="`owes` if anything is owed for a due month (`owed_paise` > 0); otherwise "
+        "`credit` if a due month was paid too much (`credit_paise` > 0); otherwise `up_to_date`."
+    )
+    owed_paise: NonNegativePaise = Field(
+        description="Still owed: the sum of what's left on every due month (active months up to "
+        "and including the current month) that is Unpaid or Partial."
+    )
+    paid_ahead_paise: NonNegativePaise = Field(
+        description="Money paid for months after the current month (not due yet; not credit)."
+    )
     credit_paise: NonNegativePaise = Field(
         description="Money in overpaid months up to this month: the sum of max(0, paid - "
         "expected) over months up to and including the current month. Payments for later "
@@ -383,8 +394,8 @@ class StudentRead(_ReadModel):
     )
     tenure_months: int = Field(
         ge=0,
-        description="How many months they have been a student: joined_month up to the current "
-        "month (or left_month, if earlier), counting both. 0 if they haven't joined yet.",
+        description="How long they have been a student, in whole months: from joined_month to "
+        "the current month (or left_month, if earlier). 0 in the month they join or before.",
     )
     current_month: Month = Field(
         description="The server's current month, which every number here is worked out for."

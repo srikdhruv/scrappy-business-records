@@ -72,6 +72,8 @@ def test_student_read(session: Session) -> None:
         monthly_fee_paise=1,
         balance_paise=0,
         status="up_to_date",
+        owed_paise=0,
+        paid_ahead_paise=0,
         credit_paise=0,
         tenure_months=1,
         current_month=dt.date(2026, 1, 1),

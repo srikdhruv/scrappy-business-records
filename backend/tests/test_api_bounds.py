@@ -165,10 +165,13 @@ def test_student_computed_fields(api: TestClient) -> None:
     pay(api, s["id"], "2026-07", 150000)  # paid ahead: not credit
     for row in (api.get(f"/api/students/{s['id']}").json(), api.get("/api/students").json()[0]):
         assert row["current_month"] == "2026-06"
-        assert row["tenure_months"] == 4  # March to June
+        assert row["tenure_months"] == 3  # March to June: three months so far
         assert row["credit_paise"] == 50000
         # Balance still counts everything: 350000 paid - 4 x 150000 due.
         assert row["balance_paise"] == -250000
+        # April, May and June are owed; March's extra doesn't cancel them out.
+        assert (row["owed_paise"], row["paid_ahead_paise"]) == (450000, 150000)
+        assert row["status"] == "owes"
     future = make_student(api, name="Kabir Mehta", joined_month="2026-08")
     assert future["tenure_months"] == 0
 

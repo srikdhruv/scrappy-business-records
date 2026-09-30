@@ -77,7 +77,7 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 | Method & path | Purpose |
 |---|---|
 | `GET /health` | `{"app": "scrappy-records", "version": "0.1.0", "status": "ok"}` |
-| `GET /students?status=active\|left\|all&q=` | List of students, each with `monthly_fee_paise` (current fee), `balance_paise` and `status` (`up_to_date` / `owes` / `credit`). `active` (default) = not left yet (no `left_month`, or `left_month ≥` the current month); `left` = the left month has passed. `q` matches name, guardian or phone, ignoring case and accents (and spaces in phone numbers). Sorted by name, ignoring case and accents |
+| `GET /students?status=active\|left\|all&q=` | List of students, each with `monthly_fee_paise` (current fee), `status` (`owes` / `credit` / `up_to_date`), `owed_paise`, `credit_paise`, `paid_ahead_paise` and the net `balance_paise`. `active` (default) = not left yet (no `left_month`, or `left_month ≥` the current month); `left` = the left month has passed. `q` matches name, guardian or phone, ignoring case and accents (and spaces in phone numbers). Sorted by name, ignoring case and accents |
 | `POST /students` | Create. Body: `name`, `monthly_fee_paise`, `joined_month`, and optionally `phone`, `guardian_name`, `batch_label`, `notes`, `left_month` |
 | `GET /students/{id}` | Detail, including `fee_history`, `months[]` (the ledger; see [Ledger computation](#ledger-computation)) and `payment_count` (so the UI can warn before a delete) |
 | `PATCH /students/{id}` | Partial update. A new fee is sent as `monthly_fee_paise` + `fee_effective_month` (which defaults to the current month, or `joined_month` if that is later). See the edit rules below |
@@ -103,7 +103,7 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 
 | Model | Fields |
 |---|---|
-| `StudentRead` (list item) | `id`, `name`, `phone`, `guardian_name`, `batch_label`, `joined_month`, `left_month`, `notes`, `is_active`, `monthly_fee_paise`, `balance_paise` (negative = owes), `status`, `credit_paise` (money in overpaid months; see below), `tenure_months`, `current_month`, `created_at`, `updated_at` |
+| `StudentRead` (list item) | `id`, `name`, `phone`, `guardian_name`, `batch_label`, `joined_month`, `left_month`, `notes`, `is_active`, `monthly_fee_paise`, `status` (see below), `owed_paise`, `credit_paise` (money in overpaid months), `paid_ahead_paise`, `balance_paise` (net, for reference only), `tenure_months`, `current_month`, `created_at`, `updated_at` |
 | `StudentDetail` (`GET`/`POST`/`PATCH` of one student) | `StudentRead`, plus `fee_history[]` (`FeeChangeRead`), `months[]` (`LedgerMonth`), `payment_count` and `total_paid_paise` |
 | `LedgerMonth` | `month`, `expected_paise`, `paid_paise`, `remaining_paise` (`max(0, expected − paid)`), `excess_paise` (`max(0, paid − expected)`), `status`, `is_due` (month ≤ current month) |
 | `PaymentRead` | `id`, `student_id`, `student_name`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `created_at`, `updated_at` |
@@ -198,16 +198,24 @@ the edges.
   payments, months after a student left (Not applicable), and a future joining month.
 - **Months after the current month** get the same status rule as any other (for example
   `paid` when paid ahead in full, `unpaid` when not), with `is_due: false`. They never count
-  as owed and never appear in *Backlog* or *Overpaid*. A payment for one still adds to the
-  balance (which can then be positive, shown as *Credit*), but not to `credit_paise`.
+  as owed and never appear in *Backlog* or *Overpaid*. A payment for one adds to
+  `paid_ahead_paise` (and the net `balance_paise`), never to `credit_paise`.
+- **`status`** (PRD ledger rule 6) is `owes` if `owed_paise > 0`, else `credit` if
+  `credit_paise > 0`, else `up_to_date` (`ledger.standing_status`). **`owed_paise`** is the
+  sum of `remaining_paise` over due months (active months up to and including the current
+  month). **`paid_ahead_paise`** is the money paid for months after the current month.
+  **`balance_paise`** is the net `sum(payments) − sum(expected for due months)`; it is kept for
+  reference, but the UI never uses it for a headline, because money paid ahead or paid twice
+  can cancel out a month still owed.
 - **`credit_paise`** (PRD ledger rule 10) is the money in overpaid months: the sum of
   `max(0, paid − expected)` over months up to and including the current month, including
   payments for months the student isn't enrolled in. It is shown next to students who still
   owe (the students list, the profile, and the dashboard's *Yet to pay* and *Backlog*) so the
   owner can move the payment to the right month. Payments are never moved or split
   automatically.
-- **`tenure_months`** counts the months from `joined_month` to the current month (or
-  `left_month`, if earlier), both included; 0 before they join.
+- **`tenure_months`** is how long they have been a student, in whole months: the current month
+  (or `left_month`, if earlier) minus `joined_month`. Joined in August, now September: 1. It is
+  0 in the joining month and before it (the UI then says "New this month" or "Starts …").
 - **Current fee (`monthly_fee_paise`)** is the fee in effect this month, or in `joined_month`
   for a student who hasn't joined yet.
 - **`is_active`** (and the `status=active|left` filter) is the PRD's ledger rule 8: true while
