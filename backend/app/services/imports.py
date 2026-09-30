@@ -79,7 +79,6 @@ from app.services.batches import days_to_mask
 from app.services.bounds import EARLIEST_DATE, latest_month
 from app.services.matching import PeopleIndex, Person, text_digits, text_key
 from app.services.spreadsheet import CellError, Col, SheetKind
-from app.services.students import same_text_key
 from app.services.text import fold, name_key, phone_digits
 
 # --------------------------------------------------------------------------- plain words
@@ -1037,14 +1036,24 @@ class _BatchPlan:
         return None
 
 
-def _plan_batches(session: Session, parsed: _Parsed) -> list[_BatchPlan]:
+def batch_key(name: str) -> str:
+    """How an uploaded batch name is matched: ignoring capitals, accents, spaces and
+    punctuation, so "SUNDAY-SENIORS", "Sunday Seniors" and "sunday.seniors" are one batch."""
+    return "".join(c for c in fold(name) if c.isalnum())
+
+
+def _plan_batches(
+    session: Session, parsed: _Parsed, students: Sequence[StudentPlan]
+) -> list[_BatchPlan]:
     """Every batch the file names, matched to the batches here by name (ignoring capitals,
     accents and spaces). A Batches sheet row that isn't here yet will be added; a name only
     in the Batch column that isn't here is `not_found` (never created unless chosen)."""
-    here = {same_text_key(b.name): b for b in session.scalars(select(Batch))}
+    here: dict[str, Batch] = {}
+    for b in sorted(session.scalars(select(Batch)), key=lambda b: (fold(b.name), b.id)):
+        here.setdefault(batch_key(b.name), b)
     plans: dict[str, _BatchPlan] = {}
     for row, data in parsed.batch_rows:
-        key = same_text_key(data.name)
+        key = batch_key(data.name)
         if key in plans:
             parsed.batch_problems.append(
                 ImportBatchPreview(
@@ -1066,10 +1075,11 @@ def _plan_batches(session: Session, parsed: _Parsed) -> list[_BatchPlan]:
             data=data,
             existing=existing,
         )
-    for student in parsed.student_rows:
+    for plan_ in students:
+        student = plan_.data
         if not student.batch_name:
             continue
-        key = same_text_key(student.batch_name)
+        key = batch_key(student.batch_name)
         if not key:
             continue
         plan = plans.get(key)
@@ -1083,7 +1093,10 @@ def _plan_batches(session: Session, parsed: _Parsed) -> list[_BatchPlan]:
                 data=None,
                 existing=existing,
             )
-        plan.student_count += 1
+        # Only the rows that will be added (as the preview has them): a batch named only by
+        # students already here, or skipped, would have nobody to put in it.
+        if _added_by_default(plan_):
+            plan.student_count += 1
     return sorted(plans.values(), key=lambda p: (fold(p.name), p.key))
 
 
@@ -1127,7 +1140,7 @@ def _plan(session: Session, data: bytes, today: dt.date, current_month: dt.date)
     known = _load_known(session)
     splans = classify_students(parsed.student_rows, known, current_month)
     pplans = classify_payments(parsed.payment_rows, splans, known, today)
-    return _Plan(book, parsed, known, splans, pplans, _plan_batches(session, parsed))
+    return _Plan(book, parsed, known, splans, pplans, _plan_batches(session, parsed, splans))
 
 
 class _Lister:
@@ -1246,6 +1259,13 @@ def _check_unique_rows(
 # --------------------------------------------------------------------------- adding
 
 
+def _label_with(label: str | None, batch_name: str | None) -> str | None:
+    """The old class label to keep: "Wednesday Club · Wed 5pm" for a batch name that isn't
+    here and a label from the file, either one alone, or none."""
+    parts = [t for t in (batch_name, label) if t]
+    return " · ".join(parts)[:200] or None
+
+
 def decode_file(encoded: str) -> bytes:
     """The file sent with Add (base64), or a plain 422."""
     try:
@@ -1288,7 +1308,7 @@ def commit(
         )
 
     not_found = {p.key: p for p in plan.batches if p.status is ImportBatchStatus.not_found}
-    create = {same_text_key(name) for name in body.create_batches}
+    create = {batch_key(name) for name in body.create_batches}
     if not create <= set(not_found):
         raise unprocessable(
             "A batch to create isn't one this file names, or it's already here. Please upload "
@@ -1296,7 +1316,6 @@ def commit(
             field="create_batches",
         )
     new_batches = [p for p in plan.batches if p.status is ImportBatchStatus.new]
-    new_batches += [not_found[k] for k in sorted(create)]
 
     added_rows: set[int] = set()
     for p in plan.students:
@@ -1305,6 +1324,14 @@ def commit(
             continue
         if _added_by_default(p) or (p.status is ImportStudentStatus.similar and chosen):
             added_rows.add(p.data.row)
+
+    # A batch to create only if a student being added goes in it: never an empty one.
+    named = {
+        batch_key(p.data.batch_name)
+        for p in plan.students
+        if p.data.row in added_rows and p.data.batch_name
+    }
+    new_batches += [not_found[k] for k in sorted(create) if k in named]
 
     targets: list[_Target | None] = []
     add_anyway: list[bool] = []
@@ -1378,15 +1405,15 @@ def commit(
         uid = d.ref if fresh else None  # a copied row added as new gets a uid of its own
         if uid:
             taken.add(uid)
-        batch_id = batch_ids.get(same_text_key(d.batch_name)) if d.batch_name else None
+        batch_id = batch_ids.get(batch_key(d.batch_name)) if d.batch_name else None
         student = Student(
             uid=uid,
             name=d.name,
             phone=d.phone,
             guardian_name=d.guardian_name,
-            # A batch that isn't here (and wasn't created): its name is kept as their old
-            # class label, so nothing typed in the file is lost.
-            batch_label=d.batch_label or (d.batch_name if batch_id is None else None),
+            # A batch that isn't here (and wasn't created): its name is kept in their old
+            # class label, next to any label the row had, so nothing typed is lost.
+            batch_label=_label_with(d.batch_label, d.batch_name if batch_id is None else None),
             batch_id=batch_id,
             joined_month=parse_month(d.joined_month),
             left_month=parse_month(d.left_month) if d.left_month else None,

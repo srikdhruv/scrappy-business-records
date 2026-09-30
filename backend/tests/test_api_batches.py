@@ -155,7 +155,7 @@ def test_missing_batches_are_404(api: TestClient) -> None:
 
 def test_deleting_a_batch_keeps_its_students_in_no_batch(api: TestClient) -> None:
     batch = make_batch(api)
-    other = make_batch(api, name="Other")
+    other = make_batch(api, name="Other", default_fee_paise=150000)
     a = make_student(api, name="Ananya Rao", batch_id=batch["id"])
     b = make_student(api, name="Kabir Mehta", batch_id=other["id"])
     pay(api, a["id"], "2026-05")
@@ -296,11 +296,17 @@ def test_applying_the_fee_skips_months_away(api: TestClient) -> None:
         ("2026-03", 0, "away"),
         ("2026-05", 150000, "fee"),
     ]
+    body = {"from_month": "2026-04", "student_ids": [s["id"]]}
+    # The fee they came back on is a fee change of their own: only with their own tick.
+    refused = api.patch(
+        f"/api/batches/{batch['id']}", json={"default_fee_paise": 180000, "apply_fee": body}
+    )
+    assert refused.status_code == 422
     response = api.patch(
         f"/api/batches/{batch['id']}",
         json={
             "default_fee_paise": 180000,
-            "apply_fee": {"from_month": "2026-04", "student_ids": [s["id"]]},
+            "apply_fee": {**body, "confirm_planned": [s["id"]]},
         },
     )
     assert response.status_code == 200
@@ -314,7 +320,7 @@ def test_applying_the_fee_skips_months_away(api: TestClient) -> None:
 
 def test_applying_the_fee_is_all_or_nothing(api: TestClient) -> None:
     batch = make_batch(api, default_fee_paise=150000)
-    other = make_batch(api, name="Other")
+    other = make_batch(api, name="Other", default_fee_paise=150000)
     mine = make_student(api, name="Ananya Rao", batch_id=batch["id"])
     theirs = make_student(api, name="Kabir Mehta", batch_id=other["id"])
     response = api.patch(
@@ -598,8 +604,8 @@ def test_a_planned_later_discount_is_never_wiped_without_its_own_tick(api: TestC
         response = _apply(api, batch["id"], 180000, start, [s["id"]])
         assert error(response) == (
             ["body", "apply_fee"],
-            "Ananya Rao has a fee change planned for September 2026. Tick them only if the new "
-            "fee should apply to them anyway.",
+            "Ananya Rao has a fee change of their own for September 2026. Tick them only if the "
+            "new fee should apply to them anyway.",
         )
         assert fees_of(api, s["id"]) == before  # nothing saved, not even the batch's fee
         assert api.get(f"/api/batches/{batch['id']}").json()["default_fee_paise"] == 150000
@@ -612,6 +618,70 @@ def test_a_planned_later_discount_is_never_wiped_without_its_own_tick(api: TestC
         ("2026-07", 180000, "fee"),
         ("2026-09", 100000, "fee"),
     ]
+
+
+def test_a_backdated_fee_never_overwrites_a_discount_or_a_month_off_by_itself(
+    api: TestClient,
+) -> None:
+    """The current month is June 2026; the new fee is from May. One student had ₹800 for May
+    and June (a discount set earlier); another a ₹0 month off in May. Neither is ticked, a
+    save without their own tick is refused, and nothing of theirs changes."""
+    batch = make_batch(api, default_fee_paise=150000)
+    b = batch["id"]
+    plain = make_student(api, name="Ananya Rao", batch_id=b)
+    discount = make_student(api, name="Kabir Mehta", batch_id=b)
+    api.patch(
+        f"/api/students/{discount['id']}",
+        json={"monthly_fee_paise": 80000, "fee_effective_month": "2026-05"},
+    )
+    api.patch(
+        f"/api/students/{discount['id']}",
+        json={"monthly_fee_paise": 150000, "fee_effective_month": "2026-07"},
+    )
+    month_off = make_student(api, name="Meera Iyer", batch_id=b)
+    api.patch(
+        f"/api/students/{month_off['id']}",
+        json={"monthly_fee_paise": 0, "fee_effective_month": "2026-05"},
+    )
+    api.patch(
+        f"/api/students/{month_off['id']}",
+        json={"monthly_fee_paise": 150000, "fee_effective_month": "2026-06"},
+    )
+    before = {s["id"]: fees_of(api, s["id"]) for s in (discount, month_off)}
+
+    plan = _plan(api, b, 180000, "2026-05")
+    assert {n: (p["status"], p["selected"]) for n, p in plan.items()} == {
+        "Ananya Rao": ("usual", True),
+        "Kabir Mehta": ("planned", False),
+        "Meera Iyer": ("planned", False),
+    }
+    for sid in (discount["id"], month_off["id"]):
+        refused = _apply(api, b, 180000, "2026-05", [plain["id"], sid])
+        assert refused.status_code == 422
+        assert "has a fee change of their own for May 2026" in error(refused)[1]
+    ok = _apply(api, b, 180000, "2026-05", [plain["id"]])
+    assert ok.status_code == 200, ok.text
+    for s in (discount, month_off):
+        assert fees_of(api, s["id"]) == before[s["id"]]
+    assert fees_of(api, plain["id"])[-1] == ("2026-05", 180000, "fee")
+
+    # "Usual" is the fee in every month that would change: ₹800 in May, so not the usual one.
+    other = make_batch(api, name="Other", default_fee_paise=150000)
+    s = make_student(api, name="Diya Nair", batch_id=other["id"], monthly_fee_paise=150000)
+    api.patch(
+        f"/api/students/{s['id']}",
+        json={"monthly_fee_paise": 80000, "fee_effective_month": "2026-03"},
+    )
+    assert _plan(api, other["id"], 180000, "2026-05")["Diya Nair"]["status"] == "own_fee"
+
+
+def test_the_plan_refuses_a_month_that_isnt_one(api: TestClient) -> None:
+    batch = make_batch(api)
+    response = api.get(
+        f"/api/batches/{batch['id']}/fee-plan", params={"fee_paise": 1, "from_month": "garbage"}
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["query", "from_month"]
 
 
 def test_ticked_after_a_planned_change_it_takes_over_from_then(api: TestClient) -> None:

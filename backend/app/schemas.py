@@ -1219,7 +1219,8 @@ class ImportBatchStatus(enum.StrEnum):
     batch itself is left as it is."""
     not_found = "not_found"
     """Only named in the Batch column, and not here: those students are left without a batch
-    (the name is kept as their old class label), unless the owner chooses to create it."""
+    (the name is kept in their old class label, next to any label the row has), unless the
+    owner chooses to create it (only offered when a student being added names it)."""
     problem = "problem"
     """A Batches sheet row that can't be added (see `reason`)."""
 
@@ -1229,7 +1230,11 @@ class ImportBatchPreview(_ReadModel):
     status: ImportBatchStatus
     reason: str | None = Field(description="Why, in plain words (not for `new` or `exists`).")
     row: int | None = Field(description="Its row on the Batches sheet, if it's there.")
-    student_count: int = Field(ge=0, description="Student rows in the file that name it.")
+    student_count: int = Field(
+        ge=0,
+        description="Student rows naming it that will be added (not those already here, "
+        "skipped or with a problem). A `not_found` batch with 0 can't be created.",
+    )
     batch_id: int | None = Field(description="`exists`: the batch already here.")
 
 
@@ -1386,8 +1391,8 @@ class ApplyBatchFee(_Model):
     confirm_planned: list[Annotated[int, Field(gt=0, strict=True)]] = Field(
         default_factory=list,
         max_length=5000,
-        description="Of student_ids, those with a fee change planned for a later month that "
-        "the owner ticked anyway. Any other student with one is a 422.",
+        description="Of student_ids, those with a fee change of their own from the start month "
+        "on (status `planned`) that the owner ticked anyway. Any other such student is a 422.",
     )
 
 
@@ -1519,11 +1524,13 @@ class LabelConversion(_ReadModel):
 class FeePlanStatus(enum.StrEnum):
     """What "Also charge the new usual fee" would do to one student (`GET /batches/{id}/fee-plan`).
 
-    - `usual`: pays the usual fee now (the batch's old one, or the most common one if it had
-      none): ticked at first.
-    - `own_fee`: pays a fee of their own (a discount, a free place): not ticked at first.
-    - `planned`: a fee change is set for a later month; the new fee would end at it, or replace
-      it. Not ticked at first, and only changed with `confirm_planned`.
+    - `usual`: every month that would change has the usual fee (the batch's old one, or the
+      most common one if it had none): ticked at first.
+    - `own_fee`: those months have a fee of their own (a discount, a free place): not ticked.
+    - `planned` (shown as "has its own fee change"): a fee change of theirs from the start
+      month on, set earlier (a discount for July and August, a month off, the fee they came
+      back on) or planned for a later month; the new fee would end at it, or replace it. Not
+      ticked at first, and only changed with `confirm_planned`.
     - `already`: they'd already pay it from that month: nothing changes.
     - `not_affected`: they leave before it would start: nothing changes.
     """

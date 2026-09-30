@@ -590,7 +590,7 @@ export interface components {
             student_ids: number[];
             /**
              * Confirm Planned
-             * @description Of student_ids, those with a fee change planned for a later month that the owner ticked anyway. Any other student with one is a 422.
+             * @description Of student_ids, those with a fee change of their own from the start month on (status `planned`) that the owner ticked anyway. Any other such student is a 422.
              */
             confirm_planned?: number[];
         };
@@ -1114,11 +1114,13 @@ export interface components {
          * FeePlanStatus
          * @description What "Also charge the new usual fee" would do to one student (`GET /batches/{id}/fee-plan`).
          *
-         *     - `usual`: pays the usual fee now (the batch's old one, or the most common one if it had
-         *       none): ticked at first.
-         *     - `own_fee`: pays a fee of their own (a discount, a free place): not ticked at first.
-         *     - `planned`: a fee change is set for a later month; the new fee would end at it, or replace
-         *       it. Not ticked at first, and only changed with `confirm_planned`.
+         *     - `usual`: every month that would change has the usual fee (the batch's old one, or the
+         *       most common one if it had none): ticked at first.
+         *     - `own_fee`: those months have a fee of their own (a discount, a free place): not ticked.
+         *     - `planned` (shown as "has its own fee change"): a fee change of theirs from the start
+         *       month on, set earlier (a discount for July and August, a month off, the fee they came
+         *       back on) or planned for a later month; the new fee would end at it, or replace it. Not
+         *       ticked at first, and only changed with `confirm_planned`.
          *     - `already`: they'd already pay it from that month: nothing changes.
          *     - `not_affected`: they leave before it would start: nothing changes.
          * @enum {string}
@@ -1202,7 +1204,7 @@ export interface components {
             row: number | null;
             /**
              * Student Count
-             * @description Student rows in the file that name it.
+             * @description Student rows naming it that will be added (not those already here, skipped or with a problem). A `not_found` batch with 0 can't be created.
              */
             student_count: number;
             /**
@@ -3900,7 +3902,7 @@ export interface operations {
             query: {
                 /** @description The new usual fee. */
                 fee_paise: number;
-                /** @description The first month of the new fee. */
+                /** @description The first month of the new fee, as "YYYY-MM". */
                 from_month: string;
             };
             header?: never;

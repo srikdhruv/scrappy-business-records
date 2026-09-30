@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from app import backup
 from app.db import lock_for_writing
 from app.errors import not_found, unprocessable
-from app.models import WEEKDAYS, Batch, FeeKind, Student
+from app.models import WEEKDAYS, Batch, FeeChange, FeeKind, Student
 from app.months import add_months, format_month, parse_month
 from app.schemas import (
     BatchCreate,
@@ -272,11 +272,19 @@ class _Plan:
         return self.status in (FeePlanStatus.usual, FeePlanStatus.own_fee, FeePlanStatus.planned)
 
 
-def _planned_changes(student: Student, current_month: dt.date) -> list[dt.date]:
-    """Fee changes set for a month that hasn't started yet (never the first fee, the one they
-    join on): a raise, a discount, a month off, or the months away of a return still to come."""
+def _own_changes(
+    student: Student, start: dt.date | None, current_month: dt.date
+) -> list[FeeChange]:
+    """The student's own fee changes the new fee would cut short or replace: any set from the
+    start month on (a discount for July and August, a ₹0 month off, the fee they came back
+    on, months away), and any planned for a month still to come. Never the first fee, the one
+    they joined on."""
     rows = sorted(student.fee_changes, key=lambda f: f.effective_month)
-    return [f.effective_month for f in rows[1:] if f.effective_month > current_month]
+    return [
+        f
+        for f in rows[1:]
+        if f.effective_month > current_month or (start is not None and f.effective_month >= start)
+    ]
 
 
 def _start_month(student: Student, from_month: dt.date) -> dt.date | None:
@@ -308,24 +316,35 @@ def _plans(
     most of them pay (none on a tie).
 
     - `not_affected`: they leave before the new fee would start.
-    - `already`: they'd already pay it then, and nothing is planned: nothing changes.
-    - `planned`: a fee change is set for a month still to come. The new fee would end at it,
-      or replace it: only with their own tick (`confirm_planned`).
-    - `usual`: they pay the usual fee now (ticked at first).
-    - `own_fee`: they pay something else (a discount, a free place): not ticked at first.
+    - `planned` ("has its own fee change"): a fee change of theirs from the start month on
+      (`_own_changes`: set earlier for a month since, or planned for later). The new fee would
+      end at it or replace it: only with their own tick (`confirm_planned`).
+    - `already`: they'd already pay it then: nothing changes.
+    - `usual`: every month that would change has the usual fee now (ticked at first).
+    - `own_fee`: those months have another fee (a discount, a free place): not ticked at first.
+
+    Without an own fee change, the fee is the same in every month from the start month on
+    (the one in effect then), so that is the fee compared.
     """
     members = [s for s in students if s.batch_id == batch.id and not _has_left(s, current_month)]
     records = {s.id: to_record(s) for s in members}
     current = {s.id: ledger.current_fee(records[s.id], current_month) for s in members}
+    starts = {s.id: _start_month(s, from_month) for s in members}
+    # The fee each would pay from the start month on, for those whose months all have one fee.
+    steady = {
+        s.id: records[s.id].fee_in_effect(start)
+        for s in members
+        if (start := starts[s.id]) is not None and not _own_changes(s, start, current_month)
+    }
     usual = batch.default_fee_paise
-    if usual is None and members:
-        counts = Counter(current.values()).most_common()
+    if usual is None and steady:
+        counts = Counter(steady.values()).most_common()
         if len(counts) == 1 or counts[0][1] > counts[1][1]:
             usual = counts[0][0]
     plans: list[_Plan] = []
     for s in sorted(members, key=lambda s: (fold(s.name), s.id)):
         record = records[s.id]
-        start = _start_month(s, from_month)
+        start = starts[s.id]
         due_months = due_change = 0
         if start is None:
             status_ = FeePlanStatus.not_affected
@@ -338,11 +357,11 @@ def _plans(
                     due_months += 1
                     due_change += fee - record.fee_in_effect(m)
                 m = add_months(m, 1)
-            if _planned_changes(s, current_month):
+            if _own_changes(s, start, current_month):
                 status_ = FeePlanStatus.planned
-            elif record.fee_in_effect(start) == fee:
+            elif steady[s.id] == fee:
                 status_ = FeePlanStatus.already
-            elif usual is not None and current[s.id] == usual:
+            elif usual is not None and steady[s.id] == usual:
                 status_ = FeePlanStatus.usual
             else:
                 status_ = FeePlanStatus.own_fee
@@ -431,10 +450,10 @@ def _apply_fee(
     confirmed = set(confirm_planned)
     for plan in plans:
         if plan.status is FeePlanStatus.planned and plan.student.id not in confirmed:
-            first = _planned_changes(plan.student, current_month)[0]
+            first = _own_changes(plan.student, plan.start, current_month)[0].effective_month
             raise unprocessable(
-                f"{plan.student.name} has a fee change planned for {first:%B %Y}. Tick them "
-                "only if the new fee should apply to them anyway.",
+                f"{plan.student.name} has a fee change of their own for {first:%B %Y}. Tick "
+                "them only if the new fee should apply to them anyway.",
                 field="apply_fee",
             )
     for plan in plans:

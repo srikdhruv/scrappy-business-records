@@ -260,6 +260,21 @@ def _put(ws: Worksheet, row: int, col: int, column: _Column, value: Any) -> None
         cell.number_format = fmt
 
 
+SUMMED = (
+    "Fee ₹",
+    "Paid for this month ₹",
+    "Short ₹",
+    "Total owed now ₹",
+    "Paid from another payment's extra ₹",
+    "Extra sent elsewhere ₹",
+    "Extra kept as credit ₹",
+    "Owed from earlier months ₹",
+    "Kept as credit, all months ₹",
+    "Paid ahead ₹",
+)
+"""The money columns the totals row (and a batch's subtotal row) adds up."""
+
+
 def _formula(ws: Worksheet, row: int, col: int, formula: str, paise: bool) -> None:
     cell = ws.cell(row=row, column=col, value=formula)
     cell.number_format = RUPEES_PAISE if paise else RUPEES
@@ -362,10 +377,10 @@ def workbook(
     sizes: dict[str | None, int] = {}
     for r in report.rows:
         sizes[r.batch_name] = sizes.get(r.batch_name, 0) + 1
-    current_group: object = object()
-    for r in report.rows:
-        if group is ReportGroup.batch and r.batch_name != current_group:
-            current_group = r.batch_name
+    grouped = group is ReportGroup.batch
+    group_first = 0
+    for n, r in enumerate(report.rows):
+        if grouped and (n == 0 or r.batch_name != report.rows[n - 1].batch_name):
             row += 1
             count = sizes[r.batch_name]
             label = f"{r.batch_name or 'No batch'} ({count} student{'' if count == 1 else 's'})"
@@ -373,11 +388,25 @@ def workbook(
             ws.cell(row=row, column=1).font = _HEAD_FONT
             for i in range(1, len(COLUMNS) + 1):
                 ws.cell(row=row, column=i).fill = _GROUP_FILL
+            group_first = row + 1
         row += 1
         for i, (column, value) in enumerate(zip(COLUMNS, _values(r), strict=True), start=1):
             _put(ws, row, i, column, value)
             if column.money and isinstance(value, int) and value % 100:
                 has_paise.add(i)
+        last_of_group = n == len(report.rows) - 1 or report.rows[n + 1].batch_name != r.batch_name
+        if grouped and last_of_group:
+            # Each batch's subtotal: SUBTOTAL formulas, which the total below leaves out.
+            row += 1
+            _put(ws, row, 1, COLUMNS[0], f"Subtotal: {r.batch_name or 'No batch'}")
+            for heading_text in SUMMED:
+                col = _COL[heading_text]
+                letter = get_column_letter(col)
+                _formula(
+                    ws, row, col, f"=SUBTOTAL(109,{letter}{group_first}:{letter}{row - 1})", True
+                )
+            for i in range(1, len(COLUMNS) + 1):
+                ws.cell(row=row, column=i).font = _HEAD_FONT
     last = row
 
     t = report.totals

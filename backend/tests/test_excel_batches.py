@@ -138,6 +138,50 @@ def test_a_batches_sheet_adds_its_batches_with_their_details(api: TestClient) ->
     assert students(api) == {"Ananya Rao": ("Evening", None)}
 
 
+def test_names_match_ignoring_hyphens_and_punctuation(api: TestClient) -> None:
+    make_batch(api, name="Sunday Seniors")
+    data = xlsx(
+        ("Students", [HEAD,
+                      ["Ananya Rao", 1500, "Jun 2026", "SUNDAY-SENIORS"],
+                      ["Kabir Mehta", 1500, "Jun 2026", "sunday.seniors"]]),
+    )  # fmt: skip
+    shown = preview(api, data)
+    [batch] = shown["batches"]
+    assert (batch["status"], batch["student_count"]) == ("exists", 2)
+    commit(api, shown)
+    assert students(api) == {
+        "Ananya Rao": ("Sunday Seniors", None),
+        "Kabir Mehta": ("Sunday Seniors", None),
+    }
+
+
+def test_a_batch_nobody_would_join_is_never_created(api: TestClient) -> None:
+    make_student(api, name="Ananya Rao", joined_month="2026-06")  # already here
+    data = xlsx(
+        ("Students", [HEAD,
+                      ["Ananya Rao", 1500, "Jun 2026", "Ghost Batch"],
+                      ["", 1500, "Jun 2026", "Ghost Batch"]]),  # a problem row
+    )  # fmt: skip
+    shown = preview(api, data)
+    [batch] = shown["batches"]
+    assert (batch["status"], batch["student_count"]) == ("not_found", 0)
+    body = commit_body(shown)
+    body["create_batches"] = ["Ghost Batch"]
+    response = api.post("/api/import/commit", json=body)
+    assert response.status_code == 200, response.text
+    assert response.json()["batches_added"] == 0
+    assert api.get("/api/batches").json() == []
+
+
+def test_an_unknown_batch_and_an_old_label_are_both_kept(api: TestClient) -> None:
+    data = xlsx(
+        ("Students", [["Name", "Monthly fee", "Batch", "Old class label"],
+                      ["Ananya Rao", 1500, "Wednesday Club", "Wed 5pm - Hall B"]]),
+    )  # fmt: skip
+    commit(api, preview(api, data))
+    assert students(api) == {"Ananya Rao": (None, "Wednesday Club · Wed 5pm - Hall B")}
+
+
 def test_existing_students_are_never_moved(api: TestClient) -> None:
     make_batch(api, name="Saturday")
     make_student(api, name="Ananya Rao", joined_month="2026-06")
@@ -208,4 +252,11 @@ def test_the_report_download_filters_and_groups_by_batch(api: TestClient) -> Non
     ]
     assert firsts[firsts.index("Batch 2 (1 student)") + 1] == "Meera Iyer"
     assert firsts[firsts.index("No batch (1 student)") + 1] == "Diya Nair"
+    # Each batch ends with its subtotal row: SUBTOTAL formulas over just its students (the
+    # total at the bottom leaves them out, as SUBTOTAL does).
+    i = firsts.index("Subtotal: Batch 2")
+    assert firsts[i - 1] == "Meera Iyer"
+    fee = grouped[i][2]
+    assert isinstance(fee, str) and fee.startswith("=SUBTOTAL(109,C") and fee.endswith(f"C{i})")
+    assert "Subtotal: No batch" in firsts
     assert api.get("/api/report.xlsx", params={"group": "class"}).status_code == 422

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Query, status
 
 from app.clock import CurrentMonthDep
 from app.db import SessionDep
-from app.months import parse_month
+from app.months import MONTH_PATTERN, parse_month
 from app.schemas import (
     MAX_AMOUNT_PAISE,
     BatchCreate,
@@ -91,7 +91,9 @@ def get_fee_plan(
     session: SessionDep,
     current: CurrentMonthDep,
     fee_paise: int = Query(ge=0, le=MAX_AMOUNT_PAISE, description="The new usual fee."),
-    from_month: Month = Query(description="The first month of the new fee."),
+    from_month: str = Query(
+        pattern=MONTH_PATTERN, description='The first month of the new fee, as "YYYY-MM".'
+    ),
 ) -> FeePlan:
     """What "Also charge the new usual fee" would do to each student of the batch, and who is
     ticked at first. Changes nothing; `PATCH` with `apply_fee` uses the same rule."""
