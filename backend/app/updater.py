@@ -498,9 +498,12 @@ def install_root(bundle: Path) -> Path:
     The installer finds the app's processes by their path. If the folder is reached through a
     symlink (macOS's /var is /private/var), a resolved path wouldn't match what they were
     started as, and the installer couldn't stop them. So prefer the path of our own Python
-    (`<root>/app/python/pythonw.exe`, `<root>/app/python/bin/python3`), as it was started."""
+    (`<root>/app/python/bin/python3`), as it was started. On Windows the resolved path (long
+    names, not `RUNNER~1`) is used; the installer compares long names on both sides."""
+    if sys.platform == "win32":
+        return bundle.parent
     exe = Path(os.path.abspath(sys.executable))
-    depth = 2 if sys.platform == "win32" else 3
+    depth = 3
     if len(exe.parents) > depth:
         candidate = exe.parents[depth - 1]
         with contextlib.suppress(OSError):

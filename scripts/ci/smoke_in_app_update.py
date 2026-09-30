@@ -418,7 +418,10 @@ def main() -> int:
             if version != OLD_VERSION:
                 fail(f"version {version} came up, expected the old one")
             _, now = call(port, "GET", "/api/update")
-            return seen_down["down"] and (now.get("last_attempt") or {}).get("outcome") == "failed"
+            failed = (now.get("last_attempt") or {}).get("outcome") == "failed"
+            if failed and not seen_down["down"]:
+                fail("the installer ended without ever stopping the app")
+            return seen_down["down"] and failed
 
         wait_for(
             "the old version to come back, saying it failed",

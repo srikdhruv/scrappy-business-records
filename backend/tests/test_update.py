@@ -683,7 +683,11 @@ def test_install_root_is_spelled_as_our_python_was_started(
 ) -> None:
     real = tmp_path / "real" / "Root"
     app_dir = real / "app"
-    python = app_dir / ("python/pythonw.exe" if sys.platform == "win32" else "python/bin/python3")
+    if sys.platform == "win32":
+        # Windows: always the resolved folder (the installer compares long names itself).
+        assert updater.install_root(app_dir) == real
+        return
+    python = app_dir / "python/bin/python3"
     python.parent.mkdir(parents=True)
     python.write_text("")
     link = tmp_path / "link"

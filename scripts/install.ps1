@@ -91,10 +91,41 @@ function Move-ScrappyFolder([string]$From, [string]$To) {
     }
 }
 
+function Get-ScrappyLongPath([string]$Path) {
+    # A folder can be spelled two ways on Windows: C:\Users\RUNNER~1\... (an 8.3 short name)
+    # and C:\Users\runneradmin\.... The same program started one way can be reported the other,
+    # so compare long names. Returns the path unchanged if it has no short part or can't be read.
+    if (-not $Path -or $Path.IndexOf('~') -lt 0) { return $Path }
+    try {
+        if (-not ('ScrappyRecordsInstall.LongPathV1' -as [type])) {
+            Add-Type -Language CSharp -TypeDefinition @'
+using System.Runtime.InteropServices;
+using System.Text;
+namespace ScrappyRecordsInstall {
+    public static class LongPathV1 {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern uint GetLongPathNameW(string shortPath, StringBuilder longPath, uint size);
+        public static string Get(string path) {
+            StringBuilder buffer = new StringBuilder(32768);
+            uint length = GetLongPathNameW(path, buffer, (uint)buffer.Capacity);
+            return (length > 0 && length < buffer.Capacity) ? buffer.ToString() : path;
+        }
+    }
+}
+'@
+        }
+        return [ScrappyRecordsInstall.LongPathV1]::Get($Path)
+    } catch {
+        return $Path
+    }
+}
+
 function Get-ScrappyProcesses([string]$Root) {
     # Only programs started from our own folders: app\, app.new\ and app.old* (left over from an
-    # earlier update). Never anyone else's Python.
-    $prefixes = @('app\', 'app.new\', 'app.old') | ForEach-Object { Join-Path $Root $_ }
+    # earlier update). Never anyone else's Python. The folder and each program's path are also
+    # compared by their long names (see Get-ScrappyLongPath).
+    $roots = @($Root, (Get-ScrappyLongPath $Root)) | Select-Object -Unique
+    $prefixes = foreach ($r in $roots) { @('app\', 'app.new\', 'app.old') | ForEach-Object { Join-Path $r $_ } }
     try {
         # Win32_Process reads 64-bit paths even from a 32-bit PowerShell; Get-Process can't.
         $all = @(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop |
@@ -109,8 +140,10 @@ function Get-ScrappyProcesses([string]$Root) {
     return @($all | Where-Object {
         $path = $_.Path
         if (-not $path) { return $false }
-        foreach ($prefix in $prefixes) {
-            if ($path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+        foreach ($candidate in @($path, (Get-ScrappyLongPath $path))) {
+            foreach ($prefix in $prefixes) {
+                if ($candidate.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+            }
         }
         return $false
     })
