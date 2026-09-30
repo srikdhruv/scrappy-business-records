@@ -69,25 +69,51 @@ export function isStatusFilter(value: string | null): value is StatusFilter {
   return value !== null && (STATUS_FILTERS as readonly string[]).includes(value)
 }
 
-export function statusFilterLabel(filter: StatusFilter): string {
+/** Which month the report is for, and the server's current month. */
+export interface ReportMonth {
+  month: string
+  current_month: string
+}
+
+/** For a past month, "Owes anything" is "Still owes for Aug 2026 or earlier". */
+export function statusFilterLabel(filter: StatusFilter, when?: ReportMonth): string {
   if (filter === 'all') return 'Everyone'
-  if (filter === 'owes') return 'Owes anything'
+  if (filter === 'owes') {
+    return when && when.month < when.current_month
+      ? `Still owes for ${formatMonthShort(when.month)} or earlier`
+      : 'Owes anything'
+  }
   if (filter === 'short') return 'Short this month'
   return REPORT_STATUS[filter].label
 }
 
-export function matchesStatus(row: ReportRow, filter: StatusFilter): boolean {
+/**
+ * `owes`: anything still owed, as of today, for the month or an earlier one. From the current
+ * month on that's everything owed now; for a past month, debts that started after it don't
+ * count (backend `report.owes_through_month`).
+ */
+export function owesThroughMonth(row: ReportRow, when?: ReportMonth): boolean {
+  if (when && when.month < when.current_month) return row.owed_before_paise + row.short_paise > 0
+  return row.owed_now_paise > 0
+}
+
+export function matchesStatus(row: ReportRow, filter: StatusFilter, when?: ReportMonth): boolean {
   if (filter === 'all') return true
-  if (filter === 'owes') return row.owed_now_paise > 0
+  if (filter === 'owes') return owesThroughMonth(row, when)
   if (filter === 'short') return row.short_paise > 0
   return row.status === filter
 }
 
 /** The rows with this status that match the search (name, class, phone), in the same order. */
-export function filterRows(rows: ReportRow[], filter: StatusFilter, search: string): ReportRow[] {
+export function filterRows(
+  rows: ReportRow[],
+  filter: StatusFilter,
+  search: string,
+  when?: ReportMonth,
+): ReportRow[] {
   return rows.filter(
     (r) =>
-      matchesStatus(r, filter) &&
+      matchesStatus(r, filter, when) &&
       studentMatches({ name: r.student_name, phone: r.phone, batch_label: r.batch_label }, search),
   )
 }
@@ -200,4 +226,24 @@ export function formatMonthRuns(months: readonly string[]): string {
       return `${start}–${formatMonthShort(last)} (${run.length} months)`
     })
     .join(', ')
+}
+
+/**
+ * Where a month's extra went, a run of months at a time (also in Excel): "₹1,500 → Aug 2026",
+ * "₹13,500 → Oct 2026–Jun 2027 (9 months)".
+ */
+export function extraRuns(
+  sent: readonly { to_month: string; amount_paise: number }[],
+): { key: string; amount_paise: number; months: string }[] {
+  const runs: { to_month: string; amount_paise: number }[][] = []
+  for (const e of sent) {
+    const last = runs.at(-1)
+    if (last && addMonths(last.at(-1)!.to_month, 1) === e.to_month) last.push(e)
+    else runs.push([e])
+  }
+  return runs.map((run) => ({
+    key: run[0]!.to_month,
+    amount_paise: run.reduce((sum, e) => sum + e.amount_paise, 0),
+    months: formatMonthRuns(run.map((e) => e.to_month)),
+  }))
 }

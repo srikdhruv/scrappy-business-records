@@ -14,7 +14,7 @@ import re
 from sqlalchemy.orm import Session
 
 from app.models import FeeKind, Student
-from app.months import format_month
+from app.months import format_month, parse_month
 from app.schemas import (
     NoFeeReason,
     ReportCheck,
@@ -28,7 +28,7 @@ from app.schemas import (
 )
 from app.services import ledger
 from app.services.students import all_students, credit_sources_read, extra_sent_read, to_record
-from app.services.text import fold
+from app.services.text import search_fold
 
 
 def _no_fee_reason(student: Student, r: ledger.ReportRow) -> NoFeeReason | None:
@@ -134,30 +134,41 @@ def get_report(
 # --------------------------------------------------------------------------- what's on screen
 # The same rules as the Report page (frontend/src/lib/report.ts, lib/search.ts).
 
-FILTER_WORDS = {
-    ReportFilter.all: "Everyone",
-    ReportFilter.owes: "Owes anything",
-    ReportFilter.short: "Short this month",
-}
+
+def filter_words(f: ReportFilter, month: str, current_month: str) -> str | None:
+    """The status list's words (`lib/report.ts` `statusFilterLabel`), or None for one status.
+    For a past month, "Owes anything" is "Still owes for Aug 2026 or earlier"."""
+    if f is ReportFilter.all:
+        return "Everyone"
+    if f is ReportFilter.owes:
+        if month < current_month:
+            return f"Still owes for {parse_month(month):%b %Y} or earlier"
+        return "Owes anything"
+    if f is ReportFilter.short:
+        return "Short this month"
+    return None
 
 
-def matches_filter(row: ReportRow, f: ReportFilter) -> bool:
+def owes_through_month(row: ReportRow, month: str, current_month: str) -> bool:
+    """`owes`: anything still owed, as of today, for M or an earlier month. From the current
+    month on that is everything owed now; for a past month, debts that started after it don't
+    count (what's left on M, plus the months before it)."""
+    if month < current_month:
+        return row.owed_before_paise + row.short_paise > 0
+    return row.owed_now_paise > 0
+
+
+def matches_filter(row: ReportRow, f: ReportFilter, month: str, current_month: str) -> bool:
     if f is ReportFilter.all:
         return True
     if f is ReportFilter.owes:
-        return row.owed_now_paise > 0
+        return owes_through_month(row, month, current_month)
     if f is ReportFilter.short:
         return row.short_paise > 0
     return row.status.value == f.value
 
 
 _PHONE_LIKE = re.compile(r"^[\d\s()+\-./]+$")
-
-
-def _search_fold(text: str) -> str:
-    """`lib/search.ts` `fold`: also ignores apostrophes (straight or curly) and hyphens, so
-    "obrien" finds "O'Brien"."""
-    return re.sub("['\u2019\u2018`\u00b4-]", "", fold(text))
 
 
 def _digits(text: str) -> str:
@@ -171,10 +182,10 @@ def _digits(text: str) -> str:
 
 def matches_search(row: ReportRow, query: str) -> bool:
     """`lib/search.ts` `studentMatches`, over the name, class and phone."""
-    words = _search_fold(query).split()
+    words = search_fold(query).split()
     if not words:
         return True
-    text = _search_fold(" ".join(t for t in (row.student_name, row.batch_label, row.phone) if t))
+    text = search_fold(" ".join(t for t in (row.student_name, row.batch_label, row.phone) if t))
     phone = _digits(row.phone or "")
 
     def in_phone(typed: str) -> bool:
@@ -189,9 +200,9 @@ def matches_search(row: ReportRow, query: str) -> bool:
 def _sort_value(row: ReportRow, key: ReportSort) -> str | int:
     match key:
         case ReportSort.student:
-            return _search_fold(row.student_name)
+            return search_fold(row.student_name)
         case ReportSort.batch:
-            return _search_fold(row.batch_label or "")
+            return search_fold(row.batch_label or "")
         case ReportSort.status:
             return ledger.REPORT_STATUS_ORDER.index(row.status)
         case ReportSort.fee:
@@ -221,7 +232,12 @@ def shown(
 ) -> ReportResponse:
     """The report as the page shows it: filtered, searched and sorted, with totals for the rows
     shown. Ties keep the usual order (the server's), as on the page."""
-    rows = [r for r in report.rows if matches_filter(r, status) and matches_search(r, q or "")]
+    rows = [
+        r
+        for r in report.rows
+        if matches_filter(r, status, report.month, report.current_month)
+        and matches_search(r, q or "")
+    ]
     if sort is not None:
         # Python's sort is stable, with reverse=True too: ties keep the usual order.
         rows.sort(key=lambda r: _sort_value(r, sort), reverse=order is SortOrder.desc)

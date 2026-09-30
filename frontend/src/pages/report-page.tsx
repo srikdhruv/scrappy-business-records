@@ -48,11 +48,12 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { checkText, creditFromText, creditSourceText } from '@/lib/credit'
-import { formatDate, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
+import { formatDate, formatMonth, formatRupees } from '@/lib/format'
 import { plural } from '@/lib/labels'
 import {
   REPORT_STATUS,
   STATUS_FILTERS,
+  extraRuns,
   filterRows,
   formatMonthRuns,
   isStatusFilter,
@@ -104,7 +105,7 @@ export function ReportPage() {
   }
 
   const rows = useMemo(
-    () => (data ? sortRows(filterRows(data.rows, filter, search), sort) : []),
+    () => (data ? sortRows(filterRows(data.rows, filter, search, data), sort) : []),
     [data, filter, search, sort],
   )
   const totals = useMemo(() => sumRows(rows), [rows])
@@ -121,7 +122,7 @@ export function ReportPage() {
             Printed on {formatDate(data.today)}
             {filtered &&
               ` · Showing ${rows.length} of ${plural(everyone, 'student')}: ${[
-                filter !== 'all' ? statusFilterLabel(filter) : '',
+                filter !== 'all' ? statusFilterLabel(filter, data) : '',
                 search.trim() ? `matching “${search.trim()}”` : '',
               ]
                 .filter(Boolean)
@@ -211,12 +212,12 @@ export function ReportPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {STATUS_FILTERS.map((f) => {
-                    const count = data.rows.filter((r) => matchesStatus(r, f)).length
+                    const count = data.rows.filter((r) => matchesStatus(r, f, data)).length
                     const always = f === 'all' || f === 'owes' || f === 'short'
                     if (count === 0 && !always && f !== filter) return null
                     return (
                       <SelectItem key={f} value={f}>
-                        {statusFilterLabel(f)} ({count})
+                        {statusFilterLabel(f, data)} ({count})
                       </SelectItem>
                     )
                   })}
@@ -414,7 +415,8 @@ function Row({ row: r }: { row: ReportRow }) {
       <TableCell className={cn(STICKY, 'pl-6 whitespace-normal group-hover:bg-muted')}>
         <Link
           to={`/students/${r.student_id}`}
-          className="inline-block max-w-40 rounded font-bold wrap-break-word outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+          title={r.student_name}
+          className="block max-w-40 truncate rounded font-bold outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 print:max-w-none print:whitespace-normal"
         >
           {r.student_name}
         </Link>
@@ -424,7 +426,9 @@ function Row({ row: r }: { row: ReportRow }) {
           {label}
         </StatusPill>
         {detail && (
-          <span className="mt-0.5 block text-xs font-semibold text-muted-foreground">{detail}</span>
+          <span className="mt-0.5 block max-w-28 text-xs font-semibold whitespace-normal text-muted-foreground">
+            {detail}
+          </span>
         )}
       </TableCell>
       <MoneyCell paise={r.fee_paise} />
@@ -456,10 +460,9 @@ function Row({ row: r }: { row: ReportRow }) {
         ))}
       </MoneyCell>
       <MoneyCell paise={r.extra_sent_paise}>
-        {r.extra_sent.map((e) => (
-          <Note key={e.to_month} tone="credit">
-            {r.extra_sent.length === 1 ? '' : `${formatRupees(e.amount_paise)} `}→{' '}
-            {formatMonthShort(e.to_month)}
+        {extraRuns(r.extra_sent).map((run, _, runs) => (
+          <Note key={run.key} tone="credit">
+            {runs.length === 1 ? '' : `${formatRupees(run.amount_paise)} `}→ {run.months}
           </Note>
         ))}
         {r.extra_unused_paise > 0 && (

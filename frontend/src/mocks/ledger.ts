@@ -515,7 +515,11 @@ export function report(
   rows.sort(
     (a, b) =>
       rank(a) - rank(b) ||
-      fold(a.student_name).localeCompare(fold(b.student_name)) ||
+      (fold(a.student_name) < fold(b.student_name)
+        ? -1
+        : fold(a.student_name) > fold(b.student_name)
+          ? 1
+          : 0) ||
       a.student_id - b.student_id,
   )
   return { month, current_month: now, today, rows, totals: sumRows(rows) }

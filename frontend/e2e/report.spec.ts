@@ -223,11 +223,30 @@ test('the answers are in view at 800 px without scrolling: status and total owed
   const now = await serverMonth(request)
   const name = uniqueName('Veer')
   await createStudent(request, { name, monthly_fee_paise: 150000, joined_month: now })
+  // A long name (over 30 letters) and a "Left" status with its "after February 2026" line.
+  const longName = uniqueName('Venkatanarasimha Raghavendran')
+  const left = addMonths(now, -2)
+  await createStudent(request, {
+    name: longName,
+    monthly_fee_paise: 150000,
+    joined_month: addMonths(now, -3),
+    left_month: left,
+  })
+  expect(longName.length).toBeGreaterThan(30)
   await page.setViewportSize({ width: 800, height: 900 })
   await page.goto(`/report?month=${now}`)
   const row = reportRow(page, name)
   await expect(row.getByText('Unpaid', { exact: true })).toBeVisible()
+  const leftRow = reportRow(page, longName)
+  await expect(leftRow.getByText(`after ${formatMonth(left)}`)).toBeVisible()
+  // The name is cut short on screen, with the whole name on hover.
+  await expect(leftRow.getByRole('link', { name: longName })).toHaveAttribute('title', longName)
   const container = page.locator('.report-sheet [data-slot="table-container"]')
+  const owedCell = leftRow.getByRole('cell').nth(5)
+  const owedBox = (await owedCell.boundingBox())!
+  const inside = (await container.boundingBox())!
+  expect(owedBox.x + owedBox.width).toBeLessThanOrEqual(inside.x + inside.width + 1)
+  await expect(owedCell).toContainText('₹')
   const box = (await container.boundingBox())!
   for (const heading of ['Status', 'Fee', 'Paid for this month', 'Short', 'Total owed now']) {
     const header = page.getByRole('columnheader', { name: heading, exact: true })

@@ -294,8 +294,11 @@ The answers come first, then the details:
 | Class/batch, Phone | As entered |
 
 Rows start with whom to follow up (Unpaid, then Partial, Not due yet, Paid (from extra), Paid,
-No fee, Left), then by name. On screen the owner can choose a status list (**Owes anything**:
-Total owed now above ₹0, the list to chase; **Short this month**; or one status), search by
+No fee, Left), then by name, the name compared as the screen's search compares it (accents,
+apostrophes and hyphens ignored) so the Excel file breaks ties the same way. On screen the
+owner can choose a status list (**Owes anything**: Total owed now above ₹0, the list to chase;
+for a past month it is **Still owes for Aug 2026 or earlier**: owed today for that month or
+earlier; **Short this month**; or one status), search by
 name, and sort by any column. A **totals row** adds up the rows shown, and a **Collected** line
 under it (paid for this month − extra sent elsewhere − extra kept as credit + paid from other
 payments' extra); with nothing filtered they are the dashboard summary (Fee = Expected, Short =

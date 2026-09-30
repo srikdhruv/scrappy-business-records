@@ -146,7 +146,10 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
   `paid_with_credit` (shown as **Paid (from extra)**), `paid`, `no_fee`, `left`. See
   [Monthly report](#monthly-report).
 - `NoFeeReason`: `not_joined`, `away` (the fee in effect is an `away` row), `zero_fee`.
-- `ReportFilter` (the report's status list): `all`, `owes` (`owed_now_paise > 0`), `short`
+- `ReportFilter` (the report's status list): `all`, `owes` (for the current month or a later
+  one `owed_now_paise > 0`; for a past month `owed_before_paise + short_paise > 0`, owed today
+  for that month or earlier: `report.owes_through_month`, shown as "Still owes for Aug 2026 or
+  earlier"), `short`
   (`short_paise > 0`), or a `ReportStatus`.
 - `ReportSort`: `student`, `status`, `fee`, `paid`, `short`, `owed_now`, `covered`, `extra`,
   `owed_before`, `credit`, `batch`.

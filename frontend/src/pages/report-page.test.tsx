@@ -154,6 +154,21 @@ describe('monthly report', () => {
     expect(screen.getByText(/Payments count for the month they’re/)).toBeInTheDocument()
   })
 
+  it('on a past month, the chase list is who still owes for that month or earlier', async () => {
+    const user = userEvent.setup()
+    renderApp('/report?month=2026-08')
+    await screen.findByRole('table')
+    await user.click(screen.getByRole('combobox', { name: 'Status' }))
+    await user.click(
+      await screen.findByRole('option', { name: /^Still owes for Aug 2026 or earlier \(\d+\)$/ }),
+    )
+    const august = mockDb.report('2026-08')
+    const owing = august.rows.filter((r) => r.owed_before_paise + r.short_paise > 0)
+    await waitFor(async () => expect(await rowsShown()).toEqual(owing.map((r) => r.student_name)))
+    // Kabir owes September and October, not August or earlier: not on it.
+    expect(owing.map((r) => r.student_name)).not.toContain('Kabir Mehta')
+  })
+
   it('sorts when a column heading is clicked', async () => {
     const user = userEvent.setup()
     renderApp('/report?month=2026-10')

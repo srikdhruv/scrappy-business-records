@@ -46,7 +46,7 @@ from app.schemas import (
     ReportStatus,
     SortOrder,
 )
-from app.services.report import FILTER_WORDS
+from app.services.report import filter_words
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -190,8 +190,19 @@ def credit_from_text(sources: Sequence[CreditSource]) -> str:
 
 
 def extra_went_text(sent: Sequence[ExtraSent]) -> str:
-    """ "₹1,500 → Aug 2026", one per month."""
-    return "; ".join(f"{rupees(e.amount_paise)} → {_month_short(e.to_month)}" for e in sent)
+    """Where the extra went, a run of months at a time, as on screen (`lib/report.ts`
+    `extraRuns`): "₹1,500 → Aug 2026", "₹13,500 → Oct 2026-Jun 2027 (9 months)" (en dash)."""
+    runs: list[list[ExtraSent]] = []
+    for e in sent:
+        last = runs[-1][-1] if runs else None
+        if last and add_months(parse_month(last.to_month), 1) == parse_month(e.to_month):
+            runs[-1].append(e)
+        else:
+            runs.append([e])
+    return "; ".join(
+        f"{rupees(sum(e.amount_paise for e in run))} → {month_runs([e.to_month for e in run])}"
+        for run in runs
+    )
 
 
 def check_text(c: ReportCheck) -> str:
@@ -261,13 +272,18 @@ def title(month: str) -> str:
 
 
 def shown_words(
-    status: ReportFilter, q: str | None, sort: ReportSort | None, order: SortOrder
+    report: ReportResponse,
+    status: ReportFilter,
+    q: str | None,
+    sort: ReportSort | None,
+    order: SortOrder,
 ) -> str:
     """What the rows are, for the title: "Short this month · matching "rao" · sorted by Short,
     largest first". Empty for everyone, in the usual order."""
     parts = []
     if status is not ReportFilter.all:
-        parts.append(FILTER_WORDS.get(status) or STATUS_WORDS[ReportStatus(status.value)])
+        words = filter_words(status, report.month, report.current_month)
+        parts.append(words or STATUS_WORDS[ReportStatus(status.value)])
     if q and q.strip():
         parts.append(f'matching "{q.strip()}"')
     if sort is not None:
@@ -295,7 +311,7 @@ def workbook(
     ahead = report.month > report.current_month
 
     heading = title(report.month)
-    if words := shown_words(status, q, sort, order):
+    if words := shown_words(report, status, q, sort, order):
         heading += f" · {words}"
     ws["A1"] = ILLEGAL_CHARACTERS_RE.sub("", heading)
     ws["A1"].data_type = "s"
@@ -320,10 +336,13 @@ def workbook(
 
     first = HEADER_ROW + 1
     row = HEADER_ROW
+    has_paise: set[int] = set()  # columns with an amount in paise somewhere
     for r in report.rows:
         row += 1
         for i, (column, value) in enumerate(zip(COLUMNS, _values(r), strict=True), start=1):
             _put(ws, row, i, column, value)
+            if column.money and isinstance(value, int) and value % 100:
+                has_paise.add(i)
     last = row
 
     t = report.totals
@@ -360,7 +379,8 @@ def workbook(
                 total_row,
                 col,
                 f"=SUBTOTAL(109,{letter}{first}:{letter}{last})",
-                paise % 100 != 0,
+                # With paise if any row has some, so a filtered subtotal is never rounded.
+                col in has_paise or paise % 100 != 0,
             )
         else:
             _put(ws, total_row, col, COLUMNS[col - 1], 0)
@@ -395,7 +415,7 @@ def workbook(
         collected_row,
         _COL["Paid for this month ₹"],
         f"={paid}-{sent}-{kept}+{covered}",
-        t.collected_paise % 100 != 0,
+        bool(has_paise) or t.collected_paise % 100 != 0,
     )
     ws.cell(row=collected_row, column=_COL["Paid for this month ₹"]).font = _HEAD_FONT
 

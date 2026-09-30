@@ -4,6 +4,7 @@ import { mockDb } from '@/mocks/node'
 import { TEST_NOW } from '@/test/render'
 
 import {
+  extraRuns,
   filterRows,
   formatMonthRuns,
   isStatusFilter,
@@ -228,4 +229,51 @@ it('says when they left and why there is no fee', () => {
   expect(statusLabel({ status: 'paid_with_credit', left_month: null, no_fee_reason: null })).toBe(
     'Paid (from extra)',
   )
+})
+
+describe('second review', () => {
+  it('"Owes anything" on a past month is what is still owed for it or earlier', () => {
+    const past = { month: '2026-08', current_month: '2026-10' }
+    const now = { month: '2026-10', current_month: '2026-10' }
+    // Paid August, owes only September and October now: not on August's list.
+    const laterOnly = { ...ananya, student_id: 6, owed_now_paise: 300000 }
+    // Owes July: on August's list.
+    const earlier = { ...ananya, student_id: 7, owed_before_paise: 150000, owed_now_paise: 150000 }
+    expect(filterRows([laterOnly, earlier, kabir], 'owes', '', past)).toEqual([earlier, kabir])
+    expect(filterRows([laterOnly, earlier, kabir], 'owes', '', now)).toEqual([
+      laterOnly,
+      earlier,
+      kabir,
+    ])
+    expect(statusFilterLabel('owes', past)).toBe('Still owes for Aug 2026 or earlier')
+    expect(statusFilterLabel('owes', now)).toBe('Owes anything')
+    expect(statusFilterLabel('owes', { month: '2026-11', current_month: '2026-10' })).toBe(
+      'Owes anything',
+    )
+  })
+
+  it('shows where extra went a run of months at a time', () => {
+    const nine = Array.from({ length: 9 }, (_, i) => ({
+      to_month: `${i < 3 ? 2026 : 2027}-${String(((9 + i) % 12) + 1).padStart(2, '0')}`,
+      amount_paise: 150000,
+    }))
+    expect(extraRuns(nine)).toEqual([
+      { key: '2026-10', amount_paise: 1350000, months: 'Oct 2026–Jun 2027 (9 months)' },
+    ])
+    expect(
+      extraRuns([
+        { to_month: '2026-05', amount_paise: 150000 },
+        { to_month: '2026-07', amount_paise: 20050 },
+      ]).map((r) => r.months),
+    ).toEqual(['May 2026', 'Jul 2026'])
+  })
+
+  it('breaks ties by the folded name, as the server does', () => {
+    const tie = (id: number, student_name: string) => ({ ...kabir, student_id: id, student_name })
+    const sorted = sortRows([tie(1, "O'Neil Das"), tie(2, 'Oliver Das'), tie(3, 'Émile Roy')], {
+      key: 'fee',
+      desc: true,
+    })
+    expect(sorted.map((r) => r.student_name)).toEqual(['Émile Roy', 'Oliver Das', "O'Neil Das"])
+  })
 })

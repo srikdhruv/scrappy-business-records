@@ -39,7 +39,7 @@ from functools import cached_property
 
 from app.months import add_months, first_of_month, month_range
 from app.schemas import BalanceStatus, MonthStatus, ReportStatus, SuggestionReason
-from app.services.text import fold
+from app.services.text import fold, search_fold
 
 __all__ = [
     "Allocation",
@@ -944,5 +944,13 @@ def build_report(
                 ),
             )
         )
-    rows.sort(key=lambda r: (REPORT_STATUS_ORDER.index(r.status), *_sort_key(r.student)))
+    # The screen's name order (`search_fold`, as `lib/report.ts`), so ties sort the same in the
+    # Excel download as on screen.
+    rows.sort(
+        key=lambda r: (
+            REPORT_STATUS_ORDER.index(r.status),
+            search_fold(r.student.name),
+            r.student.id,
+        )
+    )
     return Report(month=month, rows=tuple(rows))

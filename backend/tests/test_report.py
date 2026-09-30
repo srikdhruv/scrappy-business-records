@@ -680,3 +680,88 @@ def test_screen_filters_match_the_page(api: TestClient) -> None:
     assert {r.student_name for r in short.rows} == {"Arjun Menon", "Meera Iyer"}
     assert owes.totals.owed_now_paise == body.totals.owed_now_paise
     assert shown(body, ReportFilter.left, "dev").totals.student_count == 1
+
+
+# --------------------------------------------------------------------------- second review
+
+
+def test_owes_anything_on_past_months_is_owed_up_to_that_month() -> None:
+    """On a past month's report, "Owes anything" is anyone who still owes (today) for that month
+    or an earlier one: the dashboard's Yet to pay and Earlier months still owed for that month.
+    Debts that started later don't count. From the current month on, it's anything owed now."""
+    import datetime as dt
+
+    from app.clock import get_today
+    from app.main import create_app
+    from app.schemas import ReportFilter, ReportResponse
+    from app.services.report import shown
+
+    today = dt.date(2026, 9, 15)
+    app = create_app()
+    app.dependency_overrides[get_today] = lambda: today
+    with TestClient(app) as api:
+        with session_factory()() as session:
+            seed(session, today)
+        students = {s["id"]: s for s in api.get("/api/students", params={"status": "all"}).json()}
+        for month in ("2026-06", "2026-08", "2026-09", "2026-10"):
+            body = ReportResponse.model_validate(report(api, month))
+            board = api.get("/api/dashboard", params={"month": month}).json()
+            owes = {r.student_id for r in shown(body, ReportFilter.owes).rows}
+            if month < "2026-09":
+                expected = {y["student_id"] for y in board["yet_to_pay"]} | {
+                    b["student_id"] for b in board["backlog"]
+                }
+                label = f"Still owes for {'Jun' if month == '2026-06' else 'Aug'} 2026 or earlier"
+            else:
+                expected = {i for i, s in students.items() if s["owed_paise"] > 0}
+                label = "Owes anything"
+            assert owes == expected, month
+            assert owes, month  # the demo data has someone owing in each
+            params = {"month": month, "status": "owes"}
+            ws = _sheet(api.get("/api/report.xlsx", params=params).content)
+            assert ws["A1"].value.endswith(f" · {label}"), month
+        # June: nobody who only owes for later months (e.g. September) is on the June list.
+        june = ReportResponse.model_validate(report(api, "2026-06"))
+        later_only = [r for r in june.rows if r.owed_now_paise > 0 and r.owed_before_paise == 0]
+        later_only = [r for r in later_only if r.short_paise == 0]
+        june_owes = {r.student_id for r in shown(june, ReportFilter.owes).rows}
+        assert all(r.student_id not in june_owes for r in later_only)
+        assert later_only  # there are such students in the demo data
+
+
+def test_ties_sort_as_on_screen(api: TestClient) -> None:
+    """Names sort as the screen's `fold` does (apostrophes ignored): Oliver before O'Neil, in
+    the report and in an Excel file sorted by a column where they tie."""
+    for name in ("O'Neil Das", "Oliver Das", "Émile Roy", "Eva Roy"):
+        make_student(api, name=name, joined_month="2026-06")
+    names = [r["student_name"] for r in report(api, "2026-06")["rows"]]
+    assert names == ["Émile Roy", "Eva Roy", "Oliver Das", "O'Neil Das"]
+    for order in ("asc", "desc"):
+        params = {"month": "2026-06", "sort": "fee", "order": order}
+        ws = _sheet(api.get("/api/report.xlsx", params=params).content)
+        assert [ws.cell(row=5 + i, column=1).value for i in range(4)] == names, order
+
+
+def test_extra_sent_to_a_run_of_months_is_one_line(api: TestClient) -> None:
+    s = make_student(api, name="Kabir Mehta", joined_month="2026-06")
+    pay(api, s["id"], "2026-06", 1500000, paid_on="2026-06-12")
+    row = rows_by_name(report(api, "2026-06"))["Kabir Mehta"]
+    assert len(row["extra_sent"]) == 9
+    ws = _sheet(api.get("/api/report.xlsx", params={"month": "2026-06"}).content)
+    assert ws.cell(row=5, column=COL["Went to"] + 1).value == (
+        "₹13,500 → Jul 2026\u2013Mar 2027 (9 months)"
+    )
+
+
+def test_totals_keep_paise_when_any_row_has_them(api: TestClient) -> None:
+    """A subtotal Excel works out for a filtered set is never shown rounded."""
+    a = make_student(api, name="Ananya Rao", joined_month="2026-06")
+    b = make_student(api, name="Kabir Mehta", joined_month="2026-06")
+    pay(api, a["id"], "2026-06", 50050)
+    pay(api, b["id"], "2026-06", 49950)  # the total is a whole ₹1,000
+    ws = _sheet(api.get("/api/report.xlsx", params={"month": "2026-06"}).content)
+    total = ws.cell(row=7, column=COL["Paid for this month ₹"] + 1)
+    assert total.value == "=SUBTOTAL(109,D5:D6)"
+    assert total.number_format == RUPEES_PAISE
+    whole = ws.cell(row=7, column=COL["Fee ₹"] + 1)
+    assert whole.number_format == RUPEES

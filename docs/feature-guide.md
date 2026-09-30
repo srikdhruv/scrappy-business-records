@@ -358,14 +358,14 @@ It starts with whom to follow up: **Unpaid** first, then **Partial**, **Not due 
 
 | Column | What it means |
 |---|---|
-| **Student** | Their name. Click it to open their profile. It stays on the left while you scroll the table sideways |
+| **Student** | Their name. Click it to open their profile. It stays on the left while you scroll the table sideways. A very long name is cut short with *…*; point at it to see it in full (it prints in full) |
 | **Status** | One word for that month (see below) |
 | **Fee** | Their fee for that month. **—** when there is none (not enrolled then, or a ₹0 fee) |
 | **Paid for this month** | Everything logged *for* that month, exactly as typed, even if it's more than the fee. A payment that looks like a slip of the finger gets the Dashboard's amber note under it: *"Check: this ₹15,000 payment pays up to Jun 2027 — 9 months ahead"* |
 | **Short** | What's still left to pay for that month. Red for Unpaid, amber for Partial |
 | **Total owed now** | Everything they owe today, all months together: the same as *Owes* on the Students page |
 | **Paid from another payment's extra** | Money paid above the fee in *another* month that paid this one (see [extra money](#extra-money-pays-the-months-still-owed)), with which payment it came from: *"from the 2 Sep 2026 payment (for Sep 2026)"* |
-| **Extra sent elsewhere** | The part of this month's money above its fee that paid other months, with where it went: *"→ Aug 2026"*. Money no month needed says *"₹500 kept as credit"* under it |
+| **Extra sent elsewhere** | The part of this month's money above its fee that paid other months, with where it went: *"→ Aug 2026"*, or a run of months at once: *"→ Oct 2026–Jun 2027 (9 months)"*. Money no month needed says *"₹500 kept as credit"* under it |
 | **Owed from earlier months** | What they still owe for months *before* this one, with those months under it. A run of months is kept short: *"Jan–Jun 2026 (6 months)"* |
 | **Kept as credit / paid ahead** | Money no month needs (*"₹500 kept as credit"*), and money that pays months after this one (*"₹1,500 paid ahead"*), as on their profile |
 | **Class/batch**, **Phone** | As entered for the student |
@@ -409,7 +409,10 @@ the page.
 **Find whom to chase, or a group**
 1. Choose from the list next to the search box:
    - **Owes anything**: everyone who owes money today, for this month or any earlier one
-     (*Total owed now* above ₹0). **This is the list to chase.**
+     (*Total owed now* above ₹0). **This is the list to chase.** Looking back at an earlier
+     month, it's called **Still owes for Aug 2026 or earlier** (with that month) and lists who
+     still owes for that month or before it, as of today; money owed only for later months
+     doesn't count there.
    - **Short this month**: only those with something left to pay for *this* month (Unpaid,
      Partial and Not due yet).
    - **Everyone**, or one status. The number next to each is how many students have it.
@@ -430,7 +433,8 @@ the page.
 2. Your browser saves *scrappy-records-report-2026-09.xlsx* (the month is in the name) in your
    Downloads folder. Open it in Excel or Google Sheets.
 
-The file has **the students on screen**, in the same order and with the same columns: if you
+The file has **the students on screen**, in the same order (ties too) and with the same
+columns: if you
 chose a status, searched or sorted, so does the file, and its title says so (*"Scrappy Records
 — Fees report, September 2026 · Owes anything · sorted by Total owed now, largest first"*). The
 second row is the date. The headings stay in view as you scroll, and have Excel's filter
@@ -1409,7 +1413,7 @@ The same word always has the same colour, everywhere in the app.
 | **Partial** | Amber | Dashboard *Yet to pay*; *Earlier months still owed* (as "· part paid"); profile; Monthly report | This month or an earlier one, and some but not all of the fee is paid |
 | **Unpaid** | Muted red | Dashboard *Yet to pay*; *Earlier months still owed* (a red month label); profile; Monthly report | This month or an earlier one, a fee was due, and nothing pays it |
 | **Short** | Red (Unpaid) or amber (Partial) amount | Monthly report column | What's still left to pay for that month |
-| **Owes anything** / **Short this month** | — (a list choice) | Monthly report | *Owes anything*: owes money today for any month, the list to chase. *Short this month*: something left to pay for the month at the top |
+| **Owes anything** / **Still owes for … or earlier** / **Short this month** | — (a list choice) | Monthly report | *Owes anything*: owes money today for any month, the list to chase. On an earlier month's report it's *Still owes for Aug 2026 or earlier*: still owes for that month or before it. *Short this month*: something left to pay for the month at the top |
 | **Kept as credit** | Teal | Monthly report, profile, Dashboard | Money paid that no month needs (every month owed is already paid). Only this is called credit on the Monthly report; money that paid another month is "extra" |
 | **Total owed now** | Muted red amount | Monthly report column | Everything they owe today, all months together: the same as **Owes ₹X** |
 | **… credit from the … payment (for …)** | Teal note | Profile *Month by month*; the Log payment form | Extra money from another month's payment that pays this month: "₹2,000 credit from the 2 Sep 2026 payment (for Sep 2026)" |
