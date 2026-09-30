@@ -1,10 +1,8 @@
-"""Payments: list, create, detail, update, delete.
+"""Payments: list, create, detail, update, delete. The work is in `app/services/payments.py`."""
 
-Contract only — the bodies are filled in by the backend PR.
-"""
+from fastapi import APIRouter, Query, status
 
-from fastapi import APIRouter, HTTPException, Query, status
-
+from app.clock import TodayDep
 from app.db import SessionDep
 from app.schemas import (
     ErrorResponse,
@@ -15,6 +13,7 @@ from app.schemas import (
     PaymentUpdate,
     SortOrder,
 )
+from app.services import payments as service
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
@@ -33,7 +32,9 @@ def list_payments(
     order: SortOrder = Query(SortOrder.desc),
 ) -> list[PaymentRead]:
     """Every payment matching the filters, with the student's name."""
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Not implemented")
+    return service.list_payments(
+        session, student_id=student_id, month=month, q=q, sort=sort, order=order
+    )
 
 
 @router.post(
@@ -43,8 +44,8 @@ def list_payments(
     responses={404: {"model": ErrorResponse, "description": "No student with this id"}},
     operation_id="createPayment",
 )
-def create_payment(body: PaymentCreate, session: SessionDep) -> PaymentRead:
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Not implemented")
+def create_payment(body: PaymentCreate, session: SessionDep, today: TodayDep) -> PaymentRead:
+    return service.create_payment(session, body, today)
 
 
 @router.get(
@@ -54,7 +55,7 @@ def create_payment(body: PaymentCreate, session: SessionDep) -> PaymentRead:
     operation_id="getPayment",
 )
 def get_payment(payment_id: int, session: SessionDep) -> PaymentRead:
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Not implemented")
+    return service.get_payment(session, payment_id)
 
 
 @router.patch(
@@ -63,9 +64,11 @@ def get_payment(payment_id: int, session: SessionDep) -> PaymentRead:
     responses=NOT_FOUND,
     operation_id="updatePayment",
 )
-def update_payment(payment_id: int, body: PaymentUpdate, session: SessionDep) -> PaymentRead:
+def update_payment(
+    payment_id: int, body: PaymentUpdate, session: SessionDep, today: TodayDep
+) -> PaymentRead:
     """Partial update. Only fields that are sent change."""
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Not implemented")
+    return service.update_payment(session, payment_id, body, today)
 
 
 @router.delete(
@@ -75,4 +78,4 @@ def update_payment(payment_id: int, body: PaymentUpdate, session: SessionDep) ->
     operation_id="deletePayment",
 )
 def delete_payment(payment_id: int, session: SessionDep) -> None:
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Not implemented")
+    service.delete_payment(session, payment_id)

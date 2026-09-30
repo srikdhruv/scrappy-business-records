@@ -15,9 +15,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse
 
-from app import __version__, config, migrate
+from app import __version__, config, errors, migrate
 from app.db import dispose_engines
 from app.routers import api_router
 
@@ -84,6 +85,7 @@ def create_app(static_dir: Path | None = None) -> FastAPI:
         # One schema per model in the OpenAPI output, so generated TypeScript names match ours.
         separate_input_output_schemas=False,
     )
+    app.add_exception_handler(RequestValidationError, errors.validation_error_handler)
     app.include_router(api_router)
     _add_spa(app, static_dir or config.static_dir())
     return app

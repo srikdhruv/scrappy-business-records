@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app import migrate
 from app.db import get_engine
@@ -53,7 +53,7 @@ def test_fee_change_read(session: Session) -> None:
 
 
 def test_payment_read(session: Session) -> None:
-    payment = session.scalars(select(Payment)).one()
+    payment = session.scalars(select(Payment).options(joinedload(Payment.student))).one()
     read = PaymentRead.model_validate(payment)
     assert read.for_month == "2026-02"
     assert read.paid_on == dt.date(2026, 2, 5)
@@ -72,6 +72,9 @@ def test_student_read(session: Session) -> None:
         monthly_fee_paise=1,
         balance_paise=0,
         status="up_to_date",
+        credit_paise=0,
+        tenure_months=1,
+        current_month=dt.date(2026, 1, 1),
     )
     read = StudentRead.model_validate(row)
     assert read.joined_month == "2026-01"

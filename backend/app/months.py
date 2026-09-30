@@ -9,7 +9,8 @@ from __future__ import annotations
 import datetime as dt
 import re
 
-MONTH_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
+# Years 2000-2099 only: anything else is a typo, and far-off years would make month ranges huge.
+MONTH_PATTERN = r"^20\d{2}-(0[1-9]|1[0-2])$"
 _MONTH_RE = re.compile(MONTH_PATTERN)
 
 

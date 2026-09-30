@@ -87,8 +87,8 @@ export interface paths {
         };
         /**
          * Suggest Payment
-         * @description The oldest unpaid or partial month and what's left on it; otherwise the current month
-         *     and its fee.
+         * @description The oldest unpaid or partial month up to now and what's left on it; otherwise the next
+         *     month that isn't fully paid (usually next month) and what's left on it.
          */
         get: operations["suggestPayment"];
         put?: never;
@@ -189,6 +189,11 @@ export interface components {
              * @description Amount in paise, more than 0.
              */
             total_owed_paise: number;
+            /**
+             * Credit Paise
+             * @description The student's money in overpaid months up to the current month (see StudentRead.credit_paise), so the UI can say they have credit.
+             */
+            credit_paise: number;
         };
         /** BacklogMonth */
         BacklogMonth: {
@@ -229,10 +234,16 @@ export interface components {
         DashboardResponse: {
             /**
              * Month
-             * @description A month as "YYYY-MM".
+             * @description The month shown (M).
              * @example 2026-10
              */
             month: string;
+            /**
+             * Current Month
+             * @description The server's current month. Months after it aren't due yet.
+             * @example 2026-10
+             */
+            current_month: string;
             summary: components["schemas"]["DashboardSummary"];
             /** Yet To Pay */
             yet_to_pay: components["schemas"]["YetToPayItem"][];
@@ -373,6 +384,10 @@ export interface components {
             student_id: number;
             /** Student Name */
             student_name: string;
+            /** Batch Label */
+            batch_label: string | null;
+            /** Phone */
+            phone: string | null;
             /**
              * Month
              * @description A month as "YYYY-MM".
@@ -544,7 +559,7 @@ export interface components {
             notes: string | null;
             /**
              * Is Active
-             * @description False once the student is archived (has left).
+             * @description True until the left month has passed (no left_month, or left_month is this month or later). False means Left (archived).
              */
             is_active: boolean;
             /**
@@ -558,6 +573,22 @@ export interface components {
              */
             balance_paise: number;
             status: components["schemas"]["BalanceStatus"];
+            /**
+             * Credit Paise
+             * @description Money in overpaid months up to this month: the sum of max(0, paid - expected) over months up to and including the current month. Payments for later months (paid ahead) are not credit.
+             */
+            credit_paise: number;
+            /**
+             * Tenure Months
+             * @description How many months they have been a student: joined_month up to the current month (or left_month, if earlier), counting both. 0 if they haven't joined yet.
+             */
+            tenure_months: number;
+            /**
+             * Current Month
+             * @description The server's current month, which every number here is worked out for.
+             * @example 2026-10
+             */
+            current_month: string;
             /**
              * Created At
              * Format: date-time
@@ -621,7 +652,7 @@ export interface components {
             notes: string | null;
             /**
              * Is Active
-             * @description False once the student is archived (has left).
+             * @description True until the left month has passed (no left_month, or left_month is this month or later). False means Left (archived).
              */
             is_active: boolean;
             /**
@@ -635,6 +666,22 @@ export interface components {
              */
             balance_paise: number;
             status: components["schemas"]["BalanceStatus"];
+            /**
+             * Credit Paise
+             * @description Money in overpaid months up to this month: the sum of max(0, paid - expected) over months up to and including the current month. Payments for later months (paid ahead) are not credit.
+             */
+            credit_paise: number;
+            /**
+             * Tenure Months
+             * @description How many months they have been a student: joined_month up to the current month (or left_month, if earlier), counting both. 0 if they haven't joined yet.
+             */
+            tenure_months: number;
+            /**
+             * Current Month
+             * @description The server's current month, which every number here is worked out for.
+             * @example 2026-10
+             */
+            current_month: string;
             /**
              * Created At
              * Format: date-time
@@ -693,22 +740,28 @@ export interface components {
         };
         /**
          * SuggestedPayment
-         * @description Prefill for the Log payment form: the oldest unpaid or partial month and what's left on
-         *     it, otherwise the current month and its fee.
+         * @description Prefill for the Log payment form (PRD "Ledger rules", rule 9). Never a month that is
+         *     already fully paid, and never one outside the months the student is enrolled in.
+         *
+         *     - `owed`: the oldest month up to now that is Unpaid or Partial, and what's left on it.
+         *     - `next_unpaid`: the first later month that isn't fully paid, and what's left on it.
+         *     - `all_paid`: nothing left to pay; `for_month` and `amount_paise` are null.
+         *
+         *     `amount_paise` is also null for a month whose fee is 0.
          */
         SuggestedPayment: {
-            /**
-             * For Month
-             * @description A month as "YYYY-MM".
-             * @example 2026-10
-             */
-            for_month: string;
-            /**
-             * Amount Paise
-             * @description Amount in paise, 0 or more.
-             */
-            amount_paise: number;
+            /** For Month */
+            for_month: string | null;
+            /** Amount Paise */
+            amount_paise: number | null;
+            reason: components["schemas"]["SuggestionReason"];
         };
+        /**
+         * SuggestionReason
+         * @description Why `SuggestedPayment` suggests what it does (PRD "Ledger rules", rule 9).
+         * @enum {string}
+         */
+        SuggestionReason: "owed" | "next_unpaid" | "all_paid";
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -755,6 +808,11 @@ export interface components {
              * @enum {string}
              */
             status: "unpaid" | "partial";
+            /**
+             * Credit Paise
+             * @description The student's money in overpaid months up to the current month (see StudentRead.credit_paise), so the UI can say they have credit.
+             */
+            credit_paise: number;
         };
     };
     responses: never;
@@ -787,6 +845,7 @@ export type StudentListFilter = components['schemas']['StudentListFilter'];
 export type StudentRead = components['schemas']['StudentRead'];
 export type StudentUpdate = components['schemas']['StudentUpdate'];
 export type SuggestedPayment = components['schemas']['SuggestedPayment'];
+export type SuggestionReason = components['schemas']['SuggestionReason'];
 export type ValidationError = components['schemas']['ValidationError'];
 export type YetToPayItem = components['schemas']['YetToPayItem'];
 export type $defs = Record<string, never>;
@@ -814,7 +873,7 @@ export interface operations {
     listStudents: {
         parameters: {
             query?: {
-                /** @description `active` (default), `left` (archived) or `all`. */
+                /** @description `active` (default: not left yet, i.e. no left month or it is this month or later), `left` (the left month has passed) or `all`. */
                 status?: components["schemas"]["StudentListFilter"];
                 /** @description Case-insensitive search on name, phone, guardian. */
                 q?: string | null;

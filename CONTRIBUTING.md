@@ -35,7 +35,9 @@ that has been released** — the user's laptop has already run it.
 ## Code conventions
 
 - Backend: Python 3.12, type hints everywhere, `ruff` for lint and format. Business rules live in
-  `backend/app/services/` as pure functions with unit tests; routers stay thin.
+  `backend/app/services/ledger.py` as pure functions with unit tests. The other modules in
+  `services/` do the database work, and routers stay thin. Never read the clock directly: use
+  `app.clock.TodayDep` or `CurrentMonthDep`.
 - Money is stored and sent as **integer paise**. Months are `YYYY-MM` strings in the API and
   first-of-month `DATE`s in the database.
 - Frontend: TypeScript strict, React function components, TanStack Query for server state, and

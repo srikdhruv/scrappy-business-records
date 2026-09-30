@@ -1,4 +1,6 @@
-"""Business rules as pure functions (no I/O), e.g. `ledger.py` for dues and statuses.
+"""Business logic, kept out of the routers.
 
-Routers load rows from the database, call these, and shape the result into `app.schemas`.
+- `ledger.py`: the business rules as pure functions (no database, no clock, no I/O).
+- `students.py`, `payments.py`, `dashboard.py`: load and save rows, apply the ledger rules, and
+  return the response models from `app.schemas`. Routers call these and nothing else.
 """

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 import enum
+import unicodedata
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -55,6 +56,7 @@ __all__ = [
     "StudentRead",
     "StudentUpdate",
     "SuggestedPayment",
+    "SuggestionReason",
     "YetToPayItem",
 ]
 
@@ -62,15 +64,31 @@ __all__ = [
 # --------------------------------------------------------------------------- shared types
 
 
+_ALLOWED_CONTROL = frozenset("\t\n\r")
+
+
+def _savable(value: str) -> str:
+    # JSON can carry half of a character pair ("\ud800"), which the database can't store, and
+    # invisible control characters (NUL and friends) that have no place in a name or note.
+    # Tab and line breaks are fine.
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise _field_error("This text has a character that can't be saved") from None
+    if any(unicodedata.category(c) == "Cc" and c not in _ALLOWED_CONTROL for c in value):
+        raise _field_error("This text has a character that can't be saved")
+    return value
+
+
 def _blank_to_none(value: object) -> object:
     if isinstance(value, str):
-        value = value.strip()
+        value = _savable(value).strip()
         return value or None
     return value
 
 
 def _strip(value: object) -> object:
-    return value.strip() if isinstance(value, str) else value
+    return _savable(value).strip() if isinstance(value, str) else value
 
 
 def _date_to_month(value: object) -> object:
@@ -160,6 +178,7 @@ PaymentAmountPaise = Annotated[
     Field(
         gt=0,
         le=MAX_AMOUNT_PAISE,
+        strict=True,  # a whole number: not true/false, 1.5 or "100"
         description="Amount in paise: more than 0, at most 100000000 (₹10,00,000).",
     ),
 ]
@@ -168,6 +187,7 @@ FeePaise = Annotated[
     Field(
         ge=0,
         le=MAX_AMOUNT_PAISE,
+        strict=True,
         description="Monthly fee in paise: 0 or more, at most 100000000 (₹10,00,000).",
     ),
 ]
@@ -200,6 +220,18 @@ class BalanceStatus(enum.StrEnum):
     up_to_date = "up_to_date"
     owes = "owes"
     credit = "credit"
+
+
+class SuggestionReason(enum.StrEnum):
+    """Why `SuggestedPayment` suggests what it does (PRD "Ledger rules", rule 9)."""
+
+    owed = "owed"
+    """The oldest month up to now that is Unpaid or Partial."""
+    next_unpaid = "next_unpaid"
+    """Nothing is owed yet: the first later month that isn't fully paid."""
+    all_paid = "all_paid"
+    """Nothing is left to pay in the months they are enrolled, up to the latest month a payment
+    can be logged for (24 months ahead): they have left and paid up, or paid that far ahead."""
 
 
 class StudentListFilter(enum.StrEnum):
@@ -334,13 +366,29 @@ class StudentRead(_ReadModel):
     joined_month: Month
     left_month: Month | None
     notes: str | None
-    is_active: bool = Field(description="False once the student is archived (has left).")
+    is_active: bool = Field(
+        description="True until the left month has passed (no left_month, or left_month is "
+        "this month or later). False means Left (archived)."
+    )
     monthly_fee_paise: NonNegativePaise = Field(description="Fee in effect this month.")
     balance_paise: SignedPaise = Field(
         description="All payments minus everything expected up to this month. "
         "Negative means they owe; positive means credit."
     )
     status: BalanceStatus
+    credit_paise: NonNegativePaise = Field(
+        description="Money in overpaid months up to this month: the sum of max(0, paid - "
+        "expected) over months up to and including the current month. Payments for later "
+        "months (paid ahead) are not credit."
+    )
+    tenure_months: int = Field(
+        ge=0,
+        description="How many months they have been a student: joined_month up to the current "
+        "month (or left_month, if earlier), counting both. 0 if they haven't joined yet.",
+    )
+    current_month: Month = Field(
+        description="The server's current month, which every number here is worked out for."
+    )
     created_at: UtcDatetime
     updated_at: UtcDatetime
 
@@ -377,18 +425,26 @@ class StudentDetail(StudentRead):
 
 
 class SuggestedPayment(_ReadModel):
-    """Prefill for the Log payment form: the oldest unpaid or partial month and what's left on
-    it, otherwise the current month and its fee."""
+    """Prefill for the Log payment form (PRD "Ledger rules", rule 9). Never a month that is
+    already fully paid, and never one outside the months the student is enrolled in.
 
-    for_month: Month
-    amount_paise: NonNegativePaise
+    - `owed`: the oldest month up to now that is Unpaid or Partial, and what's left on it.
+    - `next_unpaid`: the first later month that isn't fully paid, and what's left on it.
+    - `all_paid`: nothing left to pay; `for_month` and `amount_paise` are null.
+
+    `amount_paise` is also null for a month whose fee is 0.
+    """
+
+    for_month: Month | None
+    amount_paise: PositivePaise | None
+    reason: SuggestionReason
 
 
 # --------------------------------------------------------------------------- payments
 
 
 class PaymentCreate(_Model):
-    student_id: int = Field(gt=0)
+    student_id: int = Field(gt=0, strict=True)
     amount_paise: PaymentAmountPaise
     paid_on: dt.date
     for_month: Month
@@ -399,7 +455,7 @@ class PaymentCreate(_Model):
 class PaymentUpdate(_Model):
     """Partial update. Only fields that are sent change."""
 
-    student_id: int | None = Field(default=None, gt=0)
+    student_id: int | None = Field(default=None, gt=0, strict=True)
     amount_paise: PaymentAmountPaise | None = None
     paid_on: dt.date | None = None
     for_month: Month | None = None
@@ -448,6 +504,10 @@ class YetToPayItem(_ReadModel):
     paid_paise: NonNegativePaise
     remaining_paise: PositivePaise
     status: Literal[MonthStatus.unpaid, MonthStatus.partial]
+    credit_paise: NonNegativePaise = Field(
+        description="The student's money in overpaid months up to the current month (see "
+        "StudentRead.credit_paise), so the UI can say they have credit."
+    )
 
 
 class BacklogMonth(_ReadModel):
@@ -467,6 +527,10 @@ class BacklogItem(_ReadModel):
     phone: str | None
     months: list[BacklogMonth] = Field(description="Oldest first.")
     total_owed_paise: PositivePaise
+    credit_paise: NonNegativePaise = Field(
+        description="The student's money in overpaid months up to the current month (see "
+        "StudentRead.credit_paise), so the UI can say they have credit."
+    )
 
 
 class OverpaidItem(_ReadModel):
@@ -474,6 +538,8 @@ class OverpaidItem(_ReadModel):
 
     student_id: int
     student_name: str
+    batch_label: str | None
+    phone: str | None
     month: Month
     expected_paise: NonNegativePaise
     paid_paise: PositivePaise
@@ -481,7 +547,10 @@ class OverpaidItem(_ReadModel):
 
 
 class DashboardResponse(_ReadModel):
-    month: Month
+    month: Month = Field(description="The month shown (M).")
+    current_month: Month = Field(
+        description="The server's current month. Months after it aren't due yet."
+    )
     summary: DashboardSummary
     yet_to_pay: list[YetToPayItem]
     backlog: list[BacklogItem]
