@@ -1711,12 +1711,16 @@ records are kept.
 
 ### What you'll see
 
-<img src="images/feature-guide/settings-menu.png" alt="The gear button 'Settings' at the bottom of the side menu, open, with two choices above it: 'Send feedback' and 'About'." width="250" align="right">
+<img src="images/feature-guide/settings-menu.png" alt="The gear button 'Settings' at the bottom of the side menu, open, with its choices above it: 'Send feedback', then under 'Your data' 'Download everything', then 'About'." width="250" align="right">
 
 **The ⚙ Settings button** is at the bottom of the side menu, on every page (in the top bar on a
 narrow window). Click it for a small menu:
 
 - **Send feedback**: write to the developer.
+- **Your data → Download everything**: every student, fee and payment in one Excel file (the
+  same as *Download everything* in the side menu; see
+  [Downloading and uploading Excel](#downloading-and-uploading-excel)). Handy on a narrow
+  window, where the side menu hides it.
 - **About**: the version, and where your records and backups are.
 
 More settings will go in this menu later.
@@ -1730,13 +1734,21 @@ More settings will go in this menu later.
 - **Type**: **Problem** (something is wrong), **Idea** (something that would help) or
   **Question**. Problem is chosen to start with.
 - **Message**: what you want to say. It can't be empty.
-- **A small picture of the screen** you were on (not of this window), taken as the window
-  opens. The box **Include a picture of this screen** is ticked to start with. The picture may
-  show student names and amounts, so untick it if you'd rather not send it. It only ever goes
-  to the developer's private feedback inbox.
+- **A small picture of the screen** you were on: exactly what was in the window behind this
+  one, taken as it opens (not this window itself). Click it to see it bigger, and again to make
+  it small. The box **Include a picture of this screen** is ticked to start with. The picture
+  may show student names and amounts, so untick it if you'd rather not send it. It only ever
+  goes to the developer's private feedback inbox. If it can't be taken within 10 seconds, the
+  window says so and the message goes without it.
+- **If this version can't send feedback yet**, an amber note at the top says so before you
+  type: what you write is saved on this laptop, but please also tell the developer another
+  way.
 - **What gets sent**: click it to see the full list, in plain words:
 
-  ![The open 'What gets sent' list: your message and its type; the picture of this screen, if the box is ticked; the date and time; the app's version and build; the page you're on; the last problems the app noticed and the last lines of its log file; your computer's system, browser and screen size; a random number for this copy of the app, which doesn't say who you are; never your records file, backups or downloads. Below: It's saved on this laptop first, and sent when the internet is on.](images/feature-guide/feedback-what-gets-sent.png)
+  ![The open 'What gets sent' list: your message and its type; the picture of this screen, if the box is ticked; the date and time; the app's version and build; the page you're on, without what you searched for; the last problems the app noticed, and its last warnings and errors from the log file, with names and values taken out; your computer's system, browser and screen size; a random number for this copy of the app, which doesn't say who you are; never your records file, backups or downloads. Below: It's saved on this laptop first, and sent when the internet is on.](images/feature-guide/feedback-what-gets-sent.png)
+
+  The page is sent without anything you searched for or filtered by (a search can be a name),
+  and the log lines have the laptop's user name and any values taken out.
 
 After **Send**, the window says one of:
 
@@ -1744,13 +1756,16 @@ After **Send**, the window says one of:
 - **Saved** *— it'll be sent automatically when you're online.* The laptop is offline (or the
   inbox didn't answer in time). It's kept on the laptop and goes by itself: the app tries again
   every so often while it's open, and every time it starts. You don't need to do anything.
+- **Saved on this laptop.** *It can't be sent yet — please also tell the developer another
+  way.* This version can't send feedback (the developer hasn't switched it on yet). It stays on
+  the laptop and goes once a version that can send it is installed.
 - **Saved on this laptop, but the feedback inbox didn't accept it.** Rare: tell the developer
   another way.
 
 **About** shows the **Version** (for example 0.1.0), the **Build** (a code that tells the
 developer exactly which copy of the app this is), where **Your records**, the **Daily backups**
 and the **Log files** are on this laptop, and, if any is waiting, how many feedback messages
-haven't been sent yet.
+haven't been sent yet. If this version can't send feedback, it says so here too.
 
 ### What you can do
 
@@ -1770,8 +1785,11 @@ haven't been sent yet.
   download. Feedback is the one exception, and only when you click **Send**.
 - If the picture can't be taken, the window says so and the message is sent without it.
 - Clicking **Send** twice sends it once.
-- The first version with this window may say **Saved** until the developer switches on the
-  feedback inbox; what you saved is sent then, by itself.
+- Until the developer switches on the feedback inbox, the window says *It can't be sent
+  yet*; what you saved is sent by itself once a version that can send it is installed.
+- If the inbox is busy or has a problem, the app keeps trying, less and less often (at most once
+  a day). Only a message the inbox refuses for good (for example, one it can't read) is given
+  up on, and then its picture is deleted from the laptop.
 
 <details><summary>For developers</summary>
 
@@ -1779,14 +1797,17 @@ haven't been sent yet.
   layouts; `SettingsDialogs` renders the dialogs once), `components/feedback-dialog.tsx`,
   `components/about-dialog.tsx`, in `components/layout/app-shell.tsx`.
 - **Picture:** `src/lib/screenshot.ts` draws `#root` (the dialog is a portal outside it) with
-  `html-to-image`, bundled, and makes a JPEG of at most 1.4 MB (quality, then size, lowered to
-  fit). A page taller than 2,400 px is cropped around where you are.
+  `html-to-image`, bundled, then keeps only the part in the window (`visibleBox`), redrawing
+  the sticky side menu (`data-screenshot-sticky`) where it is on screen. A JPEG of at most
+  700 KB (quality, then size, lowered to fit; the server takes up to 1.4 MB). Given up after
+  10 s (`CAPTURE_TIMEOUT_MS`).
 - **Recent errors:** `src/lib/diagnostics.ts`: a ring buffer of the last 20 script errors,
   unhandled rejections and failed API calls (method, path and status only; `api/client.ts`
   middleware), plus local time, time zone, language, user agent, screen and window size and
   the UI's build (`__UI_BUILD__`, `vite.config.ts`).
-- **Outcome:** `src/lib/feedback.ts` (`feedbackOutcome`): Sent, or Saved when this copy doesn't
-  send, a first try failed, or 15 s have passed.
+- **Outcome:** `src/lib/feedback.ts` (`feedbackOutcome`): Sent; *held* ("can't be sent yet")
+  when this copy doesn't send (`sending: false`); Saved when a first try failed or 15 s have
+  passed; failed. The route sent is `location.pathname` only (the server drops any query too).
 - **API:** `POST /api/feedback` (`createFeedback`, idempotent on `id`), `GET
   /api/feedback/{feedback_id}` (`getFeedback`, polled every second), `GET /api/about`
   (`getAbout`). See [data model](data-model.md#feedback).

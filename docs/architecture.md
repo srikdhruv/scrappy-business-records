@@ -289,25 +289,31 @@ The owner's data is never lost ([ADR 0004](adr/0004-data-is-never-lost.md)):
 
 **⚙ Settings → Send feedback** ([feature guide](feature-guide.md#settings-and-feedback)):
 
-1. The browser takes a picture of the page (`html-to-image`, bundled) and posts the message,
-   the picture and what it knows (`POST /api/feedback`): the page, local time, screen size,
-   user agent and its last 20 errors.
+1. The browser takes a picture of what's in the window (`html-to-image`, bundled; 10 s at
+   most) and posts the message, the picture and what it knows (`POST /api/feedback`): the page's
+   path (never its query), local time, screen size, user agent and its last 20 errors.
 2. The server saves it (`feedback` table; the picture as `data/feedback/<id>.jpg`, so the daily
-   backups stay small), adding the version, build ID, install ID, OS and the last 200 lines of
-   `server.log` (home folder shortened to `~`, database values in error messages hidden). It
-   answers at once and wakes the sender. It never waits for the internet.
+   backups stay small), adding the version, build ID, install ID, OS and the last 200 log lines
+   worth sending: warnings, errors and their tracebacks, and the app's own notes, with the
+   user's name and home folder hidden in any spelling, and quoted values and database values
+   removed (`app/diagnostics.py`). It answers at once and wakes the sender. It never waits for
+   the internet.
 3. The **sender** (`app/feedback_sender.py`, thread `scrappy-feedback`) posts each waiting item
-   to the relay (`config.feedback_url()`, HTTPS, 20 s timeout), at startup, when woken, and once
-   a minute. Failures (offline, timeout, 408, 429, 5xx) back off: 30 s doubling to an hour, with
-   jitter, and `Retry-After` respected; a new item or a restart tries at once. A 4xx means the
-   relay will never take it: the item is marked `failed`. Once sent, the item is `sent`, with
-   the issue URL, and its picture is deleted.
-4. The dialog polls `GET /api/feedback/{id}` for up to 15 s: **Sent ✓**, or **Saved** (it'll
-   go by itself).
-5. The **relay** (`relay/`, a Cloudflare Worker) checks the request (2 MiB at most), rate-limits
-   per install and per IP (hashed), dedupes by feedback id (a retry gets the same issue),
-   commits the picture to the private feedback repo and opens an issue there
-   ([setup](runbooks/feedback-relay-setup.md)).
+   to the relay (`config.feedback_url()`, HTTPS, 90 s timeout, longer than the relay's 40 s
+   budget), at startup, when woken, and once a minute. The payload is kept under 2,000,000
+   bytes (the log trimmed first, then the errors, then the picture). Only the relay's own
+   refusals end it: `invalid` or `blocked` mark it `failed` and delete its picture; `too_large`
+   gets one slim try at once (no picture, 50 log lines), then is final. Anything else backs
+   off: 30 s doubling, with jitter and `Retry-After` respected, up to an hour while the relay
+   can't be reached, up to a day while it answers with an error. A new item or a restart tries
+   at once. Once sent, the item is `sent`, with the issue URL, and its picture is deleted.
+4. The dialog polls `GET /api/feedback/{id}` for up to 15 s: **Sent ✓**, **Saved** (it'll go
+   by itself), or, when this copy has no relay, *It can't be sent yet*.
+5. The **relay** (`relay/`, a Cloudflare Worker with a D1 database) checks the request (2 MiB at
+   most), refuses to file unless the feedback repo is private, dedupes by feedback id (a retry
+   gets the same issue; a concurrent one gets 409), rate-limits per install, per hashed IP and
+   50 a day in all (failing closed), commits the picture to the private repo's `screenshots`
+   branch and opens an issue there ([setup](runbooks/feedback-relay-setup.md)).
 
 The relay URL is `FEEDBACK_URL` in `backend/app/config.py`, empty (sending off) until the relay
 is deployed. `SCRAPPY_FEEDBACK_URL` overrides it; tests and `make dev` set it empty. Plain HTTP

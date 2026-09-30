@@ -67,8 +67,8 @@ jobs:
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
             echo "::notice::Feedback relay not deployed: the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repo secrets aren't set yet. See docs/runbooks/feedback-relay-setup.md."
             echo "ok=false" >> "$GITHUB_OUTPUT"
-          elif grep -q 'REPLACE_WITH_KV_NAMESPACE_ID' wrangler.toml; then
-            echo "::notice::Feedback relay not deployed: relay/wrangler.toml still has REPLACE_WITH_KV_NAMESPACE_ID. See docs/runbooks/feedback-relay-setup.md (step 7)."
+          elif grep -q 'REPLACE_WITH_D1_DATABASE_ID' wrangler.toml; then
+            echo "::notice::Feedback relay not deployed: relay/wrangler.toml still has REPLACE_WITH_D1_DATABASE_ID. See docs/runbooks/feedback-relay-setup.md (step 7)."
             echo "ok=false" >> "$GITHUB_OUTPUT"
           else
             echo "ok=true" >> "$GITHUB_OUTPUT"
@@ -77,6 +77,10 @@ jobs:
         if: steps.ready.outputs.ok == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
+      # Tables first, then code that uses them. Already-applied migrations are skipped.
+      - name: Apply database migrations
+        if: steps.ready.outputs.ok == 'true'
+        run: npx --yes wrangler@${{ env.WRANGLER_VERSION }} d1 migrations apply scrappy-feedback --remote
       - name: Deploy
         if: steps.ready.outputs.ok == 'true'
         run: npx --yes wrangler@${{ env.WRANGLER_VERSION }} deploy

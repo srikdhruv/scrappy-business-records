@@ -1,15 +1,19 @@
 // Scrappy Records feedback relay.
 //
 // The app's local server POSTs one feedback item to /feedback; this Worker files it as an issue
-// in the private feedback repo (screenshot committed alongside) and answers with the issue URL.
-// Setup and operations: docs/runbooks/feedback-relay-setup.md.
+// in the private feedback repo (screenshot committed to its `screenshots` branch) and answers
+// with the issue URL. Setup and operations: docs/runbooks/feedback-relay-setup.md.
+//
+// Only three statuses are final for the app: "invalid" (400), "too_large" (413) and "blocked"
+// (403). Every other answer is retried later, so nothing is lost when something is down.
 //
 // Privacy: nothing about the feedback itself is ever logged (message, route, environment, log,
 // screenshot, IP). Logs carry only the first 8 characters of the id, the outcome and a status.
 
-import { commitScreenshot, createIssue, screenshotPath, UpstreamError } from "./github";
+import { acquireLock, lookup, recordFiled, releaseLock, StoreUnavailable } from "./db";
+import { GitHub, screenshotPath, UpstreamError } from "./github";
 import { issueBody, issueTitle } from "./markdown";
-import { checkRateLimit } from "./ratelimit";
+import { reserve } from "./ratelimit";
 import { validate } from "./validate";
 
 export interface Env {
@@ -19,12 +23,14 @@ export interface Env {
   FEEDBACK_REPO: string;
   /** owner/name of the app's code repo, for build-ID commit links. */
   CODE_REPO: string;
-  FEEDBACK_KV: KVNamespace;
+  /** Dedup, locks, rate-limit counters and blocks (migrations/). */
+  DB: D1Database;
 }
 
 export const MAX_BODY_BYTES = 2 * 1024 * 1024;
-/** How long `fb:<id>` -> issue URL is remembered, so a retry gets the same issue. */
-const DEDUP_TTL_SECONDS = 400 * 86_400;
+/** Retry-After when storage is down, and when the repo check fails. */
+const UNAVAILABLE_RETRY_SECONDS = 300;
+const MISCONFIGURED_RETRY_SECONDS = 3600;
 
 function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -85,57 +91,74 @@ async function handleFeedback(request: Request, env: Env): Promise<Response> {
     return json(400, { status: "invalid", error: result.error });
   }
   const fb = result.feedback;
-  const kv = env.FEEDBACK_KV;
+  const db = env.DB;
 
   // Dedup first: a retry of something already filed is never refused or counted.
-  const existing = await kv.get(`fb:${fb.id}`);
-  if (existing) {
+  const known = await lookup(db, fb.id, fb.installId);
+  if (known.issueUrl) {
     log(fb.id, "duplicate", 200);
-    return json(200, { status: "created", issue_url: existing });
+    return json(200, { status: "created", issue_url: known.issueUrl });
   }
-
-  if ((await kv.get(`block:${fb.installId}`)) !== null) {
+  if (known.blocked) {
     log(fb.id, "blocked", 403);
     return json(403, { status: "blocked", error: "this install is blocked from sending feedback" });
   }
 
-  const retryAfter = await checkRateLimit(kv, fb.installId, request.headers.get("CF-Connecting-IP"));
+  const retryAfter = await reserve(db, fb.installId, request.headers.get("CF-Connecting-IP"), Date.now());
   if (retryAfter !== null) {
     log(fb.id, "rate_limited", 429);
     return json(
       429,
-      { status: "rate_limited", error: "too much feedback at once; try again later" },
+      { status: "rate_limited", error: "too much feedback for now; try again later" },
       { "Retry-After": String(retryAfter) },
     );
   }
 
+  const github = new GitHub(env);
+  if (!(await github.repoIsPrivate())) {
+    log(fb.id, "misconfigured", 503);
+    return json(
+      503,
+      { status: "misconfigured", error: "feedback repo is not private" },
+      { "Retry-After": String(MISCONFIGURED_RETRY_SECONDS) },
+    );
+  }
+
+  // One request at a time per id, so two concurrent sends can't make two issues.
+  if (!(await acquireLock(db, fb.id, Date.now()))) {
+    log(fb.id, "in_progress", 409);
+    return json(409, { status: "in_progress", error: "this feedback is being filed" }, { "Retry-After": "60" });
+  }
+
+  let issueUrl: string;
   try {
     let screenshotUrl: string | null = null;
     if (fb.screenshot) {
       const path = screenshotPath(fb.id, fb.createdAt, fb.screenshot.contentType);
-      screenshotUrl = await commitScreenshot(env, fb.id, path, fb.screenshot.base64);
+      screenshotUrl = await github.commitScreenshot(fb.id, path, fb.screenshot.base64);
     }
-    const issueUrl = await createIssue(
-      env,
+    issueUrl = await github.createIssue(
       issueTitle(fb),
       issueBody(fb, { codeRepo: env.CODE_REPO, screenshotUrl }),
       [fb.category, `v${fb.appVersion}`],
     );
-    try {
-      await kv.put(`fb:${fb.id}`, issueUrl, { expirationTtl: DEDUP_TTL_SECONDS });
-    } catch {
-      // The issue exists; answer 201 anyway so the app stops sending it.
-      log(fb.id, "dedup_store_failed", 201);
-    }
-    log(fb.id, "created", 201);
-    return json(201, { status: "created", issue_url: issueUrl });
   } catch (e) {
+    await releaseLock(db, fb.id);
     if (e instanceof UpstreamError) {
       log(fb.id, "upstream_error", 502);
       return json(502, { status: "upstream_error", error: e.message });
     }
     throw e;
   }
+
+  try {
+    await recordFiled(db, fb.id, issueUrl, Date.now());
+  } catch {
+    // The issue exists; answer 201 anyway so the app stops sending it.
+    log(fb.id, "record_failed", 201);
+  }
+  log(fb.id, "created", 201);
+  return json(201, { status: "created", issue_url: issueUrl });
 }
 
 export default {
@@ -143,20 +166,30 @@ export default {
     const { pathname } = new URL(request.url);
     if (pathname === "/health") {
       if (request.method !== "GET" && request.method !== "HEAD") {
-        return json(405, { error: "method not allowed" }, { Allow: "GET" });
+        return json(405, { status: "method_not_allowed", error: "use GET" }, { Allow: "GET" });
       }
       return json(200, { ok: true });
     }
     if (pathname === "/feedback") {
-      if (request.method !== "POST") return json(405, { error: "method not allowed" }, { Allow: "POST" });
+      if (request.method !== "POST") {
+        return json(405, { status: "method_not_allowed", error: "use POST" }, { Allow: "POST" });
+      }
       try {
         return await handleFeedback(request, env);
-      } catch {
-        // Unexpected (e.g. KV down). Say only that it failed; the app retries 5xx later.
+      } catch (e) {
+        if (e instanceof StoreUnavailable) {
+          // Fail closed: without storage there's no dedup or limit, so nothing goes through.
+          log("-", "unavailable", 503);
+          return json(
+            503,
+            { status: "unavailable", error: "storage unavailable; try again later" },
+            { "Retry-After": String(UNAVAILABLE_RETRY_SECONDS) },
+          );
+        }
         log("-", "error", 500);
         return json(500, { status: "error", error: "internal error" });
       }
     }
-    return json(404, { error: "not found" });
+    return json(404, { status: "not_found", error: "not found" });
   },
 } satisfies ExportedHandler<Env>;

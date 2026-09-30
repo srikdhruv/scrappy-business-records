@@ -1,36 +1,100 @@
-// Test doubles: an in-memory KV namespace and a scripted fake of GitHub's API.
+// Test doubles: a D1 database backed by real SQLite (node:sqlite, with the real migration),
+// and a scripted fake of GitHub's API.
 
+import { DatabaseSync } from "node:sqlite";
 import { vi } from "vitest";
+import schema from "../migrations/0001_init.sql?raw";
 import worker, { type Env } from "../src/index";
 
-export class FakeKV {
-  store = new Map<string, string>();
-  puts: { key: string; value: string; options?: KVNamespacePutOptions }[] = [];
+class FakeStatement {
+  constructor(
+    private readonly db: FakeD1,
+    readonly sql: string,
+    private readonly params: unknown[] = [],
+  ) {}
 
-  async get(key: string): Promise<string | null> {
-    return this.store.get(key) ?? null;
+  bind(...params: unknown[]): FakeStatement {
+    return new FakeStatement(this.db, this.sql, params);
   }
 
-  async put(key: string, value: string, options?: KVNamespacePutOptions): Promise<void> {
-    this.puts.push({ key, value, options });
-    this.store.set(key, value);
+  /** Run synchronously (used by batch inside a transaction). */
+  rows(): Record<string, unknown>[] {
+    this.db.check(this.sql);
+    return this.db.sqlite
+      .prepare(this.sql)
+      .all(...this.params)
+      .map((r) => ({ ...r }));
   }
 
-  async delete(key: string): Promise<void> {
-    this.store.delete(key);
+  async first(): Promise<Record<string, unknown> | null> {
+    return this.rows()[0] ?? null;
+  }
+
+  async all(): Promise<{ results: Record<string, unknown>[]; success: true; meta: object }> {
+    return { results: this.rows(), success: true, meta: {} };
+  }
+
+  async run(): Promise<{ results: Record<string, unknown>[]; success: true; meta: object }> {
+    return this.all();
+  }
+}
+
+export class FakeD1 {
+  readonly sqlite = new DatabaseSync(":memory:");
+  /** SQL matching this throws, to simulate D1 being down or over its daily limit. */
+  failOn: RegExp | null = null;
+  /** Every statement run, in order. */
+  statements: string[] = [];
+
+  constructor() {
+    this.sqlite.exec(schema);
+  }
+
+  check(sql: string): void {
+    this.statements.push(sql);
+    if (this.failOn?.test(sql)) throw new Error("D1_ERROR: simulated failure");
+  }
+
+  prepare(sql: string): FakeStatement {
+    return new FakeStatement(this, sql);
+  }
+
+  async batch(statements: FakeStatement[]): Promise<{ results: Record<string, unknown>[] }[]> {
+    this.sqlite.exec("BEGIN");
+    try {
+      const out = statements.map((s) => ({ results: s.rows(), success: true, meta: {} }));
+      this.sqlite.exec("COMMIT");
+      return out;
+    } catch (e) {
+      this.sqlite.exec("ROLLBACK");
+      throw e;
+    }
+  }
+
+  /** Run a query directly, for assertions. */
+  query(sql: string, ...params: unknown[]): Record<string, unknown>[] {
+    return this.sqlite
+      .prepare(sql)
+      .all(...params)
+      .map((r) => ({ ...r }));
+  }
+
+  /** Statements that change data (the ones D1 bills as "rows written"). */
+  writeStatements(): string[] {
+    return this.statements.filter((s) => /^\s*(INSERT|UPDATE|DELETE)/i.test(s));
   }
 }
 
 export const FEEDBACK_REPO = "srikdhruv/scrappy-records-feedback";
 export const CODE_REPO = "srikdhruv/scrappy-business-records";
 
-export function makeEnv(kv = new FakeKV()): Env & { kv: FakeKV } {
+export function makeEnv(db = new FakeD1()): Env & { db: FakeD1 } {
   return {
     GITHUB_TOKEN: "test-token",
     FEEDBACK_REPO,
     CODE_REPO,
-    FEEDBACK_KV: kv as unknown as KVNamespace,
-    kv,
+    DB: db as unknown as D1Database,
+    db,
   };
 }
 
@@ -47,13 +111,19 @@ export function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
-/** Default GitHub behaviour: PUT contents -> 201, POST issues -> 201 #12. */
+const API = `https://api.github.com/repos/${FEEDBACK_REPO}`;
+
+/** Default GitHub: private repo, screenshots branch exists, PUT contents -> 201, issue #12. */
 export const defaultGitHub: Handler = (call) => {
+  if (call.method === "GET" && call.url === API) return jsonResponse(200, { full_name: FEEDBACK_REPO, private: true });
+  if (call.method === "GET" && call.url === `${API}/git/ref/heads/screenshots`) {
+    return jsonResponse(200, { ref: "refs/heads/screenshots", object: { sha: "abc" } });
+  }
   if (call.method === "PUT" && call.url.includes("/contents/")) {
     const path = call.url.split("/contents/")[1];
-    return jsonResponse(201, { content: { html_url: `https://github.com/${FEEDBACK_REPO}/blob/main/${path}` } });
+    return jsonResponse(201, { content: { html_url: `https://github.com/${FEEDBACK_REPO}/blob/screenshots/${path}` } });
   }
-  if (call.method === "POST" && call.url.endsWith("/issues")) {
+  if (call.method === "POST" && call.url === `${API}/issues`) {
     return jsonResponse(201, { number: 12, html_url: `https://github.com/${FEEDBACK_REPO}/issues/12` });
   }
   return jsonResponse(404, { message: "Not Found" });
@@ -73,6 +143,11 @@ export function mockGitHub(handler: Handler = defaultGitHub): GitHubCall[] {
     return handler(call);
   });
   return calls;
+}
+
+/** Only the calls that file things (skips the repo privacy check and branch lookup). */
+export function writes(calls: GitHubCall[]): GitHubCall[] {
+  return calls.filter((c) => c.method !== "GET");
 }
 
 // A tiny valid-looking JPEG and PNG (the magic bytes are what the relay checks).

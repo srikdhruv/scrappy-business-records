@@ -92,7 +92,7 @@ owner's records: nothing in the ledger reads it. Added by migration `0005` (a ne
 | `created_at` | DATETIME | UTC, set by the database |
 | `category` | TEXT NOT NULL | `problem`, `idea` or `question` (CHECK) |
 | `message` | TEXT NOT NULL | What the owner wrote; not blank (CHECK) |
-| `route` | TEXT NULL | The page and its query, e.g. `/payments?month=2026-09` |
+| `route` | TEXT NULL | The page's path only, e.g. `/payments` (a query or `#` part is dropped: a search can be a name) |
 | `diagnostics` | TEXT NOT NULL | JSON, see [Feedback](#feedback) below. Default `{}` |
 | `screenshot_file` | TEXT NULL | The picture's file name in `<data folder>/feedback/` (`<id>.jpg` or `.png`) |
 | `status` | TEXT NOT NULL | `pending` (default), `sent` or `failed` (CHECK) |
@@ -616,7 +616,7 @@ What **Send feedback** stores and sends ([ADR 0005](adr/0005-feedback-is-the-onl
 | `install_id` | server | A random UUID for this copy of the app, made once in `<data folder>/install-id` |
 | `server` | server | `app_version`, `build_id`, `os`, `machine`, `python`, `db_revision`, `server_time` (local, with offset), `server_timezone` |
 | `client` | browser | `FeedbackClientInfo`: local time, time zone, language, user agent, screen and window size, the UI's build, and its last 20 errors (script errors, unhandled rejections, failed API calls as "GET /api/students → 500": method, path and status, no query or body) |
-| `log_tail` | server | The last 200 lines of `server.log` (reaching into `server.log.1` after a rotation), each ≤ 500 characters, ≤ 64 KB in all. The home folder is shortened to `~`, and `[parameters: …]` in database errors becomes `[parameters: hidden]` |
+| `log_tail` | server | The last 200 lines worth sending from `server.log` (and `server.log.1`): WARNING and above with their tracebacks, and the app's own (`scrappy`) notes; other libraries' INFO lines are left out. Each ≤ 500 characters, ≤ 64 KB in all. `redact()`: the home folder in any spelling (`\`, `\\`, `/`, URL-encoded, any case) becomes `~`, any `Users\<name>` / `/home/<name>` folder (8.3 short names too) becomes `<user>`, and the user's name anywhere becomes `<user>`. Quoted values in messages become `'…'` (traceback `File "…"` lines keep their redacted path), and `[parameters: …]` becomes `[parameters: hidden]` |
 
 Never included: the database, its rows, backups or exports. `tests/test_feedback.py` stores
 distinctive names, phones, notes and amounts, logs a database error carrying them, and checks
@@ -627,7 +627,12 @@ none appears in the stored diagnostics or in what is sent.
 (UTC, `Z`), `local_time`, `app_version`, `build_id`, `route`, `environment` (`os`, `machine`,
 `python`, `db_revision`, `server_timezone`, `browser`, `screen`, `window`, `timezone`,
 `language`, `ui_build`), `errors[]`, `log_tail`, `screenshot` (`{content_type, data_base64}` or
-`null`). The biggest possible one fits the relay's 2 MiB limit (tested). The relay answers
-`201`/`200 {status: "created", issue_url}` (a retry of the same `id` gets the same URL), `400`,
-`403` (blocked) or `413` (never retried: `failed`), or `429`/`5xx` (retried later). The relay's
-own checks are in `relay/src/validate.ts`.
+`null`). `route` is the path only. The app keeps it under 2,000,000 bytes (the relay takes 2
+MiB): the log is trimmed first, then the errors, then the picture. The relay answers
+`201`/`200 {status: "created", issue_url}` (a retry of the same `id` gets the same URL). Only a
+body with `status` `invalid` (400) or `blocked` (403) is final (`failed`, picture deleted);
+`too_large` (413) gets one slimmer try (no picture, the last 50 log lines), then is final.
+Everything else is retried later, honouring `Retry-After`: `409 in_progress`, `429
+rate_limited` (up to a day for the global cap), `502`, `503 unavailable` / `misconfigured`,
+other statuses and network errors. The app's timeout (90 s) is longer than the relay's 40 s
+budget. The relay's own checks are in `relay/src/validate.ts`.

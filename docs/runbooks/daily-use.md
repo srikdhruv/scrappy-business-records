@@ -174,7 +174,8 @@ Tell the developer from inside the app:
 4. Leave **Include a picture of this screen** ticked (it may show names and amounts; it only
    goes to the developer's private feedback inbox), or untick it.
 5. Click **Send**. **Sent ✓** means it arrived. **Saved** means the laptop is offline: it goes by
-   itself later.
+   itself later. If it says **It can't be sent yet**, this version can't send feedback: please
+   also tell the developer another way.
 
 **⚙ Settings → About** shows your version and where your records and backups are.
 
