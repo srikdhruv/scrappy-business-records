@@ -15,7 +15,7 @@ import sys
 
 import uvicorn
 
-from app import config
+from app import config, logs
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
@@ -43,6 +43,7 @@ def server_config() -> uvicorn.Config:
 
 def main() -> None:
     configure_console_logging()
+    logs.setup(rotate=True)  # logs/server.log, rotating (app/logs.py)
     uvicorn.Server(server_config()).run()
 
 

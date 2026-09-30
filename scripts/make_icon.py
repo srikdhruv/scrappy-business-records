@@ -1,4 +1,4 @@
-"""Draw the app icon (a marigold circle with a dark-brown ₹) as .ico and .png, standard library only.
+"""Draw the app icon, a marigold circle with a dark-brown ₹, as .ico and .png (stdlib only).
 
 The glyph is the same stroke path as `frontend/public/favicon.svg`, and the colours are the
 theme's `--primary` and `--primary-foreground` from `frontend/src/index.css`.

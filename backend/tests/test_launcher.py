@@ -137,7 +137,8 @@ def test_launcher_starts_the_server_and_reuses_it(
         assert launcher.main() == 0
         assert (scrappy_home / "data" / "records.db").is_file()
         log_text = logs.log_file().read_text(encoding="utf-8")
-        assert "Starting Scrappy Records" in log_text
+        assert "already running" in log_text  # the launcher (via main)
+        assert "Database ready" in log_text  # the server
         assert "Application startup complete" in log_text
     finally:
         if proc is not None:

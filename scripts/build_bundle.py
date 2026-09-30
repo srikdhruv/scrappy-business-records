@@ -228,8 +228,6 @@ def install_dependencies(bundle: Path, target: Target, native: bool) -> None:
 
 def copy_app(bundle: Path) -> None:
     step("Copying the app (backend package, migrations, built UI)")
-    if not (APP_SRC / "static" / "index.html").is_file():
-        fail("The UI isn't built (backend/app/static/index.html is missing). Run `make build`.")
     shutil.copytree(
         APP_SRC,
         bundle / "app",
@@ -244,7 +242,8 @@ def add_extras(bundle: Path, target: Target, name: str, version: str) -> None:
     pth = bundle / target.site_packages / "scrappy-records.pth"
     pth.write_text(target.pth_to_root + "\n", encoding="utf-8")
     if name.startswith("windows"):
-        (bundle / "Start Scrappy Records.cmd").write_bytes(WINDOWS_CMD.replace("\n", "\r\n").encode())
+        cmd = WINDOWS_CMD.replace("\n", "\r\n").encode("ascii")
+        (bundle / "Start Scrappy Records.cmd").write_bytes(cmd)
     else:
         command = bundle / "Start Scrappy Records.command"
         command.write_text(MAC_COMMAND, encoding="utf-8")
@@ -261,8 +260,12 @@ def precompile(bundle: Path, target: Target, native: bool) -> None:
     dirs = [bundle / target.site_packages, bundle / "app"]
     if native:
         subprocess.run(
-            [str(bundle / target.python), "-m", "compileall", "-q", "-j", "0"]
-            + ["--invalidation-mode", "unchecked-hash", *map(str, dirs)],
+            [
+                str(bundle / target.python),
+                *("-m", "compileall", "-q", "-j", "0"),
+                *("--invalidation-mode", "unchecked-hash"),
+                *map(str, dirs),
+            ],
             check=True,
             env=clean_env(),
         )
@@ -380,7 +383,7 @@ def self_test(zip_path: Path, target: Target, version: str) -> None:
         run("-m", "app.backup", "--reason", "manual")  # no database yet: must succeed
 
         server = subprocess.Popen(
-            [str(python), "-m", "app.server"],
+            [str(python), "-m", "app"],
             cwd=elsewhere,
             env=env,
             stdout=subprocess.PIPE,
@@ -435,8 +438,7 @@ def main() -> None:
     version = project_version()
     step(f"Building scrappy-records {version} for {name}")
 
-    copy_needed = not (APP_SRC / "static" / "index.html").is_file()
-    if copy_needed:
+    if not (APP_SRC / "static" / "index.html").is_file():
         fail("The UI isn't built (backend/app/static/index.html is missing). Run `make build`.")
 
     bundle = WORK / name

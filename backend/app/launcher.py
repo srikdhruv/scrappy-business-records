@@ -1,7 +1,7 @@
 """What the Desktop shortcut runs: `pythonw.exe -m app.launcher`.
 
 1. Ask `http://127.0.0.1:<port>/api/health` whether Scrappy Records is already running.
-2. If nothing is listening, start the server (`python -m app.server`) fully detached, so it keeps
+2. If nothing is listening, start the server (`pythonw.exe -m app`) fully detached, so it keeps
    running after this launcher exits, with its raw output going to `logs/server-console.log`.
 3. Wait for it to answer (about 20 seconds; longer if it is visibly still starting).
 4. Open the default browser at the app.
@@ -45,7 +45,6 @@ START_TIMEOUT = 20.0  # seconds to wait for a newly started server...
 SLOW_START_TIMEOUT = 60.0  # ...or this long, if it's still running (e.g. a slow first start)
 LOCK_TIMEOUT = SLOW_START_TIMEOUT + 15.0
 POLL_INTERVAL = 0.25
-CONSOLE_LOG_MAX_BYTES = 1_000_000
 IS_WINDOWS = sys.platform == "win32"
 
 # Our own copy of the app lives next to this file; the server runs from that folder.
@@ -178,27 +177,23 @@ def server_python() -> str:
 
 
 def server_command() -> list[str]:
-    return [server_python(), "-m", "app.server"]
+    return [server_python(), "-m", "app"]
 
 
 def _open_console_log() -> IO[bytes]:
-    """The server's raw stdout/stderr. Started fresh if it has grown large."""
+    """The server's raw stdout/stderr, started fresh for each server so it can't grow forever.
+
+    Nothing is lost: the previous server has stopped, and what it logged is in server.log.
+    """
     path = logs.console_log_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with contextlib.suppress(OSError):
-        if path.stat().st_size > CONSOLE_LOG_MAX_BYTES:
-            os.replace(path, path.with_name(path.name + ".1"))
-    return open(path, "ab")
+    return open(path, "wb")
 
 
 def start_server(port: int) -> subprocess.Popen[bytes]:
     """Start the server so it outlives this launcher and has no window."""
     env = dict(os.environ)
     env["SCRAPPY_PORT"] = str(port)
-    # Make sure `import app` finds *this* copy even if the bundle's .pth file were missing.
-    env["PYTHONPATH"] = os.pathsep.join(
-        p for p in (str(BUNDLE_ROOT), env.get("PYTHONPATH", "")) if p
-    )
     kwargs: dict[str, object] = {}
     if IS_WINDOWS:
         kwargs["creationflags"] = (
@@ -213,7 +208,7 @@ def start_server(port: int) -> subprocess.Popen[bytes]:
     with _open_console_log() as out:
         return subprocess.Popen(
             command,
-            cwd=BUNDLE_ROOT,
+            cwd=BUNDLE_ROOT,  # `-m app` then finds this copy, even without the .pth file
             env=env,
             stdin=subprocess.DEVNULL,
             stdout=out,
