@@ -2,7 +2,7 @@
  * what's being tested, so each test starts from exactly the situation it needs. */
 import { expect, type APIRequestContext, type Page } from '@playwright/test'
 
-import { addMonths, formatMonth } from '../src/lib/format'
+import { addMonths, formatMonth, formatRupees, rupeesToPaise } from '../src/lib/format'
 
 let counter = 0
 
@@ -80,4 +80,22 @@ export function panel(page: Page, heading: RegExp | string) {
   return page.locator('section', { has: page.getByRole('heading', { name: heading }) })
 }
 
-export { addMonths, formatMonth }
+/** The "Still due" figure on the dashboard, in paise. */
+export async function stillDue(page: Page): Promise<number> {
+  const card = page
+    .getByRole('group', { name: 'Summary' })
+    .locator('div', { hasText: /^Still due/ })
+  const text = await card
+    .getByText(/^₹[\d,]+$/)
+    .first()
+    .textContent()
+  return rupeesToPaise(text ?? '', { allowZero: true }) ?? NaN
+}
+
+/** How many payments a student has, straight from the API. */
+export async function paymentCount(request: APIRequestContext, studentId: number) {
+  const response = await request.get(`/api/payments?student_id=${studentId}`)
+  return ((await response.json()) as unknown[]).length
+}
+
+export { addMonths, formatMonth, formatRupees }

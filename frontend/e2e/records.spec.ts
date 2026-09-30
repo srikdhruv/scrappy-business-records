@@ -9,11 +9,14 @@ import {
   changeFee,
   createStudent,
   formatMonth,
+  formatRupees,
   monthRow,
   panel,
   pay,
+  paymentCount,
   pickMonth,
   serverMonth,
+  stillDue,
   uniqueName,
 } from './helpers'
 
@@ -39,11 +42,7 @@ test('add a student, see them in Yet to pay, log their payment, and the dashboar
   await page.getByRole('link', { name: 'Dashboard' }).click()
   const yetToPay = panel(page, /Yet to pay/)
   await expect(yetToPay.getByRole('link', { name })).toBeVisible()
-  const stillDueBefore = await page
-    .getByRole('group', { name: 'Summary' })
-    .getByText(/^₹[\d,]+$/)
-    .nth(2)
-    .textContent()
+  const stillDueBefore = await stillDue(page)
 
   await yetToPay.getByRole('button', { name: `Log payment for ${name}` }).click()
   const dialog = page.getByRole('dialog', { name: 'Log a payment' })
@@ -53,12 +52,13 @@ test('add a student, see them in Yet to pay, log their payment, and the dashboar
 
   await expect(page.getByText('Payment saved')).toBeVisible()
   await expect(yetToPay.getByRole('link', { name })).toHaveCount(0)
+  // Exactly ₹1,500 less is still due.
+  await expect.poll(() => stillDue(page)).toBe(stillDueBefore - 150000)
   await expect(
-    page
-      .getByRole('group', { name: 'Summary' })
-      .getByText(/^₹[\d,]+$/)
-      .nth(2),
-  ).not.toHaveText(stillDueBefore ?? '')
+    page.getByRole('group', { name: 'Summary' }).getByText(formatRupees(stillDueBefore - 150000)),
+  ).toBeVisible()
+  // Screen reader users land on the list's heading, not lost on the page.
+  await expect(page.getByRole('heading', { name: /Yet to pay/ })).toBeFocused()
 })
 
 test('moving a payment to another month changes the profile’s month-by-month', async ({
@@ -172,15 +172,17 @@ test('money paid too much is shown as extra; paying early is "paid ahead"', asyn
 
   await page.goto('/students')
   const extraRow = page.getByRole('row').filter({ has: page.getByRole('link', { name: extra }) })
-  await expect(extraRow.getByText('Owes ₹500')).toBeVisible()
+  // This month's ₹1,000 is owed in full: last month's extra ₹500 doesn't cancel it out.
+  await expect(extraRow.getByText('Owes ₹1,000')).toBeVisible()
   await expect(extraRow.getByText('₹500 paid extra')).toBeVisible()
   const aheadRow = page.getByRole('row').filter({ has: page.getByRole('link', { name: ahead }) })
+  await expect(aheadRow.getByText('Up to date')).toBeVisible()
   await expect(aheadRow.getByText('Paid ahead ₹1,000')).toBeVisible()
 
   await page.goto(`/students/${aheadId}`)
   const balance = page.getByRole('region', { name: 'Balance' })
-  await expect(balance.getByText('Paid ahead ₹1,000')).toBeVisible()
-  await expect(balance.getByText(`Paid ahead to ${formatMonth(addMonths(now, 1))}.`)).toBeVisible()
+  await expect(balance.getByText('Up to date')).toBeVisible()
+  await expect(balance.getByText(`Paid ahead to ${MONTH_SHORT(addMonths(now, 1))}`)).toBeVisible()
 
   await page.goto(`/students/${extraId}`)
   await expect(
@@ -247,4 +249,160 @@ test('a change the server refuses shows its reason next to the field', async ({
     dialog.getByText(/The joined month can't be on or after a later fee change/),
   ).toBeVisible()
   await expect(dialog).toBeVisible()
+})
+
+test('a month paid twice instead of the next one still shows as owed', async ({
+  page,
+  request,
+}) => {
+  // Like "July paid twice instead of August": the net balance is 0, but a month is owed.
+  const now = await serverMonth(request)
+  const [twice, missed] = [addMonths(now, -2), addMonths(now, -1)]
+  const name = uniqueName('Uma')
+  const id = await createStudent(request, { name, monthly_fee_paise: 100000, joined_month: twice })
+  await pay(request, { student_id: id, amount_paise: 100000, for_month: twice })
+  await pay(request, { student_id: id, amount_paise: 100000, for_month: twice })
+  await pay(request, { student_id: id, amount_paise: 100000, for_month: now })
+
+  await page.goto(`/students/${id}`)
+  const balance = page.getByRole('region', { name: 'Balance' })
+  await expect(balance.getByText(/^Owes ₹1,000/)).toBeVisible()
+  await expect(balance.getByText(`(${formatMonth(missed).slice(0, 3)})`)).toBeVisible()
+  await expect(balance.getByText(`Paid ₹1,000 extra in ${MONTH_SHORT(twice)}`)).toBeVisible()
+  await expect(balance.getByText('Up to date')).toHaveCount(0)
+
+  await page.goto('/students')
+  const row = page.getByRole('row').filter({ has: page.getByRole('link', { name }) })
+  await expect(row.getByText('Owes ₹1,000')).toBeVisible()
+  await expect(row.getByText('₹1,000 paid extra')).toBeVisible()
+})
+
+test('moving the joined month past a payment shows "owes", not credit', async ({
+  page,
+  request,
+}) => {
+  const now = await serverMonth(request)
+  const name = uniqueName('Vani')
+  const id = await createStudent(request, {
+    name,
+    monthly_fee_paise: 150000,
+    joined_month: addMonths(now, -1),
+  })
+  await pay(request, { student_id: id, amount_paise: 150000, for_month: addMonths(now, -1) })
+  const moved = await request.patch(`/api/students/${id}`, { data: { joined_month: now } })
+  expect(moved.ok()).toBe(true)
+
+  await page.goto(`/students/${id}`)
+  const balance = page.getByRole('region', { name: 'Balance' })
+  await expect(balance.getByText(/^Owes ₹1,500/)).toBeVisible()
+  await expect(balance.getByText(/^Credit/)).toHaveCount(0)
+  await expect(
+    balance.getByText(`Paid ₹1,500 extra in ${MONTH_SHORT(addMonths(now, -1))}`),
+  ).toBeVisible()
+})
+
+test('Enter never switches the student: the one on the row is the one paid', async ({
+  page,
+  request,
+}) => {
+  const now = await serverMonth(request)
+  // Two students, so a wrong pick would be visible.
+  const first = uniqueName('Aaditya')
+  await createStudent(request, { name: first, monthly_fee_paise: 90000, joined_month: now })
+  const name = uniqueName('Yamini')
+  const id = await createStudent(request, { name, monthly_fee_paise: 110000, joined_month: now })
+
+  await page.goto('/')
+  await panel(page, /Yet to pay/)
+    .getByRole('button', { name: `Log payment for ${name}` })
+    .click()
+  const dialog = page.getByRole('dialog', { name: 'Log a payment' })
+  // The original bug: Enter on the student box opened the list, and Enter again picked
+  // whoever came first. Now Enter on the chosen student saves for that student.
+  await dialog.getByRole('combobox', { name: /^Student:/ }).focus()
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Enter')
+  await expect(page.getByText('Payment saved')).toBeVisible()
+  await expect.poll(() => paymentCount(request, id)).toBe(1)
+  const payments = (await (await request.get(`/api/payments?student_id=${id}`)).json()) as {
+    amount_paise: number
+  }[]
+  expect(payments[0]?.amount_paise).toBe(110000)
+  const firstPaid = (await (
+    await request.get(`/api/payments?q=${encodeURIComponent(first)}`)
+  ).json()) as unknown[]
+  expect(firstPaid).toHaveLength(0)
+
+  // Opening the list starts on the chosen student too.
+  const other = uniqueName('Zoya')
+  const otherId = await createStudent(request, {
+    name: other,
+    monthly_fee_paise: 120000,
+    joined_month: now,
+  })
+  await page.goto('/')
+  await panel(page, /Yet to pay/)
+    .getByRole('button', { name: `Log payment for ${other}` })
+    .click()
+  await dialog.getByRole('combobox', { name: /^Student:/ }).click()
+  await expect(page.getByRole('option', { name: new RegExp(other) })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await page.keyboard.press('Enter')
+  await expect(dialog.getByRole('combobox', { name: /^Student:/ })).toContainText(other)
+  await dialog.getByRole('button', { name: 'Save payment' }).click()
+  await expect.poll(() => paymentCount(request, otherId)).toBe(1)
+})
+
+test('Undo removes the payment just saved', async ({ page, request }) => {
+  const now = await serverMonth(request)
+  const name = uniqueName('Hema')
+  const id = await createStudent(request, { name, monthly_fee_paise: 130000, joined_month: now })
+
+  await page.goto('/')
+  await panel(page, /Yet to pay/)
+    .getByRole('button', { name: `Log payment for ${name}` })
+    .click()
+  await page.keyboard.press('Enter')
+  await expect(page.getByText('Payment saved')).toBeVisible()
+  await expect.poll(() => paymentCount(request, id)).toBe(1)
+
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await expect(page.getByText('Payment removed')).toBeVisible()
+  await expect.poll(() => paymentCount(request, id)).toBe(0)
+  await expect(panel(page, /Yet to pay/).getByRole('link', { name })).toBeVisible()
+})
+
+test('pressing Enter or clicking Save twice saves only one payment', async ({ page, request }) => {
+  const now = await serverMonth(request)
+  const name = uniqueName('Gita')
+  const id = await createStudent(request, { name, monthly_fee_paise: 140000, joined_month: now })
+
+  await page.goto('/')
+  await panel(page, /Yet to pay/)
+    .getByRole('button', { name: `Log payment for ${name}` })
+    .click()
+  const dialog = page.getByRole('dialog', { name: 'Log a payment' })
+  await expect(dialog.getByLabel('Amount')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Enter')
+  await expect(page.getByText('Payment saved')).toBeVisible()
+
+  const other = uniqueName('Gauri')
+  const otherId = await createStudent(request, {
+    name: other,
+    monthly_fee_paise: 140000,
+    joined_month: now,
+  })
+  await page.goto('/')
+  await panel(page, /Yet to pay/)
+    .getByRole('button', { name: `Log payment for ${other}` })
+    .click()
+  await dialog.getByRole('button', { name: 'Save payment' }).dblclick()
+  await expect(page.getByText('Payment saved')).toBeVisible()
+
+  await page.waitForTimeout(500) // any second save would have landed by now
+  expect(await paymentCount(request, id)).toBe(1)
+  expect(await paymentCount(request, otherId)).toBe(1)
 })
