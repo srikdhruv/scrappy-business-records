@@ -22,7 +22,7 @@ make setup
 | `make help` | List every target |
 | `make setup` | `uv sync --locked` in `backend/` and `npm ci` in `frontend/` |
 | `make dev` | API with auto-reload on http://127.0.0.1:8765 and the Vite UI on http://localhost:5173 (open this one; it proxies `/api`). Data and backups go in `./.devdata/`. Ctrl-C stops both |
-| `make seed` | Fill `./.devdata/` with realistic demo students and payments (`python -m app.seed`) |
+| `make seed` | Fill `./.devdata/` with realistic, fictional demo students and payments (`python -m app.seed`). It refuses if there are students already: to start over, run `make db-reset` first |
 | `make test` | Backend pytest and frontend vitest |
 | `make e2e` | Build, then run the Playwright end-to-end tests (`frontend/playwright.config.ts`) against the production server |
 | `make lint` | `ruff check`, `ruff format --check`, ESLint, `prettier --check` and `tsc` |
@@ -34,8 +34,8 @@ make setup
 | `make db-reset` | Delete `./.devdata/` |
 | `make clean` | Remove build outputs and caches |
 
-`make seed`, `make e2e` and `make package` print a message and stop if the script they run
-hasn't been added yet.
+`make e2e` and `make package` print a message and stop if the script they run hasn't been
+added yet.
 
 API docs: http://127.0.0.1:8765/api/docs while `make dev` is running.
 
@@ -54,9 +54,12 @@ backend/
     schemas.py       Pydantic request and response models — the API contract
     months.py        "YYYY-MM" <-> first-of-month date helpers
     errors.py        unprocessable() / not_found(): consistent 422 and 404 bodies
+    clock.py         get_current_month(): the one place the app reads the clock (tests override it)
+    seed.py          `python -m app.seed [--force]`: fictional demo data (`make seed`)
     migrate.py       Run Alembic from code (no alembic.ini, no CWD assumptions)
     openapi_dump.py  Print the OpenAPI JSON (used by `make gen-api`)
-    services/        Pure business rules, e.g. ledger.py (dues, statuses, dashboard)
+    services/        ledger.py: pure business rules (dues, statuses, dashboard), no I/O;
+                     students.py, payments.py, dashboard.py: the database work routers call
     routers/         health, students, payments, dashboard
     migrations/      Alembic env.py and versions/ (ships inside the package)
     static/          Built UI (git-ignored; `make build`)

@@ -103,8 +103,12 @@ These rules decide every number the app shows.
    - **Unpaid:** paid = 0 and expected > 0.
    - **Overpaid:** paid > expected.
    - **Not applicable:** expected = 0 and paid = 0.
+
+   So a payment for a month the student isn't active in (before joining, after leaving) is
+   **Overpaid** by its full amount.
 5. **Months that count as due.** Only months up to and including the **current month** count as
-   owed. A payment for a future month is "paid ahead" and is not an overpayment.
+   owed. A payment for a future month is "paid ahead" and is not an overpayment: future months
+   never appear in *Backlog* or *Overpaid*, but the payment does count towards the balance.
 6. **Balance.** A student's balance is `sum(all payments) − sum(expected for active months up to
    the current month)`.
    - Negative: **Owes ₹X**.
@@ -117,12 +121,13 @@ These rules decide every number the app shows.
 
 | Section | Contents |
 |---|---|
-| **Summary** | Expected for M (all students active in M) · Collected for M (payments whose `for_month = M`) · Still due for M (sum of `max(0, expected − paid)`) · Number of students not fully paid |
+| **Summary** | Expected for M (all students active in M) · Collected for M (payments whose `for_month = M`) · Still due for M (sum of `max(0, expected − paid)` over students active in M) · Number of students not fully paid |
 | **Yet to pay** | Students active in M whose status is Unpaid or Partial, with remaining amount and a *Log payment* button |
-| **Backlog** | Students with any Unpaid or Partial month *before* M, with the months listed and the total still owed |
-| **Overpaid** | Student-months up to M with paid > expected, with the excess amount |
+| **Backlog** | Students with any Unpaid or Partial month *before* M (and not after the current month, since only those are due), with the months listed and the total still owed. Includes students who have since left |
+| **Overpaid** | Student-months up to M (and not after the current month) with paid > expected, with the excess amount |
 
-Underpayments show as **Partial** in the *Yet to pay* and *Backlog* sections.
+Underpayments show as **Partial** in the *Yet to pay* and *Backlog* sections. For a future M,
+*Yet to pay* lists who hasn't paid ahead yet.
 
 ## UX principles
 
