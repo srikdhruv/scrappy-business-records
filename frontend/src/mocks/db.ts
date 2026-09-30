@@ -3,6 +3,8 @@
  * payments) and answers with the same shapes as the real API (`src/api/schema.d.ts`).
  */
 import type {
+  ImportCommit,
+  ImportResult,
   PaymentCreate,
   PaymentRead,
   PaymentSort,
@@ -14,6 +16,7 @@ import type {
   StudentRead,
   StudentReturn,
   StudentUpdate,
+  UnassignedPaymentRead,
 } from '@/api/types'
 import { monthsAhead, needsCheck } from '@/lib/allocation'
 import { nextFeeChange, returnFee } from '@/lib/fees'
@@ -44,6 +47,8 @@ export interface Fixture {
   students: StudentRow[]
   fees: FeeChangeRow[]
   payments: PaymentRow[]
+  /** Uploaded payments waiting for a student. */
+  unassigned?: UnassignedPaymentRead[]
 }
 
 /** A 404 or 422 to send back, in FastAPI's error shape. */
@@ -124,6 +129,7 @@ export class MockDb {
   students: StudentRow[] = []
   fees: FeeChangeRow[] = []
   payments: PaymentRow[] = []
+  unassigned: UnassignedPaymentRead[] = []
   private nextId = 1
 
   constructor(fixture?: Fixture) {
@@ -134,7 +140,10 @@ export class MockDb {
     this.students = fixture.students.map((s) => ({ ...s }))
     this.fees = fixture.fees.map((f) => ({ ...f }))
     this.payments = fixture.payments.map((p) => ({ ...p }))
-    const ids = [...this.students, ...this.fees, ...this.payments].map((row) => row.id)
+    this.unassigned = (fixture.unassigned ?? []).map((u) => ({ ...u }))
+    const ids = [...this.students, ...this.fees, ...this.payments, ...this.unassigned].map(
+      (row) => row.id,
+    )
     this.nextId = Math.max(0, ...ids) + 1
   }
 
@@ -567,6 +576,112 @@ export class MockDb {
   deletePayment(id: number): void {
     this.findPayment(id)
     this.payments = this.payments.filter((p) => p.id !== id)
+  }
+
+  // ---- Unassigned payments ----------------------------------------------------------------------
+
+  listUnassigned(): UnassignedPaymentRead[] {
+    return [...this.unassigned].sort((a, b) => a.paid_on.localeCompare(b.paid_on) || a.id - b.id)
+  }
+
+  assignUnassigned(id: number, studentId: number): PaymentRead {
+    const row = this.unassigned.find((u) => u.id === id)
+    if (!row) notFound('Unassigned payment')
+    const student = this.students.find((s) => s.id === studentId)
+    if (!student) invalid('student_id', 'That student no longer exists. Choose another.')
+    const duplicate = this.payments.some(
+      (p) =>
+        p.student_id === studentId &&
+        p.amount_paise === row.amount_paise &&
+        p.paid_on === row.paid_on &&
+        p.for_month === row.for_month,
+    )
+    if (duplicate) {
+      invalid(
+        'student_id',
+        `${student.name} already has this payment: the same amount, paid on the same day, ` +
+          `for ${formatMonth(row.for_month)}. If it's the same one, delete this one.`,
+      )
+    }
+    const payment = this.createPayment({
+      student_id: studentId,
+      amount_paise: row.amount_paise,
+      paid_on: row.paid_on,
+      for_month: row.for_month,
+      method: row.method,
+      note: row.note,
+    })
+    this.unassigned = this.unassigned.filter((u) => u.id !== id)
+    return payment
+  }
+
+  deleteUnassigned(id: number): void {
+    if (!this.unassigned.some((u) => u.id === id)) notFound('Unassigned payment')
+    this.unassigned = this.unassigned.filter((u) => u.id !== id)
+  }
+
+  /**
+   * A simple stand-in for adding an upload: the real checks are the server's. New and chosen
+   * students are added; payments go to a chosen student, or one with exactly that name, or
+   * wait as unassigned.
+   */
+  commitImport(body: ImportCommit): ImportResult {
+    let students = 0
+    let payments = 0
+    let unassigned = 0
+    for (const { data, add } of body.students ?? []) {
+      if (add === false) continue
+      if (!add && this.students.some((s) => s.name === data.name)) continue
+      this.createStudent({
+        name: data.name,
+        monthly_fee_paise: data.monthly_fee_paise,
+        joined_month: data.joined_month,
+        phone: data.phone,
+        guardian_name: data.guardian_name,
+        batch_label: data.batch_label,
+        notes: data.notes,
+        left_month: data.left_month,
+      })
+      students += 1
+    }
+    for (const { data, choice, student_id } of body.payments ?? []) {
+      if (choice === 'skip') continue
+      const named = this.students.filter((s) => s.name === data.student_text)
+      const to =
+        choice === 'student'
+          ? student_id
+          : choice !== 'unassigned' && !data.unassigned && named.length === 1
+            ? named[0]!.id
+            : null
+      if (to) {
+        this.createPayment({ ...data, student_id: to })
+        payments += 1
+      } else {
+        this.unassigned.push({
+          id: this.id(),
+          student_text: data.student_text,
+          phone: data.phone ?? null,
+          amount_paise: data.amount_paise,
+          paid_on: data.paid_on,
+          for_month: data.for_month,
+          method: data.method,
+          note: data.note ?? null,
+          source: body.filename ? `Upload: ${body.filename}` : 'Upload',
+          created_at: nowIso(),
+          suggested_student_ids: [],
+        })
+        unassigned += 1
+      }
+    }
+    const total = (body.students?.length ?? 0) + (body.payments?.length ?? 0)
+    return {
+      students_added: students,
+      fee_changes_added: students,
+      payments_added: payments,
+      unassigned_added: unassigned,
+      skipped: total - students - payments - unassigned,
+      backup_file: students + payments + unassigned ? 'records-pre-import-demo.db' : null,
+    }
   }
 
   // ---- Dashboard ------------------------------------------------------------------------------

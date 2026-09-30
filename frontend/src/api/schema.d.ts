@@ -246,6 +246,188 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/export/students.xlsx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Students
+         * @description The students on the Students page for this tab and search, as an Excel file.
+         */
+        get: operations["exportStudents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/export/payments.xlsx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Payments
+         * @description The payments on the Payments page for these filters, in its order, as an Excel file.
+         */
+        get: operations["exportPayments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/export/everything.xlsx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Everything
+         * @description Every record in one workbook: Students, Fee history, Payments and Unassigned payments.
+         *     Uploading it into an empty app restores everything.
+         */
+        get: operations["exportEverything"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/import/template.xlsx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Import Template
+         * @description A blank sheet to fill in and upload.
+         */
+        get: operations["importTemplate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Import
+         * @description What adding this file's students and payments would do, row by row. Nothing is saved.
+         *     A file that can't be read is a 422 with a plain message.
+         */
+        post: operations["previewImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/import/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Commit Import
+         * @description Add the rows from a preview, with the owner's choices, after checking all of them again
+         *     against the records as they are now. A `pre-import` backup is taken first, and it all
+         *     happens in one transaction: on any error nothing is added.
+         */
+        post: operations["commitImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/unassigned-payments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Unassigned
+         * @description Every payment waiting for a student, oldest paid first, each with likely students.
+         */
+        get: operations["listUnassignedPayments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/unassigned-payments/{unassigned_id}/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assign
+         * @description Give it to a student: the payment is added for them and this one removed, together.
+         *     422 if they already have the same payment (amount, paid-on date and month).
+         */
+        post: operations["assignUnassignedPayment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/unassigned-payments/{unassigned_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete */
+        delete: operations["deleteUnassignedPayment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -501,6 +683,11 @@ export interface components {
             detail: string;
         };
         /**
+         * ExportTemplateKind
+         * @enum {string}
+         */
+        ExportTemplateKind: "students" | "payments";
+        /**
          * ExtraSent
          * @description Money paid above a month's fee that covers another month.
          */
@@ -567,6 +754,304 @@ export interface components {
              */
             status: "ok";
         };
+        /**
+         * ImportCommit
+         * @description The rows from `ImportPreview` (their `data`) and the owner's choices. Everything is
+         *     checked again, against the records as they are now, before anything is added.
+         */
+        ImportCommit: {
+            /** Filename */
+            filename?: string | null;
+            /**
+             * Students
+             * @default []
+             */
+            students: components["schemas"]["ImportStudentDecision"][];
+            /**
+             * Payments
+             * @default []
+             */
+            payments: components["schemas"]["ImportPaymentDecision"][];
+        };
+        /**
+         * ImportFee
+         * @description One row of a student's fee history, from the file's Fee history sheet.
+         */
+        ImportFee: {
+            /**
+             * Effective Month
+             * @description A month as "YYYY-MM".
+             * @example 2026-10
+             */
+            effective_month: string;
+            /**
+             * Amount Paise
+             * @description Monthly fee in paise: 0 or more, at most 100000000 (₹10,00,000).
+             */
+            amount_paise: number;
+            /** @default fee */
+            kind: components["schemas"]["FeeKind"];
+        };
+        /**
+         * ImportPayment
+         * @description An uploaded payment row, read and checked like `PaymentCreate`.
+         */
+        ImportPayment: {
+            /**
+             * Row
+             * @description Its row number in the file's sheet.
+             */
+            row: number;
+            /**
+             * Student Text
+             * @description The student as written in the file.
+             */
+            student_text: string;
+            /** Phone */
+            phone?: string | null;
+            /**
+             * Student Ref
+             * @description The file's Student ID, from a Download everything file.
+             */
+            student_ref?: string | null;
+            /**
+             * Amount Paise
+             * @description Amount in paise: more than 0, at most 100000000 (₹10,00,000).
+             */
+            amount_paise: number;
+            /**
+             * Paid On
+             * Format: date
+             */
+            paid_on: string;
+            /**
+             * For Month
+             * @description A month as "YYYY-MM".
+             * @example 2026-10
+             */
+            for_month: string;
+            method: components["schemas"]["PaymentMethod"];
+            /** Note */
+            note?: string | null;
+            /**
+             * Unassigned
+             * @description From the file's Unassigned payments sheet.
+             * @default false
+             */
+            unassigned: boolean;
+            /**
+             * Source
+             * @description An unassigned payment's Came from.
+             */
+            source?: string | null;
+        };
+        /**
+         * ImportPaymentChoice
+         * @enum {string}
+         */
+        ImportPaymentChoice: "auto" | "student" | "unassigned" | "skip";
+        /** ImportPaymentDecision */
+        ImportPaymentDecision: {
+            data: components["schemas"]["ImportPayment"];
+            /** @default auto */
+            choice: components["schemas"]["ImportPaymentChoice"];
+            /** Student Id */
+            student_id?: number | null;
+        };
+        /** ImportPaymentPreview */
+        ImportPaymentPreview: {
+            /** Row */
+            row: number;
+            /** Sheet */
+            sheet: string;
+            /**
+             * Student Text
+             * @description The student as written.
+             */
+            student_text: string;
+            /** Amount Paise */
+            amount_paise: number | null;
+            /** Paid On */
+            paid_on: string | null;
+            /** For Month */
+            for_month: string | null;
+            method: components["schemas"]["PaymentMethod"] | null;
+            /** Note */
+            note: string | null;
+            status: components["schemas"]["ImportPaymentStatus"];
+            /** Reason */
+            reason: string | null;
+            /**
+             * Student Id
+             * @description `ready`: the student already here it goes to.
+             */
+            student_id: number | null;
+            /**
+             * Student Row
+             * @description `ready` or `follows_student`: the row of the student in this file it goes to.
+             */
+            student_row: number | null;
+            /**
+             * Candidate Ids
+             * @description `needs_student`: students it may be, best first, to offer first.
+             */
+            candidate_ids: number[];
+            /** @description The row to send back; null for a problem. */
+            data: components["schemas"]["ImportPayment"] | null;
+        };
+        /**
+         * ImportPaymentStatus
+         * @description What adding an uploaded payment row would do.
+         * @enum {string}
+         */
+        ImportPaymentStatus: "ready" | "needs_student" | "follows_student" | "unassigned" | "duplicate" | "problem";
+        /**
+         * ImportPreview
+         * @description What adding an uploaded file would do. Nothing has been saved.
+         */
+        ImportPreview: {
+            /** Filename */
+            filename: string | null;
+            /**
+             * Sheets
+             * @description The sheets that were read.
+             */
+            sheets: string[];
+            /**
+             * Ignored Sheets
+             * @description Sheets that weren't students or payments.
+             */
+            ignored_sheets: string[];
+            /** Students */
+            students: components["schemas"]["ImportStudentPreview"][];
+            /** Payments */
+            payments: components["schemas"]["ImportPaymentPreview"][];
+            /**
+             * Fee Changes
+             * @description Fee-history rows that come with the new students (restored exactly).
+             */
+            fee_changes: number;
+            /**
+             * Current Month
+             * @description A month as "YYYY-MM".
+             * @example 2026-10
+             */
+            current_month: string;
+        };
+        /** ImportResult */
+        ImportResult: {
+            /** Students Added */
+            students_added: number;
+            /**
+             * Fee Changes Added
+             * @description Beyond each new student's first fee.
+             */
+            fee_changes_added: number;
+            /** Payments Added */
+            payments_added: number;
+            /** Unassigned Added */
+            unassigned_added: number;
+            /**
+             * Skipped
+             * @description Rows not added (already here, problems, skipped).
+             */
+            skipped: number;
+            /**
+             * Backup File
+             * @description The backup taken first (records-pre-import-…), or null if nothing was added.
+             */
+            backup_file: string | null;
+        };
+        /**
+         * ImportStudent
+         * @description An uploaded student row, read and checked like `StudentCreate`.
+         */
+        ImportStudent: {
+            /**
+             * Row
+             * @description Its row number in the file's sheet.
+             */
+            row: number;
+            /**
+             * Ref
+             * @description The file's Student ID, which links its fee history and payments.
+             */
+            ref?: string | null;
+            /** Name */
+            name: string;
+            /** Phone */
+            phone?: string | null;
+            /** Guardian Name */
+            guardian_name?: string | null;
+            /** Batch Label */
+            batch_label?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Joined Month
+             * @description A month as "YYYY-MM".
+             * @example 2026-10
+             */
+            joined_month: string;
+            /** Left Month */
+            left_month?: string | null;
+            /**
+             * Monthly Fee Paise
+             * @description Monthly fee in paise: 0 or more, at most 100000000 (₹10,00,000).
+             */
+            monthly_fee_paise: number;
+            /**
+             * Fees
+             * @description Their fee history from the file, oldest first, restored exactly. Without it they get `monthly_fee_paise` from `joined_month`.
+             */
+            fees?: components["schemas"]["ImportFee"][] | null;
+        };
+        /** ImportStudentDecision */
+        ImportStudentDecision: {
+            data: components["schemas"]["ImportStudent"];
+            /**
+             * Add
+             * @description `true` adds a `similar` row as a new student; `false` skips any row. Default: add `new` rows only.
+             */
+            add?: boolean | null;
+        };
+        /** ImportStudentPreview */
+        ImportStudentPreview: {
+            /** Row */
+            row: number;
+            /** Sheet */
+            sheet: string;
+            /**
+             * Name
+             * @description As written (may be blank for a problem row).
+             */
+            name: string;
+            /** Phone */
+            phone: string | null;
+            /** Monthly Fee Paise */
+            monthly_fee_paise: number | null;
+            /** Joined Month */
+            joined_month: string | null;
+            status: components["schemas"]["ImportStudentStatus"];
+            /**
+             * Reason
+             * @description Why, in plain words (not for `new`).
+             */
+            reason: string | null;
+            /**
+             * Student Id
+             * @description The student already here that it is (`exists`) or looks like (`similar`).
+             */
+            student_id: number | null;
+            /** @description The row to send back to add it; null for a problem. */
+            data: components["schemas"]["ImportStudent"] | null;
+        };
+        /**
+         * ImportStudentStatus
+         * @description What adding an uploaded student row would do.
+         * @enum {string}
+         */
+        ImportStudentStatus: "new" | "exists" | "similar" | "problem";
         /**
          * LedgerMonth
          * @description One row of a student's month-by-month ledger, after extra money has been handed out
@@ -1403,6 +1888,62 @@ export interface components {
          * @enum {string}
          */
         SuggestionReason: "owed" | "next_unpaid" | "all_paid";
+        /** UnassignedAssign */
+        UnassignedAssign: {
+            /** Student Id */
+            student_id: number;
+        };
+        /**
+         * UnassignedPaymentRead
+         * @description A payment from an uploaded file whose student couldn't be matched. It belongs to no
+         *     student, so no total counts it, until it is assigned (`POST .../assign`).
+         */
+        UnassignedPaymentRead: {
+            /** Id */
+            id: number;
+            /**
+             * Student Text
+             * @description The student as written in the file.
+             */
+            student_text: string;
+            /** Phone */
+            phone: string | null;
+            /**
+             * Amount Paise
+             * @description Amount in paise, more than 0.
+             */
+            amount_paise: number;
+            /**
+             * Paid On
+             * Format: date
+             */
+            paid_on: string;
+            /**
+             * For Month
+             * @description A month as "YYYY-MM".
+             * @example 2026-10
+             */
+            for_month: string;
+            method: components["schemas"]["PaymentMethod"];
+            /** Note */
+            note: string | null;
+            /**
+             * Source
+             * @description Where it came from, e.g. "Upload: fees.xlsx".
+             */
+            source: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             * @description UTC timestamp, e.g. 2026-10-05T09:30:00Z
+             */
+            created_at: string;
+            /**
+             * Suggested Student Ids
+             * @description Students it may be, best first: the same name or phone, then anyone the Students search finds for the name as written.
+             */
+            suggested_student_ids: number[];
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1475,11 +2016,25 @@ export type CreditSource = components['schemas']['CreditSource'];
 export type DashboardResponse = components['schemas']['DashboardResponse'];
 export type DashboardSummary = components['schemas']['DashboardSummary'];
 export type ErrorResponse = components['schemas']['ErrorResponse'];
+export type ExportTemplateKind = components['schemas']['ExportTemplateKind'];
 export type ExtraSent = components['schemas']['ExtraSent'];
 export type FeeChangeRead = components['schemas']['FeeChangeRead'];
 export type FeeKind = components['schemas']['FeeKind'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];
 export type HealthResponse = components['schemas']['HealthResponse'];
+export type ImportCommit = components['schemas']['ImportCommit'];
+export type ImportFee = components['schemas']['ImportFee'];
+export type ImportPayment = components['schemas']['ImportPayment'];
+export type ImportPaymentChoice = components['schemas']['ImportPaymentChoice'];
+export type ImportPaymentDecision = components['schemas']['ImportPaymentDecision'];
+export type ImportPaymentPreview = components['schemas']['ImportPaymentPreview'];
+export type ImportPaymentStatus = components['schemas']['ImportPaymentStatus'];
+export type ImportPreview = components['schemas']['ImportPreview'];
+export type ImportResult = components['schemas']['ImportResult'];
+export type ImportStudent = components['schemas']['ImportStudent'];
+export type ImportStudentDecision = components['schemas']['ImportStudentDecision'];
+export type ImportStudentPreview = components['schemas']['ImportStudentPreview'];
+export type ImportStudentStatus = components['schemas']['ImportStudentStatus'];
 export type LedgerMonth = components['schemas']['LedgerMonth'];
 export type MonthStatus = components['schemas']['MonthStatus'];
 export type NoFeeReason = components['schemas']['NoFeeReason'];
@@ -1505,6 +2060,8 @@ export type StudentReturn = components['schemas']['StudentReturn'];
 export type StudentUpdate = components['schemas']['StudentUpdate'];
 export type SuggestedPayment = components['schemas']['SuggestedPayment'];
 export type SuggestionReason = components['schemas']['SuggestionReason'];
+export type UnassignedAssign = components['schemas']['UnassignedAssign'];
+export type UnassignedPaymentRead = components['schemas']['UnassignedPaymentRead'];
 export type ValidationError = components['schemas']['ValidationError'];
 export type YetToPayItem = components['schemas']['YetToPayItem'];
 export type $defs = Record<string, never>;
@@ -2133,6 +2690,298 @@ export interface operations {
                 };
                 content: {
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    exportStudents: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["StudentListFilter"];
+                /** @description The Students page's search. */
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An Excel workbook (.xlsx), as a download. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    exportPayments: {
+        parameters: {
+            query?: {
+                student_id?: number | null;
+                month?: string | null;
+                q?: string | null;
+                method?: components["schemas"]["PaymentMethod"] | null;
+                sort?: components["schemas"]["PaymentSort"];
+                order?: components["schemas"]["SortOrder"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An Excel workbook (.xlsx), as a download. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    exportEverything: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An Excel workbook (.xlsx), as a download. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+        };
+    };
+    importTemplate: {
+        parameters: {
+            query: {
+                kind: components["schemas"]["ExportTemplateKind"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An Excel workbook (.xlsx), as a download. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    previewImport: {
+        parameters: {
+            query?: {
+                /** @description The file's name. */
+                filename?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The .xlsx file itself, as the request body (at most 5 MB). */
+        requestBody: {
+            content: {
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    commitImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportCommit"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listUnassignedPayments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnassignedPaymentRead"][];
+                };
+            };
+        };
+    };
+    assignUnassignedPayment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                unassigned_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnassignedAssign"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentRead"];
+                };
+            };
+            /** @description No unassigned payment with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deleteUnassignedPayment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                unassigned_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No unassigned payment with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Validation Error */

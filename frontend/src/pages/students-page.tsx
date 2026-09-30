@@ -2,11 +2,12 @@
  * Every student (PRD scope 6) with their status and how long they've been coming. Search and
  * the Active / Left / All tabs filter on the spot; click a row to open the profile.
  */
-import { SearchIcon, UserPlusIcon, UsersIcon } from 'lucide-react'
+import { FileDownIcon, FileUpIcon, SearchIcon, UserPlusIcon, UsersIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 
 import { useStudents } from '@/api/queries'
+import { ExcelUploadDialog } from '@/components/excel-upload-dialog'
 import { PageHeader } from '@/components/layout/page-header'
 import { Panel } from '@/components/panel'
 import { FeeNow } from '@/components/fee-now'
@@ -25,6 +26,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { studentsDownloadUrl } from '@/lib/downloads'
 import { formatMonthShort } from '@/lib/format'
 import { tenureLabel } from '@/lib/labels'
 import { studentMatches } from '@/lib/search'
@@ -42,6 +44,7 @@ export function StudentsPage() {
   const tab: Tab = tabParam && TABS.some((t) => t.value === tabParam) ? tabParam : 'active'
   const [search, setSearch] = useState('')
   const [newOpen, setNewOpen] = useState(false)
+  const [uploadOpen, setUploadOpen] = useState(false)
   const navigate = useNavigate()
   const students = useStudents('all')
 
@@ -64,10 +67,23 @@ export function StudentsPage() {
         title="Students"
         description="Everyone in your classes. Click a name to see their full history."
         actions={
-          <Button variant="outline" size="lg" onClick={() => setNewOpen(true)}>
-            <UserPlusIcon aria-hidden />
-            New student
-          </Button>
+          <>
+            <Button variant="ghost" size="lg" onClick={() => setUploadOpen(true)}>
+              <FileUpIcon aria-hidden />
+              Upload Excel
+            </Button>
+            <Button variant="ghost" size="lg" asChild>
+              {/* The students shown below: this tab and this search. */}
+              <a href={studentsDownloadUrl(tab, search)} download>
+                <FileDownIcon aria-hidden />
+                Download Excel
+              </a>
+            </Button>
+            <Button variant="outline" size="lg" onClick={() => setNewOpen(true)}>
+              <UserPlusIcon aria-hidden />
+              New student
+            </Button>
+          </>
         }
       />
 
@@ -214,6 +230,7 @@ export function StudentsPage() {
       </Panel>
 
       <StudentFormDialog open={newOpen} onOpenChange={setNewOpen} />
+      <ExcelUploadDialog open={uploadOpen} onOpenChange={setUploadOpen} kind="students" />
     </>
   )
 }
