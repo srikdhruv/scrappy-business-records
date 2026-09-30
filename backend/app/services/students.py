@@ -275,9 +275,10 @@ def update_student(
         and (left is None or left > stored_left)
     ):
         raise unprocessable(
-            f"They left after {stored_left:%B %Y}. Came back after all? Use Mark as coming "
-            f"again from {add_months(stored_left, 1):%B %Y}, then set a new Left month if "
-            "needed.",
+            f"They left after {stored_left:%B %Y}, so this can only move earlier. If they came "
+            "back: first set the real last month they paid for before leaving (an earlier one "
+            "is fine), then use Mark as coming again from the month they came back. Set a new "
+            "Left month after that if needed.",
             field="left_month",
         )
     if left is not None and left < joined:
@@ -449,6 +450,14 @@ def delete_fee_change(
     if change is fees[0]:
         raise unprocessable(
             "The first fee can't be removed. To change it, use Edit.",
+            field="fee_change_id",
+            location="path",
+        )
+    i = fees.index(change)
+    if change.kind is FeeKind.fee and fees[i - 1].kind is FeeKind.away:
+        # Without it the months away would never end, though they're coming again.
+        raise unprocessable(
+            "This is the fee they came back on. To change it, set a new fee in Edit.",
             field="fee_change_id",
             location="path",
         )

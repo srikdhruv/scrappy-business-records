@@ -170,11 +170,13 @@ def test_future_payment_is_paid_ahead_not_overpaid() -> None:
     # September: ₹2,000 against a ₹1,500 fee is ₹1,500 paid ahead and ₹500 extra (credit).
     assert (led.owed_paise, led.credit_paise, led.paid_ahead_paise) == (0, 500_00, 3000_00)
     assert led.status is BalanceStatus.credit
-    # ... but a future month never shows up in the dashboard's overpaid or backlog lists.
+    # A future month is never in the backlog. Its extra money is in the "Paid too much" list
+    # from the current month on, so every credit can be found; looking back, it isn't.
     for m in (JUN, JUL, SEP, DEC):
         board = ledger.build_dashboard([s], m, NOW)
-        assert board.overpaid == ()
+        assert [(o.line.month, o.line.excess_paise) for o in board.overpaid] == [(SEP, 500_00)]
         assert board.backlog == ()
+    assert ledger.build_dashboard([s], MAY, NOW).overpaid == ()
 
 
 def test_expected_after_current_month_is_not_owed() -> None:
@@ -657,7 +659,13 @@ def test_dashboard_invariants(
         assert b.total_owed_paise > 0
         assert all(line.month < month and line.month <= current for line in b.lines)
     for o in board.overpaid:
-        assert o.line.excess_paise > 0 and o.line.month <= min(month, current)
+        assert o.line.excess_paise > 0
+        assert o.line.month <= min(month, current) or (o.line.month > current <= month)
+    # From the current month on, the list holds every credit.
+    if month >= current:
+        for s in students:
+            listed = sum(o.line.excess_paise for o in board.overpaid if o.student.id == s.id)
+            assert listed == ledger.credit(s, current)
 
 
 # --------------------------------------------------------------------------- rule 6: standing

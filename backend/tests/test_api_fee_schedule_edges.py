@@ -132,6 +132,50 @@ def test_a_fee_set_on_a_month_away_becomes_the_owners(api: TestClient) -> None:
     assert kinds_of(response.json())[1] == ("2026-03", 120000, "fee")
 
 
+def test_a_wrong_left_month_and_following_the_message_to_put_it_right(api: TestClient) -> None:
+    # Left after March, back in July (away April to June). Then marked as left after May by
+    # mistake: the away months up to May are gone, so April and May are owed.
+    s = make_student(api, monthly_fee_paise=100000, joined_month="2026-01", left_month="2026-03")
+    url = f"/api/students/{s['id']}"
+    for m in ("2026-01", "2026-02", "2026-03"):
+        pay(api, s["id"], m, 100000)
+    come_back(api, s["id"], "2026-07")
+    d = api.patch(url, json={"left_month": "2026-05"}).json()
+    assert kinds_of(d) == [("2026-01", 100000, "fee"), ("2026-07", 100000, "fee")]
+    assert d["owed_paise"] == 200000  # April and May
+    # Moving it later is refused, and the message says what to do instead ...
+    refused = api.patch(url, json={"left_month": "2026-09"})
+    assert refused.status_code == 422
+    assert "first set the real last month" in refused.json()["detail"][0]["msg"]
+    # ... which is: the real left month (March, earlier: allowed), then back from July.
+    api.patch(url, json={"left_month": "2026-03"})
+    d = come_back(api, s["id"], "2026-07")
+    assert kinds_of(d) == [
+        ("2026-01", 100000, "fee"),
+        ("2026-04", 0, "away"),
+        ("2026-07", 100000, "fee"),
+    ]
+    assert (d["owed_paise"], d["left_month"]) == (0, None)
+
+
+def test_the_fee_they_came_back_on_cant_be_removed(api: TestClient) -> None:
+    s = make_student(api, joined_month="2026-01", left_month="2026-02")
+    d = come_back(api, s["id"], "2026-09")  # a return still to come
+    back_fee = next(f for f in d["fee_history"] if f["effective_month"] == "2026-09")
+    response = api.delete(f"/api/students/{s['id']}/fee-changes/{back_fee['id']}")
+    assert response.status_code == 422
+    [item] = response.json()["detail"]
+    assert item["msg"] == "This is the fee they came back on. To change it, set a new fee in Edit."
+    # Its away row (from March) has started, so it can't be removed either ...
+    away = next(f for f in d["fee_history"] if f["kind"] == "away")
+    assert api.delete(f"/api/students/{s['id']}/fee-changes/{away['id']}").status_code == 422
+    # ... but an away row that hasn't started can (those months are then owed):
+    t = make_student(api, name="Kabir Mehta", joined_month="2026-01", left_month="2026-07")
+    d = come_back(api, t["id"], "2026-10")
+    away = next(f for f in d["fee_history"] if f["kind"] == "away")
+    assert api.delete(f"/api/students/{t['id']}/fee-changes/{away['id']}").status_code == 204
+
+
 def test_the_dashboard_counts_paid_ahead_only_up_to_the_fee(api: TestClient) -> None:
     a = make_student(api, monthly_fee_paise=100000, joined_month="2026-01")
     b = make_student(api, name="Kabir Mehta", monthly_fee_paise=100000, joined_month="2026-01",

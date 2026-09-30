@@ -256,8 +256,10 @@ def test_archive_and_unarchive(api: TestClient) -> None:
         [item] = response.json()["detail"]
         assert item["loc"] == ["body", "left_month"]
         assert item["msg"] == (
-            "They left after February 2026. Came back after all? Use Mark as coming again "
-            "from March 2026, then set a new Left month if needed."
+            "They left after February 2026, so this can only move earlier. If they came back: "
+            "first set the real last month they paid for before leaving (an earlier one is "
+            "fine), then use Mark as coming again from the month they came back. Set a new Left "
+            "month after that if needed."
         )
     d = api.patch(url, json={"left_month": "2026-01"}).json()
     assert (d["left_month"], d["balance_paise"]) == ("2026-01", -150000)

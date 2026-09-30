@@ -454,8 +454,10 @@ def build_dashboard(
       is who hasn't paid ahead yet.
     - **Backlog**: students with Unpaid or Partial months before M. Only due months count
       (rule 5), so for a future M it stops at the current month.
-    - **Overpaid**: student-months up to M with paid > expected. Only due months count, so
-      payments made ahead never show here.
+    - **Overpaid**: student-months up to M with paid > expected. Looking at the current
+      month or a later one, it also lists every later month paid above its fee (all of it, for
+      a month with no fee), so every credit on the students list can be found here. Paying a
+      later month up to its fee is paid ahead, which is never listed.
 
     Lists are sorted by student name (ignoring case and accents); overpaid months are oldest
     first within a student. Yet-to-pay and backlog entries carry the student's `credit`.
@@ -494,8 +496,9 @@ def build_dashboard(
             backlog.append(BacklogEntry(s, owing, credit(s, current_month)))
 
         for m in sorted(s.paid_by_month):
-            if m > overpaid_end:
-                break
+            later = m > current_month and month >= current_month
+            if m > overpaid_end and not later:
+                continue
             ml = month_line(s, m, current_month)
             if ml.status is MonthStatus.overpaid:
                 overpaid.append(OverpaidEntry(s, ml))
