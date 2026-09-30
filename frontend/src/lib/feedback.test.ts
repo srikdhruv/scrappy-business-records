@@ -1,7 +1,7 @@
 import type { FeedbackRead } from '@/api/types'
 
 import { feedbackOutcome, WAIT_FOR_SENT_MS } from './feedback'
-import { dataUrlBytes, visibleBox } from './screenshot'
+import { dataUrlBytes, viewportFrame } from './screenshot'
 
 const pending: FeedbackRead = {
   id: '3f0e8c1a-5b7d-4e2a-9c1f-0a1b2c3d4e5f',
@@ -44,25 +44,20 @@ describe('screenshot helpers', () => {
     expect(dataUrlBytes('data:image/jpeg;base64,' + btoa('abcde'))).toBe(5)
   })
 
-  it('keeps only the part of the page in the window', () => {
-    const view = { scrollX: 0, scrollY: 0, width: 1440, height: 900 }
-    expect(visibleBox({ width: 1440, height: 5000 }, view)).toEqual({
-      x: 0,
-      y: 0,
+  it('draws only the window, wherever the page is scrolled', () => {
+    const view = { width: 1440, height: 900 }
+    expect(viewportFrame({ left: 0, top: 0, width: 1440 }, view)).toEqual({
       width: 1440,
       height: 900,
+      shiftX: 0,
+      shiftY: 0,
     })
-    expect(visibleBox({ width: 1440, height: 5000 }, { ...view, scrollY: 1200 })).toEqual({
-      x: 0,
-      y: 1200,
-      width: 1440,
+    // Scrolled 12,000 px down a 30,000 px list: still a window-sized picture.
+    expect(viewportFrame({ left: 0, top: -12000, width: 1425 }, view)).toEqual({
+      width: 1425,
       height: 900,
-    })
-    // A page shorter than the window, and a scroll past the end.
-    expect(visibleBox({ width: 1440, height: 600 }, view)).toMatchObject({ y: 0, height: 600 })
-    expect(visibleBox({ width: 1440, height: 1000 }, { ...view, scrollY: 900 })).toMatchObject({
-      y: 900,
-      height: 100,
+      shiftX: 0,
+      shiftY: -12000,
     })
   })
 })
