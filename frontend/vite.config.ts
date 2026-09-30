@@ -2,6 +2,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 
@@ -33,8 +34,25 @@ function mockServiceWorker(): Plugin {
   }
 }
 
+/**
+ * The commit the UI is built from (CI's GITHUB_SHA, else `git rev-parse HEAD`), baked in as
+ * `__UI_BUILD__`. Feedback carries it next to the server's build ID, so a UI left over in a
+ * browser from an older version can be told apart.
+ */
+function uiBuildId(): string {
+  const sha = process.env.GITHUB_SHA?.trim()
+  if (sha && /^[0-9a-f]{40}$/.test(sha)) return sha
+  try {
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: here, encoding: 'utf8' }).trim()
+    return /^[0-9a-f]{40}$/.test(head) ? head : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
 export default defineConfig({
   plugins: [react(), tailwindcss(), mockServiceWorker()],
+  define: { __UI_BUILD__: JSON.stringify(uiBuildId()) },
   resolve: {
     alias: { '@': path.resolve(here, 'src') },
   },

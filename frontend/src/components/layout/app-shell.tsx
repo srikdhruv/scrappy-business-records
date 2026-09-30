@@ -7,9 +7,10 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { NavLink, Outlet, useLocation } from 'react-router'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { useHealth, useServerReachable } from '@/api/queries'
+import { SettingsDialogs, SettingsMenu, type SettingsDialog } from '@/components/settings-menu'
 import { UNREACHABLE_MESSAGE } from '@/lib/errors'
 import { cn } from '@/lib/utils'
 
@@ -76,6 +77,7 @@ function UnreachableBanner() {
 export function AppShell() {
   const { pathname } = useLocation()
   const reachable = useServerReachable()
+  const [dialog, setDialog] = useState<SettingsDialog>(null)
   // Each page starts at the top, like a normal website.
   useEffect(() => {
     window.scrollTo(0, 0)
@@ -95,7 +97,10 @@ export function AppShell() {
               <span className="text-xl font-extrabold tracking-tight">Scrappy Records</span>
             </NavLink>
 
-            <nav aria-label="Main">
+            {/* Narrow window: the gear sits in the top bar. */}
+            <SettingsMenu onOpen={setDialog} className="lg:hidden" />
+
+            <nav aria-label="Main" className="w-full sm:w-auto lg:w-full">
               <ul className="flex gap-1 lg:flex-col">
                 {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
                   <li key={to}>
@@ -133,10 +138,14 @@ export function AppShell() {
               <ShieldCheckIcon className="mt-0.5 size-4 shrink-0 text-paid" aria-hidden />
               Your records stay on this laptop and are backed up every day.
             </p>
-            <AppVersion />
+            <div className="-mx-2 flex items-center justify-between gap-2">
+              <SettingsMenu onOpen={setDialog} showLabel />
+              <AppVersion />
+            </div>
           </div>
         </div>
       </aside>
+      <SettingsDialogs open={dialog} onOpenChange={setDialog} />
 
       <main className="min-w-0 flex-1 px-5 py-6 sm:px-8 lg:px-10 lg:py-8 print:p-0">
         <div className="mx-auto w-full max-w-6xl print:max-w-none">

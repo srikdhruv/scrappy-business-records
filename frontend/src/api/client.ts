@@ -10,6 +10,8 @@
  */
 import createClient from 'openapi-fetch'
 
+import { describeError, describeRequest, recordError } from '@/lib/diagnostics'
+
 import type { paths } from './schema'
 
 // Same origin: in dev Vite proxies /api to the backend; in production the backend serves the UI.
@@ -18,6 +20,18 @@ import type { paths } from './schema'
 export const api = createClient<paths>({
   baseUrl: globalThis.location?.origin ?? '',
   fetch: (request) => globalThis.fetch(request),
+})
+
+// Failed calls are remembered (path and status only) for feedback's "recent errors".
+api.use({
+  onResponse({ request, response }) {
+    if (!response.ok) recordError('api', describeRequest(request, String(response.status)))
+    return undefined
+  },
+  onError({ request, error }) {
+    recordError('network', describeRequest(request, describeError(error)))
+    return undefined
+  },
 })
 
 interface ValidationItem {
