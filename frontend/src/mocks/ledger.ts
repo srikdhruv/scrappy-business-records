@@ -324,9 +324,11 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
       })
     }
 
-    // Overpaid: due months up to M where paid > expected ("paid ahead" is not overpaid).
+    // Overpaid: months up to M (and not after now) where paid > expected; from the current
+    // month on, also every later month paid above its fee (backend `build_dashboard`).
     for (const [m, p] of paid) {
-      if (m > month || m > now) continue
+      const later = m > now && month >= now
+      if ((m > month || m > now) && !later) continue
       const expected = expectedFor(book, m)
       if (p > expected) {
         overpaid.push({

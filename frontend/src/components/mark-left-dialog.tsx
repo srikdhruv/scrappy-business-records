@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 
 import { useUpdateStudent } from '@/api/queries'
 import type { StudentDetail } from '@/api/types'
+import { AwayWarning } from '@/components/away-warning'
 import { MonthPicker } from '@/components/month-picker'
 import { Button } from '@/components/ui/button'
 import {
@@ -16,6 +17,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { errorMessage } from '@/lib/errors'
+import { awayOwedAgain } from '@/lib/fees'
 import { addMonths, formatMonth, MONTHS_AHEAD } from '@/lib/format'
 import { firstName } from '@/lib/labels'
 
@@ -33,9 +35,12 @@ export function MarkLeftDialog({
     student.joined_month > now ? student.joined_month : now,
   )
   const update = useUpdateStudent()
+  // Months away (from an earlier return) this left month would make owed again: ask first.
+  const owedAgain = month ? awayOwedAgain(student.fee_history, month) : []
+  const [confirmed, setConfirmed] = useState(false)
 
   const save = async () => {
-    if (!month) return
+    if (!month || (owedAgain.length > 0 && !confirmed)) return
     try {
       await update.mutateAsync({ id: student.id, body: { left_month: month } })
       toast.success(`${student.name} marked as left`, {
@@ -72,15 +77,23 @@ export function MarkLeftDialog({
               current={now}
               max={addMonths(now, MONTHS_AHEAD)}
               value={month}
-              onChange={setMonth}
+              onChange={(m) => {
+                setMonth(m)
+                setConfirmed(false)
+              }}
               min={student.joined_month}
             />
           </div>
+          <AwayWarning spans={owedAgain} confirmed={confirmed} onConfirmedChange={setConfirmed} />
           <DialogFooter>
             <Button type="button" variant="outline" size="lg" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" size="lg" disabled={!month || update.isPending}>
+            <Button
+              type="submit"
+              size="lg"
+              disabled={!month || update.isPending || (owedAgain.length > 0 && !confirmed)}
+            >
               {update.isPending ? 'Saving…' : 'Mark as left'}
             </Button>
           </DialogFooter>

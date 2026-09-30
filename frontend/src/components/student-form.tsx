@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 
 import { useCreateStudent, useServerMonth, useUpdateStudent } from '@/api/queries'
 import type { StudentDetail, StudentUpdate } from '@/api/types'
+import { AwayWarning } from '@/components/away-warning'
 import { MonthPicker } from '@/components/month-picker'
 import { Button } from '@/components/ui/button'
 import {
@@ -33,7 +34,7 @@ import {
   rupeesToPaise,
 } from '@/lib/format'
 import { amountProblem } from '@/lib/amount'
-import { feeAt, newFeeSentence } from '@/lib/fees'
+import { awayOwedAgain, feeAt, newFeeSentence } from '@/lib/fees'
 
 type Field =
   'name' | 'fee' | 'feeFrom' | 'joined' | 'left' | 'phone' | 'guardian' | 'batch' | 'notes'
@@ -105,6 +106,10 @@ function StudentForm({
     setJoined(now)
   }
   const [left, setLeft] = useState<string | null>(student?.left_month ?? null)
+  // Months away (from an earlier return) a new left month would make owed again: ask first.
+  const owedAgain =
+    student && left && left !== student.left_month ? awayOwedAgain(student.fee_history, left) : []
+  const [awayConfirmed, setAwayConfirmed] = useState(false)
   const [phone, setPhone] = useState(student?.phone ?? '')
   const [guardian, setGuardian] = useState(student?.guardian_name ?? '')
   const [batch, setBatch] = useState(student?.batch_label ?? '')
@@ -142,6 +147,8 @@ function StudentForm({
   if (!joined) clientErrors.joined = 'Pick the month they joined.'
   if (left && joined && left < joined) {
     clientErrors.left = 'This can’t be before the month they joined.'
+  } else if (owedAgain.length > 0 && !awayConfirmed) {
+    clientErrors.left = 'Tick the box if those months should be owed again.'
   }
   if (showFeeFrom && !feeFrom) clientErrors.feeFrom = 'Pick the month the new fee starts.'
   if (feeChanged && feeFrom && joined && feeFrom < joined) {
@@ -387,6 +394,7 @@ function StudentForm({
             value={left}
             onChange={(m) => {
               setLeft(m)
+              setAwayConfirmed(false)
               clearServer('left')
             }}
             placeholder="Still coming"
@@ -397,6 +405,14 @@ function StudentForm({
             className="sm:max-w-64"
           />
         </FormField>
+      )}
+
+      {editing && (
+        <AwayWarning
+          spans={owedAgain}
+          confirmed={awayConfirmed}
+          onConfirmedChange={setAwayConfirmed}
+        />
       )}
 
       <FormField id="student-notes" label="Notes" optional error={errors.notes}>

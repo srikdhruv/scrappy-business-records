@@ -564,6 +564,9 @@ function FeeHistory({ student }: { student: StudentDetail }) {
         <ul aria-labelledby="fee-history" className="grid text-base">
           {fees.map((f, i) => {
             const scheduled = i > 0 && f.effective_month > now
+            // Not the fee they came back on: it ends a run of months away, and removing it
+            // would leave them away for good. Change it with Edit instead.
+            const removable = scheduled && fees[i - 1]!.kind !== 'away'
             return (
               <li key={f.id} className="flex min-h-8 flex-wrap items-center gap-x-2">
                 <span className="tabular-nums">
@@ -583,6 +586,10 @@ function FeeHistory({ student }: { student: StudentDetail }) {
                 {scheduled && (
                   <>
                     <span className="text-sm text-muted-foreground">(not started yet)</span>
+                  </>
+                )}
+                {removable && (
+                  <>
                     <Button
                       variant="ghost"
                       size="sm"

@@ -3,7 +3,7 @@
  * same way the backend's ledger does (PRD ledger rules 2 and 7).
  */
 import type { FeeChangeRead } from '@/api/types'
-import { addMonths, formatMonth, formatRupees } from '@/lib/format'
+import { addMonths, formatMonth, formatMonthSpan, formatRupees } from '@/lib/format'
 
 type Fees = readonly Pick<FeeChangeRead, 'effective_month' | 'amount_paise'>[]
 
@@ -64,6 +64,27 @@ export function afterReturn(
     added.push({ id: -1, effective_month: firstAway, amount_paise: 0, kind: 'away' })
   }
   return [...kept, ...added].toSorted((a, b) => a.effective_month.localeCompare(b.effective_month))
+}
+
+/**
+ * The months away that setting the left month to `left` would make owed again, as the backend's
+ * `_drop_stale_away` works it out: a run of months away (an 'away' row up to the next fee the
+ * owner set) that reaches `left` or comes after it is removed. The part up to `left` is then
+ * owed. For example ["April–May 2026"].
+ */
+export function awayOwedAgain(fees: readonly FeeChangeRead[], left: string): string[] {
+  const sorted = fees.toSorted((a, b) => a.effective_month.localeCompare(b.effective_month))
+  const spans: string[] = []
+  sorted.forEach((row, i) => {
+    if (row.kind !== 'away') return
+    const next = sorted.slice(i + 1).find((f) => f.kind === 'fee')
+    const end = next ? addMonths(next.effective_month, -1) : undefined
+    if (end !== undefined && end < left) return // an earlier absence: kept
+    if (row.effective_month > left) return // after the left month: nothing is owed then anyway
+    const last = end !== undefined && end < left ? end : left
+    spans.push(formatMonthSpan(row.effective_month, last))
+  })
+  return spans
 }
 
 /** "₹1,500 a month", or "no fee" for ₹0. */

@@ -402,6 +402,42 @@ describe('student profile', () => {
       )
     })
 
+    it('asks before a left month makes months away owed again', async () => {
+      const user = userEvent.setup()
+      const id = idOf('Advait Sinha')
+      mockDb.returnStudent(id, { from_month: '2026-10' }) // away August and September
+      renderApp(`/students/${id}`)
+      await screen.findByRole('heading', { level: 1, name: 'Advait Sinha' })
+      await user.click(screen.getByRole('button', { name: 'Mark as left' }))
+      const dialog = await findDialog('Mark Advait Sinha as left?')
+      // This month (October): the absence ended before it, nothing to ask.
+      expect(dialog.queryByRole('alert')).not.toBeInTheDocument()
+      await user.click(dialog.getByLabelText(/^Last month they should pay for:/))
+      await user.click(await screen.findByRole('button', { name: 'September 2026' }))
+      expect(dialog.getByRole('alert')).toHaveTextContent(
+        'August–September 2026 will be owed again, because they were marked as away. Is that right?',
+      )
+      const save = dialog.getByRole('button', { name: 'Mark as left' })
+      expect(save).toBeDisabled()
+      await user.click(dialog.getByRole('checkbox', { name: 'Yes, they owe those months' }))
+      await user.click(save)
+      expect(await screen.findByText('Advait Sinha marked as left')).toBeInTheDocument()
+      expect(mockDb.fees.filter((f) => f.student_id === id && f.kind === 'away')).toEqual([])
+    })
+
+    it('hides Remove for the fee they came back on', async () => {
+      const id = idOf('Advait Sinha')
+      mockDb.returnStudent(id, { from_month: '2026-12' })
+      renderApp(`/students/${id}`)
+      await screen.findByRole('heading', { level: 1, name: 'Advait Sinha' })
+      const history = within(screen.getByRole('list', { name: 'Fee history' }))
+      expect(history.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+        expect.stringMatching(/^₹1,500 from /),
+        'Away (no fee) from Aug 2026',
+        '₹1,500 from Dec 2026(not started yet)',
+      ])
+    })
+
     it('says when they have no fee now, and from when they will', async () => {
       const id = idOf('Advait Sinha')
       mockDb.returnStudent(id, { from_month: '2026-12' })

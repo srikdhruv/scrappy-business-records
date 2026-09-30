@@ -308,7 +308,7 @@ export class MockDb {
     if (leftSent && stored !== null && stored < now && (left === null || left > stored)) {
       invalid(
         'left_month',
-        `They left after ${formatMonth(stored)}. Came back after all? Use Mark as coming again from ${formatMonth(addMonths(stored, 1))}, then set a new Left month if needed.`,
+        `They left after ${formatMonth(stored)}, so this can only move earlier. If they came back: first set the real last month they paid for before leaving (an earlier one is fine), then use Mark as coming again from the month they came back. Set a new Left month after that if needed.`,
       )
     }
     if (left !== null && left !== stored) this.dropStaleAway(id, left)
@@ -432,6 +432,9 @@ export class MockDb {
       })
     }
     if (change === own[0]) refuse("The first fee can't be removed. To change it, use Edit.")
+    if (change.kind === 'fee' && own[own.indexOf(change) - 1]?.kind === 'away') {
+      refuse('This is the fee they came back on. To change it, set a new fee in Edit.')
+    }
     if (change.effective_month <= this.now()) {
       refuse(
         "Only a fee change that hasn't started yet can be removed. To change a fee that has " +

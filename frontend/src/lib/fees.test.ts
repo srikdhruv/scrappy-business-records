@@ -1,4 +1,12 @@
-import { afterReturn, feeAt, feeWords, newFeeSentence, nextFeeChange, returnFee } from './fees'
+import {
+  afterReturn,
+  awayOwedAgain,
+  feeAt,
+  feeWords,
+  newFeeSentence,
+  nextFeeChange,
+  returnFee,
+} from './fees'
 
 const history = [
   { id: 1, effective_month: '2025-10', amount_paise: 150000 },
@@ -107,5 +115,22 @@ describe('feeWords', () => {
   it('names a 0 fee as "no fee"', () => {
     expect(feeWords(0)).toBe('no fee')
     expect(feeWords(150000)).toBe('₹1,500 a month')
+  })
+})
+
+describe('awayOwedAgain', () => {
+  const fees = [
+    { id: 1, effective_month: '2026-01', amount_paise: 100000, kind: 'fee' as const },
+    { id: 2, effective_month: '2026-04', amount_paise: 0, kind: 'away' as const },
+    { id: 3, effective_month: '2026-07', amount_paise: 100000, kind: 'fee' as const },
+  ]
+  it('names the months away a left month would make owed again', () => {
+    expect(awayOwedAgain(fees, '2026-05')).toEqual(['April–May 2026'])
+    expect(awayOwedAgain(fees, '2026-06')).toEqual(['April–June 2026'])
+    expect(awayOwedAgain(fees, '2026-04')).toEqual(['April 2026'])
+  })
+  it('says nothing for an absence that ended before, or starts after, the left month', () => {
+    expect(awayOwedAgain(fees, '2026-07')).toEqual([])
+    expect(awayOwedAgain(fees, '2026-03')).toEqual([])
   })
 })
