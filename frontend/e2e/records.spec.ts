@@ -139,7 +139,7 @@ test('mark as left moves the student to the Left tab', async ({ page, request })
   await expect(page.getByRole('link', { name })).toBeVisible()
 })
 
-test('money paid too much is shown as extra; paying early is "paid ahead"', async ({
+test('money paid too much pays the next month owed; paying early is "paid ahead"', async ({
   page,
   request,
 }) => {
@@ -166,15 +166,16 @@ test('money paid too much is shown as extra; paying early is "paid ahead"', asyn
   await pay(request, { student_id: aheadId, amount_paise: 100000, for_month: addMonths(now, 1) })
 
   await page.goto('/')
-  await expect(
-    panel(page, /Yet to pay/).getByText(`Paid ₹500 extra in ${MONTH_SHORT(last)}`),
-  ).toBeVisible()
+  // Last month's extra ₹500 pays half of this month's ₹1,000.
+  const extraOnDashboard = panel(page, /Yet to pay/)
+    .getByRole('listitem')
+    .filter({ has: page.getByRole('link', { name: extra }) })
+  await expect(extraOnDashboard.getByText('Partial')).toBeVisible()
+  await expect(extraOnDashboard.getByText('₹500 of ₹1,000 paid')).toBeVisible()
 
   await page.goto('/students')
   const extraRow = page.getByRole('row').filter({ has: page.getByRole('link', { name: extra }) })
-  // This month's ₹1,000 is owed in full: last month's extra ₹500 doesn't cancel it out.
-  await expect(extraRow.getByText('Owes ₹1,000')).toBeVisible()
-  await expect(extraRow.getByText('₹500 paid extra')).toBeVisible()
+  await expect(extraRow.getByText('Owes ₹500')).toBeVisible()
   const aheadRow = page.getByRole('row').filter({ has: page.getByRole('link', { name: ahead }) })
   await expect(aheadRow.getByText('Up to date')).toBeVisible()
   await expect(aheadRow.getByText('Paid ahead ₹1,000')).toBeVisible()
@@ -185,9 +186,11 @@ test('money paid too much is shown as extra; paying early is "paid ahead"', asyn
   await expect(balance.getByText(`Paid ahead to ${MONTH_SHORT(addMonths(now, 1))}`)).toBeVisible()
 
   await page.goto(`/students/${extraId}`)
+  await expect(monthRow(page, last).getByText(`₹500 extra → ${MONTH_SHORT(now)}`)).toBeVisible()
   await expect(
-    page.getByRole('region', { name: 'Balance' }).getByText('₹500 paid extra'),
+    monthRow(page, now).getByText(/^₹500 credit from the .* payment \(for /),
   ).toBeVisible()
+  await expect(monthRow(page, now).getByText('₹500 left')).toBeVisible()
 })
 
 test('deleting a student asks first, then removes them and their payments', async ({
@@ -251,11 +254,11 @@ test('a change the server refuses shows its reason next to the field', async ({
   await expect(dialog).toBeVisible()
 })
 
-test('a month paid twice instead of the next one still shows as owed', async ({
+test('a month paid twice instead of the next one pays the month missed', async ({
   page,
   request,
 }) => {
-  // Like "July paid twice instead of August": the net balance is 0, but a month is owed.
+  // Like "July paid twice instead of August": the second July payment pays August.
   const now = await serverMonth(request)
   const [twice, missed] = [addMonths(now, -2), addMonths(now, -1)]
   const name = uniqueName('Uma')
@@ -266,18 +269,21 @@ test('a month paid twice instead of the next one still shows as owed', async ({
 
   await page.goto(`/students/${id}`)
   const balance = page.getByRole('region', { name: 'Balance' })
-  await expect(balance.getByText(/^Owes ₹1,000/)).toBeVisible()
-  await expect(balance.getByText(`(${formatMonth(missed).slice(0, 3)})`)).toBeVisible()
-  await expect(balance.getByText(`Paid ₹1,000 extra in ${MONTH_SHORT(twice)}`)).toBeVisible()
-  await expect(balance.getByText('Up to date')).toHaveCount(0)
+  await expect(balance.getByText('Up to date')).toBeVisible()
+  await expect(monthRow(page, missed).getByText('Paid', { exact: true })).toBeVisible()
+  await expect(
+    monthRow(page, missed).getByText(`₹1,000 credit from the`, { exact: false }),
+  ).toBeVisible()
+  await expect(
+    monthRow(page, twice).getByText(`₹1,000 extra → ${MONTH_SHORT(missed)}`),
+  ).toBeVisible()
 
   await page.goto('/students')
   const row = page.getByRole('row').filter({ has: page.getByRole('link', { name }) })
-  await expect(row.getByText('Owes ₹1,000')).toBeVisible()
-  await expect(row.getByText('₹1,000 paid extra')).toBeVisible()
+  await expect(row.getByText('Up to date')).toBeVisible()
 })
 
-test('moving the joined month past a payment shows "owes", not credit', async ({
+test('moving the joined month past a payment uses it for the first month owed', async ({
   page,
   request,
 }) => {
@@ -294,10 +300,10 @@ test('moving the joined month past a payment shows "owes", not credit', async ({
 
   await page.goto(`/students/${id}`)
   const balance = page.getByRole('region', { name: 'Balance' })
-  await expect(balance.getByText(/^Owes ₹1,500/)).toBeVisible()
+  await expect(balance.getByText('Up to date')).toBeVisible()
   await expect(balance.getByText(/^Credit/)).toHaveCount(0)
   await expect(
-    balance.getByText(`Paid ₹1,500 extra in ${MONTH_SHORT(addMonths(now, -1))}`),
+    monthRow(page, addMonths(now, -1)).getByText(`₹1,500 extra → ${MONTH_SHORT(now)}`),
   ).toBeVisible()
 })
 
@@ -407,7 +413,7 @@ test('pressing Enter or clicking Save twice saves only one payment', async ({ pa
   expect(await paymentCount(request, otherId)).toBe(1)
 })
 
-test('a payment for a month after leaving is flagged, never "paid ahead"', async ({
+test('a payment for a month after leaving pays the month owed, never "paid ahead"', async ({
   page,
   request,
 }) => {
@@ -426,13 +432,11 @@ test('a payment for a month after leaving is flagged, never "paid ahead"', async
 
   await page.goto(`/students/${id}`)
   const balance = page.getByRole('region', { name: 'Balance' })
-  await expect(balance.getByText(/^Owes ₹1,500/)).toBeVisible()
-  await expect(balance.getByText(`₹1,500 paid for ${MONTH_SHORT(addMonths(now, 1))}`)).toBeVisible()
+  await expect(balance.getByText('Up to date')).toBeVisible()
   await expect(
-    balance.getByText(`after they left — was it for ${formatMonth(last).slice(0, 3)}?`, {
-      exact: false,
-    }),
+    monthRow(page, addMonths(now, 1)).getByText(`₹1,500 extra → ${MONTH_SHORT(last)}`),
   ).toBeVisible()
+  await expect(monthRow(page, last).getByText('Paid', { exact: true })).toBeVisible()
   await expect(balance.getByText(/Paid ahead/)).toHaveCount(0)
   // Two months enrolled, both counted.
   await expect(
