@@ -2,7 +2,7 @@
 
 Startup order (see docs/architecture.md, "Lifecycle"):
 1. create the data, log and backup folders;
-2. daily backup, and a pre-migration backup if the schema is behind  <- packaging PR
+2. daily backup, and a pre-migration backup if the schema is behind (`app.backup`);
 3. `alembic upgrade head`;
 4. serve requests.
 """
@@ -18,7 +18,7 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse
 
-from app import __version__, config, errors, migrate
+from app import __version__, backup, config, errors, migrate
 from app.db import dispose_engines
 from app.routers import api_router
 
@@ -33,10 +33,12 @@ _NO_CACHE = "no-cache"
 def run_startup_tasks() -> None:
     config.ensure_dirs()
 
-    # --- BACKUP HOOK (packaging PR) -------------------------------------------------------
-    # Take the daily backup here, and a pre-migration backup when `migrate.needs_upgrade()`
-    # is True, BEFORE the upgrade below. See docs/architecture.md "Lifecycle" and ADR 0002.
-    # ---------------------------------------------------------------------------------------
+    # Backups before anything touches the database (docs/architecture.md "Lifecycle").
+    # The daily one never raises; a failed pre-migration backup stops startup, so we never
+    # upgrade a database we couldn't copy first.
+    backup.daily_backup()
+    if config.db_path().is_file() and migrate.needs_upgrade():
+        backup.backup("pre-migration")
 
     migrate.upgrade_to_head()
     log.info("Database ready at %s", config.db_path())
