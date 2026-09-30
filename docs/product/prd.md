@@ -294,11 +294,13 @@ These rules decide every number the app shows.
    free place). Changing a batch's usual fee changes no student's fee by itself. The owner may
    tick *Also charge it to …*, which lists every student in the batch who hasn't left, each with
    a tick box, from one server rule (the preview and the change use the same one):
-   - ticked at first: those on the **usual fee** (the batch's old one, or if it had none, the
-     fee most of its students pay; nobody on a tie);
-   - not ticked: those on **their own fee**, and those with a **fee change planned** for a
-     later month (said in the words of rule 7: "until December, when ₹900 (already scheduled)
-     starts"). A planned change is never overridden without that student's own tick;
+   - ticked at first: those whose every month that would change has the **usual fee** (the
+     batch's old one, or if it had none, the fee most of its students pay; nobody on a tie);
+   - not ticked: those on **their own fee**, and those with **a fee change of their own** from
+     that month on: set earlier (a discount, a month off, the fee they came back on) or planned
+     for later. Such a change is never cut short or replaced without that student's own tick;
+   - every student's line says what ticking would do to them, in the words of rule 7 ("from
+     July they'll owe ₹1,800, until September, when ₹1,000 (already set) starts");
    - not listed as changing: those already on the new fee, and those who leave before the
      month.
 

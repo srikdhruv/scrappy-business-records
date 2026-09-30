@@ -25,7 +25,9 @@ import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 
-import { useMoveStudents } from '@/api/queries'
+import { useQueryClient } from '@tanstack/react-query'
+
+import { queryKeys, useMoveStudents } from '@/api/queries'
 import { BatchPicker } from '@/components/batches/batch-picker'
 import {
   Dialog,
@@ -758,6 +760,7 @@ function MoveDialog({
 }) {
   const [target, setTarget] = useState<BatchRead | null | undefined>(undefined)
   const move = useMoveStudents()
+  const queryClient = useQueryClient()
   const run = async () => {
     if (target === undefined) return
     try {
@@ -769,6 +772,9 @@ function MoveDialog({
       onClose(true)
     } catch (error) {
       toast.error(errorMessage(error))
+      // Perhaps the batch was deleted in another window: fetch the list again, and choose again.
+      setTarget(undefined)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.batches.all })
     }
   }
   return (

@@ -810,7 +810,7 @@ export class MockDb {
         if (p.status === 'planned' && !confirmed.has(p.student_id)) {
           invalid(
             'apply_fee',
-            `${p.student_name} has a fee change planned for a later month. Tick them only if the new fee should apply to them anyway.`,
+            `${p.student_name} has a fee change of their own. Tick them only if the new fee should apply to them anyway.`,
           )
         }
       }
@@ -845,10 +845,33 @@ export class MockDb {
     const current = new Map(
       members.map((s) => [s.id, feeFor(own(s), now < s.joined_month ? s.joined_month : now)]),
     )
+    const startOf = (s: StudentRow): string | null => {
+      const rows = own(s)
+      let start: string | null = from > s.joined_month ? from : s.joined_month
+      if (s.left_month !== null && start > s.left_month) return null
+      const inEffect = rows.filter((f) => f.effective_month <= start!).at(-1)
+      if (inEffect?.kind === 'away') {
+        start =
+          rows.find((f) => f.effective_month > start! && f.kind === 'fee')?.effective_month ?? null
+      }
+      return start
+    }
+    // Mirrors `_own_changes`: fee changes of theirs from the start month on, or planned later.
+    const ownChanges = (s: StudentRow, start: string | null) =>
+      own(s)
+        .slice(1)
+        .filter((f) => f.effective_month > now || (start !== null && f.effective_month >= start))
+    const steady = new Map<number, number>()
+    for (const s of members) {
+      const start = startOf(s)
+      if (start !== null && ownChanges(s, start).length === 0) {
+        steady.set(s.id, feeFor(own(s), start))
+      }
+    }
     let usual = batch.default_fee_paise
-    if (usual === null && members.length > 0) {
+    if (usual === null && steady.size > 0) {
       const counts = new Map<number, number>()
-      for (const f of current.values()) counts.set(f, (counts.get(f) ?? 0) + 1)
+      for (const f of steady.values()) counts.set(f, (counts.get(f) ?? 0) + 1)
       const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1])
       if (ranked.length === 1 || ranked[0]![1] > ranked[1]![1]) usual = ranked[0]![0]
     }
@@ -856,16 +879,7 @@ export class MockDb {
       .toSorted((a, b) => a.name.localeCompare(b.name) || a.id - b.id)
       .map((s) => {
         const rows = own(s)
-        let start: string | null = from > s.joined_month ? from : s.joined_month
-        if (s.left_month !== null && start > s.left_month) start = null
-        if (start !== null) {
-          const inEffect = rows.filter((f) => f.effective_month <= start!).at(-1)
-          if (inEffect?.kind === 'away') {
-            start =
-              rows.find((f) => f.effective_month > start! && f.kind === 'fee')?.effective_month ??
-              null
-          }
-        }
+        const start = startOf(s)
         let dueMonths = 0
         let dueChange = 0
         let status: FeePlanStatus
@@ -879,9 +893,9 @@ export class MockDb {
               dueChange += fee - old
             }
           }
-          if (rows.slice(1).some((f) => f.effective_month > now)) status = 'planned'
-          else if (feeFor(rows, start) === fee) status = 'already'
-          else if (usual !== null && current.get(s.id) === usual) status = 'usual'
+          if (ownChanges(s, start).length > 0) status = 'planned'
+          else if (steady.get(s.id) === fee) status = 'already'
+          else if (usual !== null && steady.get(s.id) === usual) status = 'usual'
           else status = 'own_fee'
         }
         return {

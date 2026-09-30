@@ -764,7 +764,7 @@ function BatchesSection({
             <div className="min-w-0">
               <p className="font-semibold wrap-break-word">{b.name}</p>
               <p className="text-sm text-muted-foreground">
-                {b.student_count > 0 && `${plural(b.student_count, 'student')} in the file`}
+                {b.student_count > 0 && `${plural(b.student_count, 'student')} to add`}
                 {b.row !== null && `${b.student_count > 0 ? ' · ' : ''}Batches sheet, row ${b.row}`}
               </p>
             </div>
@@ -779,11 +779,16 @@ function BatchesSection({
                       : b.status === 'not_found'
                         ? create.has(b.name)
                           ? 'It will be created (just the name), and its students go into it.'
-                          : `${b.reason ?? 'Batch not found, will be left without a batch'} (the name is kept as their old class label).`
+                          : `${b.reason ?? 'Batch not found, will be left without a batch'} (the name is kept in their old class label, next to any label the row already has).`
                         : b.reason
                 }
               />
-              {b.status === 'not_found' && (
+              {b.status === 'not_found' && b.student_count === 0 && (
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  No student being added goes in it, so it can’t be created from this file.
+                </p>
+              )}
+              {b.status === 'not_found' && b.student_count > 0 && (
                 <label className="mt-1.5 flex items-center gap-2 text-sm font-semibold">
                   <input
                     type="checkbox"

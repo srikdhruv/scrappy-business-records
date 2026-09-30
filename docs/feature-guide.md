@@ -447,10 +447,12 @@ the page.
 
 **See it batch by batch**
 1. Choose **Group by: Batch**. Each batch's students come under a heading with its name and
-   how many (A to Z, numbers in number order, **No batch** last); inside each, the usual order
-   or the column you sorted by. The totals stay the totals of everyone shown.
+   how many (A to Z, numbers in number order, **No batch** last), and end with a **Subtotal**
+   row for that batch; inside each, the usual order or the column you sorted by. The total at
+   the bottom stays the total of everyone shown.
 2. Print and Download Excel are grouped the same way (in Excel, a shaded heading row before
-   each batch), and their title says *"grouped by batch"*.
+   each batch and a subtotal row of `SUBTOTAL` formulas after it, which the total leaves out),
+   and their title says *"grouped by batch"*.
 
 ![The September 2026 report grouped by batch: a heading row for each batch, such as 'Friday Beginners · 3 students', with its students under it.](images/feature-guide/report-grouped.png)
 
@@ -1156,19 +1158,23 @@ fee in **Edit batch**, a marigold box says so, and offers to charge it to its st
 
 - **Also charge ₹1,800 to students in this batch**: only if you tick it. Then **From** (this
   month at first) and every student in the batch, each with a tick box and their fee now:
-  - **On the usual fee**: they pay the batch's old usual fee (or, for a batch that had none,
-    the fee most of them pay). **Ticked** at first.
+  - **On the usual fee**: every month that would change has the batch's old usual fee (or,
+    for a batch that had none, the fee most of them pay). **Ticked** at first.
   - **Their own fee**: a discount, a sibling, a free place. **Not ticked**: tick them only if
     they should pay the new fee too.
-  - **Has a planned fee change — not changed unless you tick them**: someone with a fee
-    already set for a later month (a raise, a discount, a month off, coming back). Under each,
-    what ticking would do, in the same words as Edit student: *"From October 2026 they'll owe
-    ₹1,800 a month, until December 2026, when ₹900 (already scheduled) starts."*
+  - **Has its own fee change — not changed unless you tick them**: someone with a fee change
+    of their own from that month on: one set earlier (a discount for July and August, a ₹0
+    month off, the fee they came back on) or one planned for later. A new fee from an earlier
+    month would cut it short or replace it, so it's never changed unless you tick them.
+  - Under every name: what ticking would do to *them*, in the same words as Edit student:
+    *"From July 2026 they'll owe ₹1,800 a month, until September 2026, when ₹1,000 (already
+    set) starts."*, and what it would replace (*"It replaces the no-fee month set for July
+    2026."*).
   - Below them: who already pays the new fee, and who leaves before that month (neither
     changes).
 - Only the ticked students change, each exactly like changing their fee from that month in
-  **Edit student**: earlier months keep their fee. The line at the bottom, and the message
-  after saving, say how many and who.
+  **Edit student**, as the line under their name says: earlier months keep their fee. The line
+  at the bottom, and the message after saving, say how many and who.
 - Someone who joins after the chosen month gets the new fee from the month they join. If the
   month falls in their months away (after leaving and coming back), it starts from the month
   they came back, so no month away becomes owed.
@@ -1838,10 +1844,12 @@ preview lists every batch the file names, under **Batches**:
 |---|---|
 | **Will be added** | From the file's **Batches** sheet (a Download everything file), and not in the app yet: added, with its details |
 | **Already here** | Its students go into it. The batch itself isn't changed |
-| **Batch not found, will be left without a batch** | Only named in the Batch column, and not in the app: those students are added without a batch, and the name is kept as their *old class label*. Tick **Create it** to add the batch (just its name) and put them in it. It's never created unless you tick it |
+| **Batch not found, will be left without a batch** | Only named in the Batch column, and not in the app: those students are added without a batch, and the name is kept in their *old class label* (next to any old label the row has: *"Wednesday Club · Wed 5pm"*). Tick **Create it** to add the batch (just its name) and put them in it. It's never created unless you tick it, and only offered when a student being added goes in it |
 | **Problem** | A Batches sheet row that can't be used (*"Days “Someday” isn't a list of days"*, or a batch listed twice) |
 
-Students who are already in the app are never moved to another batch by an upload.
+Names match ignoring capitals, spaces, hyphens and punctuation: *SUNDAY-SENIORS* finds
+*Sunday Seniors*. Students who are already in the app are never moved to another batch by an
+upload.
 
 **Afterwards**, a message says what was added:
 

@@ -124,7 +124,11 @@ function BatchForm({ batch, onDone }: { batch?: BatchRead; onDone: (saved?: Batc
   const feePaise = fee.trim() === '' ? null : rupeesToPaise(fee, { allowZero: true })
   const feeChanged = editing && feePaise !== null && feePaise !== batch.default_fee_paise
   const plan = useFeePlan(batch?.id ?? 0, feePaise, from, Boolean(feeChanged && apply))
-  const planned = plan.data && plan.data.fee_paise === feePaise ? plan.data : undefined
+  // Only a plan for exactly this fee and month (never the last one, still on screen).
+  const planned =
+    plan.data && plan.data.fee_paise === feePaise && plan.data.from_month === from
+      ? plan.data
+      : undefined
   const chosen = planned ? chosenOf(planned, ticks) : []
 
   const clientErrors: Partial<Record<Field, string>> = {}
@@ -392,6 +396,25 @@ function BatchForm({ batch, onDone }: { batch?: BatchRead; onDone: (saved?: Batc
   )
 }
 
+/**
+ * What ticking would do to this student, in the words of Edit student: "From July 2026
+ * they'll owe ₹1,200 a month, until September 2026, when ₹1,000 (already set) starts.", and
+ * what it replaces ("It replaces the no fee set for July 2026.").
+ */
+function resultSentence(s: FeePlanStudent, fee: number, now: string): string {
+  const start = s.start_month!
+  const sentence = newFeeSentence(s.fee_history, start, fee, now)
+  const replaced = s.fee_history.slice(1).find((f) => f.effective_month === start)
+  if (!replaced) return sentence
+  const what =
+    replaced.kind === 'away'
+      ? 'the months away'
+      : replaced.amount_paise === 0
+        ? 'the no-fee month'
+        : `the ${formatRupees(replaced.amount_paise)}`
+  return `${sentence} It replaces ${what} set for ${formatMonth(start)}.`
+}
+
 /** The students "Also charge" would change: the owner's ticks, else what the plan ticks. */
 function chosenOf(plan: FeePlan, ticks: Record<number, boolean>): FeePlanStudent[] {
   return plan.students.filter((s) => CAN_TICK.has(s.status) && (ticks[s.student_id] ?? s.selected))
@@ -408,7 +431,8 @@ const GROUPS: { status: FeePlanStudent['status']; title: string; hint?: string }
   },
   {
     status: 'planned',
-    title: 'Has a planned fee change — not changed unless you tick them',
+    title: 'Has its own fee change — not changed unless you tick them',
+    hint: 'A fee of their own from that month on: set earlier (a discount, a month off, the fee they came back on) or planned for later.',
   },
 ]
 
@@ -519,10 +543,8 @@ function ApplyFeeBox({
                               : ''}
                             )
                           </span>
-                          {status === 'planned' && s.start_month && (
-                            <span className="block text-sm">
-                              {newFeeSentence(s.fee_history, s.start_month, fee, now)}
-                            </span>
+                          {s.start_month && (
+                            <span className="block text-sm">{resultSentence(s, fee, now)}</span>
                           )}
                         </span>
                       </label>
@@ -544,7 +566,7 @@ function ApplyFeeBox({
               <p className="font-semibold">
                 {chosen.length === 0
                   ? 'Nobody ticked: no fee changes.'
-                  : `${plural(chosen.length, 'student')} will pay ${formatRupees(fee)} from ${formatMonth(from)} (or when they join); months before don’t change.`}
+                  : `${plural(chosen.length, 'student')} ticked: ${chosen.map((s) => s.student_name).join(', ')}. Each one’s new fee is as it says above; earlier months don’t change.`}
               </p>
             </>
           )}

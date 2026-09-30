@@ -240,6 +240,14 @@ describe('monthly report', () => {
         .getAllByRole('rowheader')
         .map((h) => h.textContent)
     expect(groupHeadings()).toEqual([`${sat.name} · ${inSat.length} students`])
+    // The batch's subtotal row, after its students: the same sums as the total (one batch).
+    const subtotal = screen.getByText(`Subtotal · ${sat.name}`).closest('tr')!
+    const cells = (row: HTMLElement) =>
+      within(row)
+        .getAllByRole('cell')
+        .slice(2, 6)
+        .map((c) => c.textContent)
+    expect(cells(subtotal)).toEqual(cells(totalsRow()))
     expect(screen.getByText(/Grouped by batch/, { selector: 'p' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Download Excel' })).toHaveAttribute(
       'href',

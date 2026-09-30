@@ -190,10 +190,12 @@ describe('batches on the Students page', () => {
     const [skipped, ...charged] = onFee
     await user.click(dialog.getByRole('checkbox', { name: new RegExp(skipped!.name) }))
     expect(
-      dialog.getByText(`${plural(charged.length, 'student')} will pay ₹2,000 from October 2026`, {
-        exact: false,
-      }),
+      dialog.getByText(`${plural(charged.length, 'student')} ticked:`, { exact: false }),
     ).toBeInTheDocument()
+    // Each one says what their own new fee will be.
+    expect(
+      dialog.getAllByText('From October 2026 they’ll owe ₹2,000 a month.').length,
+    ).toBeGreaterThanOrEqual(charged.length)
     await user.click(dialog.getByRole('button', { name: 'Save changes' }))
     expect(await screen.findByText('Batch saved')).toBeInTheDocument()
 
@@ -208,6 +210,46 @@ describe('batches on the Students page', () => {
     expect(mockDb.getStudent(planned.id).fee_history.map((f) => f.amount_paise)).toEqual([
       180000, 90000,
     ])
+  })
+
+  it('never ticks someone with their own fee change since the start month', async () => {
+    const user = userEvent.setup()
+    const sat = batchId(SAT)
+    // A month off in August, already past (this month is October), then the usual fee again.
+    const off = mockDb.createStudent({
+      name: 'Oma Off',
+      monthly_fee_paise: 180000,
+      joined_month: '2026-01',
+      batch_id: sat,
+    })
+    mockDb.updateStudent(off.id, { monthly_fee_paise: 0, fee_effective_month: '2026-08' })
+    mockDb.updateStudent(off.id, { monthly_fee_paise: 180000, fee_effective_month: '2026-09' })
+    const before = mockDb.getStudent(off.id).fee_history
+    renderApp(`/students/batch/${sat}`)
+    await screen.findByRole('heading', { level: 2, name: SAT })
+    await user.click(screen.getByRole('button', { name: 'Edit batch' }))
+    const dialog = await findDialog(`Edit ${SAT}`)
+    const fee = dialog.getByLabelText(/Usual monthly fee/)
+    await user.clear(fee)
+    await user.type(fee, '2000')
+    await user.click(
+      dialog.getByRole('checkbox', { name: 'Also charge ₹2,000 to students in this batch' }),
+    )
+    await user.click(dialog.getByRole('button', { name: /^New fee from:/ }))
+    await user.click(await screen.findByRole('button', { name: 'August 2026' }))
+    const box = await dialog.findByRole('checkbox', { name: /Oma Off/ })
+    expect(box).not.toBeChecked()
+    expect(
+      dialog.getByText('Has its own fee change — not changed unless you tick them'),
+    ).toBeInTheDocument()
+    expect(
+      dialog.getByText(
+        'From August 2026 they’ll owe ₹2,000 a month, until September 2026, when ₹1,800 (already set) starts. It replaces the no-fee month set for August 2026.',
+      ),
+    ).toBeInTheDocument()
+    await user.click(dialog.getByRole('button', { name: 'Save changes' }))
+    expect(await screen.findByText('Batch saved')).toBeInTheDocument()
+    expect(mockDb.getStudent(off.id).fee_history).toEqual(before)
   })
 
   it('warns what a month already due would owe', async () => {

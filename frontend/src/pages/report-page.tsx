@@ -495,37 +495,74 @@ function ReportTable({
                 </th>
               </TableRow>,
               ...g.rows.map((r) => <Row key={r.student_id} row={r} />),
+              <SumsRow
+                key={`subtotal-${g.batchId ?? 'none'}`}
+                label={`Subtotal · ${g.label}`}
+                totals={sumRows(g.rows)}
+                ahead={ahead}
+                subtotal
+              />,
             ])
           : rows.map((r) => <Row key={r.student_id} row={r} />)}
       </TableBody>
       <TableFooter className="bg-muted/60 font-bold">
-        <TableRow className="hover:bg-transparent [&>td]:align-top">
-          <TableCell className={cn(STICKY, 'bg-muted pl-6 whitespace-normal')}>
-            {filtered
+        <SumsRow
+          label={
+            filtered
               ? `Total of the ${rows.length} shown`
-              : `Total · ${plural(rows.length, 'student')}`}
-          </TableCell>
-          <TableCell className="font-semibold whitespace-normal">
-            {totals.active_student_count > 0 &&
-              `${totals.not_fully_paid_count} of ${totals.active_student_count} ${ahead ? 'not paid ahead' : 'not fully paid'}`}
-          </TableCell>
-          <MoneyCell paise={totals.fee_paise} />
-          <MoneyCell paise={totals.paid_paise} />
-          <MoneyCell paise={totals.short_paise} />
-          <MoneyCell paise={totals.owed_now_paise} />
-          <MoneyCell paise={totals.covered_by_credit_paise} />
-          <MoneyCell paise={totals.extra_sent_paise}>
-            {totals.extra_unused_paise > 0 && (
-              <Note tone="credit">{formatRupees(totals.extra_unused_paise)} kept as credit</Note>
-            )}
-          </MoneyCell>
-          <MoneyCell paise={totals.owed_before_paise} />
-          <CreditCell credit={totals.credit_paise} ahead={totals.paid_ahead_paise} />
-          <TableCell />
-          <TableCell className="pr-6" />
-        </TableRow>
+              : `Total · ${plural(rows.length, 'student')}`
+          }
+          totals={totals}
+          ahead={ahead}
+        />
       </TableFooter>
     </Table>
+  )
+}
+
+/** The totals row, or (grouped by batch) a batch's subtotal row: the sums of its rows. */
+function SumsRow({
+  label,
+  totals,
+  ahead,
+  subtotal = false,
+}: {
+  label: string
+  totals: ReportTotals
+  ahead: boolean
+  subtotal?: boolean
+}) {
+  return (
+    <TableRow
+      className={cn(
+        'hover:bg-transparent [&>td]:align-top',
+        subtotal && 'break-inside-avoid border-b-2 bg-muted/30 font-bold',
+      )}
+    >
+      <TableCell
+        className={cn(STICKY, subtotal ? 'bg-card' : 'bg-muted', 'pl-6 whitespace-normal')}
+      >
+        {label}
+      </TableCell>
+      <TableCell className="font-semibold whitespace-normal">
+        {totals.active_student_count > 0 &&
+          `${totals.not_fully_paid_count} of ${totals.active_student_count} ${ahead ? 'not paid ahead' : 'not fully paid'}`}
+      </TableCell>
+      <MoneyCell paise={totals.fee_paise} />
+      <MoneyCell paise={totals.paid_paise} />
+      <MoneyCell paise={totals.short_paise} />
+      <MoneyCell paise={totals.owed_now_paise} />
+      <MoneyCell paise={totals.covered_by_credit_paise} />
+      <MoneyCell paise={totals.extra_sent_paise}>
+        {totals.extra_unused_paise > 0 && (
+          <Note tone="credit">{formatRupees(totals.extra_unused_paise)} kept as credit</Note>
+        )}
+      </MoneyCell>
+      <MoneyCell paise={totals.owed_before_paise} />
+      <CreditCell credit={totals.credit_paise} ahead={totals.paid_ahead_paise} />
+      <TableCell />
+      <TableCell className="pr-6" />
+    </TableRow>
   )
 }
 

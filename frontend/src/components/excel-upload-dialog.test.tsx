@@ -418,7 +418,7 @@ describe('Upload Excel', () => {
     expect(batches.getByText('Will be added')).toBeInTheDocument()
     expect(
       batches.getByText(
-        'Batch not found, will be left without a batch (the name is kept as their old class label).',
+        'Batch not found, will be left without a batch (the name is kept in their old class label, next to any label the row already has).',
       ),
     ).toBeInTheDocument()
     expect(batches.getByText(/isn’t a list of days/)).toBeInTheDocument()
