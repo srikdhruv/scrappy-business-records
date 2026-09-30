@@ -87,8 +87,8 @@ export interface paths {
         };
         /**
          * Suggest Payment
-         * @description The oldest unpaid or partial month and what's left on it; otherwise the current month
-         *     and its fee.
+         * @description The oldest unpaid or partial month up to now and what's left on it; otherwise the next
+         *     month that isn't fully paid (usually next month) and what's left on it.
          */
         get: operations["suggestPayment"];
         put?: never;
@@ -544,7 +544,7 @@ export interface components {
             notes: string | null;
             /**
              * Is Active
-             * @description False once the student is archived (has left).
+             * @description True until the left month has passed (no left_month, or left_month is this month or later). False means Left (archived).
              */
             is_active: boolean;
             /**
@@ -621,7 +621,7 @@ export interface components {
             notes: string | null;
             /**
              * Is Active
-             * @description False once the student is archived (has left).
+             * @description True until the left month has passed (no left_month, or left_month is this month or later). False means Left (archived).
              */
             is_active: boolean;
             /**
@@ -693,8 +693,9 @@ export interface components {
         };
         /**
          * SuggestedPayment
-         * @description Prefill for the Log payment form: the oldest unpaid or partial month and what's left on
-         *     it, otherwise the current month and its fee.
+         * @description Prefill for the Log payment form: the oldest unpaid or partial month up to now and
+         *     what's left on it; otherwise the next month that isn't fully paid and what's left on it
+         *     (usually next month and its fee). See the PRD's ledger rule 9.
          */
         SuggestedPayment: {
             /**
@@ -814,7 +815,7 @@ export interface operations {
     listStudents: {
         parameters: {
             query?: {
-                /** @description `active` (default), `left` (archived) or `all`. */
+                /** @description `active` (default: not left yet, i.e. no left month or it is this month or later), `left` (the left month has passed) or `all`. */
                 status?: components["schemas"]["StudentListFilter"];
                 /** @description Case-insensitive search on name, phone, guardian. */
                 q?: string | null;

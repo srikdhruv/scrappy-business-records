@@ -212,3 +212,19 @@ def test_filters_and_search(api: TestClient, book: dict[str, int]) -> None:
 )
 def test_list_validation(api: TestClient, params: Json) -> None:
     assert api.get("/api/payments", params=params).status_code == 422
+
+
+def test_amount_cap(api: TestClient) -> None:
+    """Rs 10,00,000 (100000000 paise) is the most one payment or monthly fee can be."""
+    s = make_student(api, monthly_fee_paise=100_000_000)
+    assert s["monthly_fee_paise"] == 100_000_000
+    p = pay(api, s["id"], "2026-01", 100_000_000)
+    too_much = {"amount_paise": 100_000_001}
+    response = api.patch(f"/api/payments/{p['id']}", json=too_much)
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "amount_paise"]
+    body = {"student_id": s["id"], "paid_on": "2026-01-05", "for_month": "2026-01", "method": "upi"}
+    assert api.post("/api/payments", json={**body, **too_much}).status_code == 422
+    fee = api.patch(f"/api/students/{s['id']}", json={"monthly_fee_paise": 100_000_001})
+    assert fee.status_code == 422
+    assert fee.json()["detail"][0]["loc"] == ["body", "monthly_fee_paise"]

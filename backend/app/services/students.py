@@ -77,7 +77,7 @@ def _read_fields(student: Student, led: ledger.StudentLedger) -> dict[str, objec
         "joined_month": format_month(student.joined_month),
         "left_month": format_month(student.left_month) if student.left_month else None,
         "notes": student.notes,
-        "is_active": student.left_month is None,
+        "is_active": led.is_active,
         "monthly_fee_paise": led.monthly_fee_paise,
         "balance_paise": led.balance_paise,
         "status": led.status,
@@ -140,12 +140,12 @@ def list_students(
     q: str | None,
     current_month: dt.date,
 ) -> list[StudentRead]:
-    """Students sorted by name. `active` = not archived (no `left_month`); `left` = archived."""
+    """Students sorted by name. `active` = not left yet (no `left_month`, or it is this month or
+    later); `left` = the left month has passed."""
     rows = all_students(session)
-    if status_filter is StudentListFilter.active:
-        rows = [s for s in rows if s.left_month is None]
-    elif status_filter is StudentListFilter.left:
-        rows = [s for s in rows if s.left_month is not None]
+    if status_filter is not StudentListFilter.all:
+        want_left = status_filter is StudentListFilter.left
+        rows = [s for s in rows if ledger.has_left(to_record(s), current_month) == want_left]
     if q and q.strip():
         rows = [s for s in rows if _matches(s, q.strip())]
     rows.sort(key=lambda s: (s.name.casefold(), s.id))
@@ -210,8 +210,8 @@ def update_student(
     joined = parse_month(body.joined_month) if body.joined_month else student.joined_month
     if joined != student.joined_month and len(fees) > 1 and joined >= fees[1].effective_month:
         raise unprocessable(
-            "joined_month cannot be on or after a later fee change "
-            f"({format_month(fees[1].effective_month)}); change or remove that fee first",
+            "The joined month can't be on or after a later fee change "
+            f"({fees[1].effective_month:%B %Y}). Change that fee first.",
             field="joined_month",
         )
 
@@ -220,7 +220,7 @@ def update_student(
         left = parse_month(body.left_month) if body.left_month else None
     if left is not None and left < joined:
         field = "left_month" if "left_month" in sent else "joined_month"
-        raise unprocessable("left_month cannot be before joined_month", field=field)
+        raise unprocessable("Left month can't be before the joined month", field=field)
 
     fee_month: dt.date | None = None
     if body.monthly_fee_paise is not None:
@@ -231,7 +231,7 @@ def update_student(
         )
         if fee_month < joined:
             raise unprocessable(
-                "the new fee cannot start before joined_month", field="fee_effective_month"
+                "The new fee can't start before the joined month", field="fee_effective_month"
             )
 
     for name in ("name", "phone", "guardian_name", "batch_label", "notes"):

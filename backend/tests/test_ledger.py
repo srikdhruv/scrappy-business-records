@@ -252,7 +252,8 @@ def test_zero_fee() -> None:
     assert board.summary.active_student_count == 1
     assert board.summary.expected_paise == 0
     assert board.yet_to_pay == ()
-    assert ledger.suggest_payment(s, NOW) == ledger.Suggestion(NOW, 0)
+    # Nothing is ever owed, so it falls back to next month and its (zero) fee.
+    assert ledger.suggest_payment(s, NOW) == ledger.Suggestion(JUL, 0)
 
     tipped = student(fee=0, pays=((MAR, 100_00),))
     assert statuses(ledger.student_ledger(tipped, NOW))[MAR] is OVER
@@ -284,19 +285,65 @@ def test_suggest_oldest_unpaid_or_partial() -> None:
     assert ledger.suggest_payment(s2, NOW) == ledger.Suggestion(MAR, 1500_00)
 
 
-def test_suggest_current_month_when_all_paid() -> None:
-    s = student(fees=((JUN, 1800_00),), pays=tuple((m, 1500_00) for m in month_range(JAN, MAY)))
-    assert ledger.suggest_payment(s, NOW) == ledger.Suggestion(JUN, 1800_00)
-    done = student(pays=tuple((m, 1500_00) for m in month_range(JAN, JUN)))
-    assert ledger.suggest_payment(done, NOW) == ledger.Suggestion(JUN, 1500_00)
+def test_suggest_next_unpaid_month_when_nothing_is_owed() -> None:
+    # Paid up to and including this month: next month, at the fee in effect then.
+    s = student(fees=((JUL, 1800_00),), pays=tuple((m, 1500_00) for m in month_range(JAN, JUN)))
+    assert ledger.suggest_payment(s, NOW) == ledger.Suggestion(JUL, 1800_00)
 
 
-def test_suggest_ignores_future_and_inactive_months() -> None:
-    s = student(joined=JAN, left=MAR, pays=tuple((m, 1500_00) for m in month_range(JAN, MAR)))
-    # Nothing owed; the current month's fee is offered (the UI can change it).
+def test_suggest_skips_months_paid_ahead() -> None:
+    upto_jun = tuple((m, 1500_00) for m in month_range(JAN, JUN))
+    ahead = student(pays=(*upto_jun, (JUL, 1500_00), (AUG, 1500_00), (OCT, 1500_00)))
+    assert ledger.suggest_payment(ahead, NOW) == ledger.Suggestion(SEP, 1500_00)
+    # A month partly paid ahead: what's left on it.
+    part = student(pays=(*upto_jun, (JUL, 1500_00), (AUG, 500_00)))
+    assert ledger.suggest_payment(part, NOW) == ledger.Suggestion(AUG, 1000_00)
+
+
+def test_suggest_prefers_owed_months_over_next_month() -> None:
+    s = student(pays=(*((m, 1500_00) for m in month_range(JAN, MAY)), (JUL, 1500_00)))
     assert ledger.suggest_payment(s, NOW) == ledger.Suggestion(JUN, 1500_00)
     overpaid = student(pays=((JAN, 9000_00),))
     assert ledger.suggest_payment(overpaid, NOW) == ledger.Suggestion(FEB, 1500_00)
+
+
+def test_suggest_for_students_who_are_leaving_or_left() -> None:
+    upto_jun = tuple((m, 1500_00) for m in month_range(JAN, JUN))
+    # Leaving after August: July is still owed.
+    leaving = student(left=AUG, pays=upto_jun)
+    assert ledger.suggest_payment(leaving, NOW) == ledger.Suggestion(JUL, 1500_00)
+    # Leaving after June and fully paid: nothing more is owed, so the fallback applies.
+    done = student(left=JUN, pays=upto_jun)
+    assert ledger.suggest_payment(done, NOW) == ledger.Suggestion(JUL, 1500_00)
+    # Left in March and settled.
+    left = student(left=MAR, pays=tuple((m, 1500_00) for m in month_range(JAN, MAR)))
+    assert ledger.suggest_payment(left, NOW) == ledger.Suggestion(JUL, 1500_00)
+
+
+def test_suggest_for_future_joiner() -> None:
+    s = student(joined=AUG)
+    assert ledger.suggest_payment(s, NOW) == ledger.Suggestion(AUG, 1500_00)
+    paid_first = student(joined=AUG, pays=((AUG, 1500_00),))
+    assert ledger.suggest_payment(paid_first, NOW) == ledger.Suggestion(SEP, 1500_00)
+
+
+# --------------------------------------------------------------------------- active / left
+
+
+@pytest.mark.parametrize(
+    ("left", "active"),
+    [(None, True), (DEC, True), (JUL, True), (JUN, True), (MAY, False), (JAN, False)],
+)
+def test_active_until_the_left_month_has_passed(left: dt.date | None, active: bool) -> None:
+    s = student(left=left)
+    assert ledger.has_left(s, NOW) is not active
+    assert ledger.student_ledger(s, NOW).is_active is active
+
+
+def test_leaving_after_december_moves_to_left_in_january() -> None:
+    s = student(joined=JAN, left=DEC)
+    assert ledger.student_ledger(s, DEC).is_active
+    assert not ledger.student_ledger(s, dt.date(2027, 1, 1)).is_active
 
 
 # --------------------------------------------------------------------------- dashboard
@@ -448,12 +495,25 @@ def test_student_invariants(s: StudentRecord, current: dt.date) -> None:
         assert line.is_due == (line.month <= current)
         if not s.is_active(line.month):
             assert line.expected_paise == 0
+    assert led.is_active == (s.left_month is None or s.left_month >= current)
     sug = led.suggestion
     owing = [line for line in due if line.is_owing]
     if owing:
         assert (sug.for_month, sug.amount_paise) == (owing[0].month, owing[0].remaining_paise)
     else:
-        assert sug.for_month == max(current, s.joined_month)
+        start = max(add_months(current, 1), s.joined_month)
+        assert sug.for_month >= start
+        line = ledger.month_line(s, sug.for_month, current)
+        if line.is_owing:
+            # The first not-fully-paid month after the current one, and what's left on it.
+            assert sug.amount_paise == line.remaining_paise
+            skipped = (
+                month_range(start, add_months(sug.for_month, -1)) if sug.for_month > start else []
+            )
+            assert not any(ledger.month_line(s, m, current).is_owing for m in skipped)
+        else:
+            # Nothing more is owed at all (left, or zero fee): next month and its fee.
+            assert (sug.for_month, sug.amount_paise) == (start, s.fee_in_effect(start))
 
 
 @settings(max_examples=200, deadline=None)

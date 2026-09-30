@@ -84,7 +84,8 @@ entry.
 - Student (required).
 - Amount in ₹ (required, more than 0).
 - Paid on (date; defaults to today).
-- For month (required; defaults to the student's oldest unpaid month, otherwise this month).
+- For month (required; defaults to the student's oldest unpaid month, otherwise the next month
+  they haven't paid for; see ledger rule 9).
 - Method: UPI / Cash / Other.
 - Note.
 
@@ -116,6 +117,18 @@ These rules decide every number the app shows.
    - Zero: **Up to date**.
 7. **Changing a fee** always asks "from which month?" and records a fee change. Earlier months
    keep their old expected amount.
+8. **Active or Left.** A student is **Active** until their left month has passed: they have no
+   `left_month`, or `left_month ≥ current month`. After that they are **Left** (archived). So a
+   student leaving after December shows as Active through December and as Left from January.
+   The Students page's Active / Left filter uses this.
+9. **Suggested payment** (what the *Log payment* form fills in):
+   - the oldest month up to the current month that is Unpaid or Partial, with what's left on
+     it;
+   - otherwise, the first month *after* the current month that isn't fully paid, with its fee
+     (or what's left of it, if it is partly paid ahead). Usually that is next month. If they
+     have paid ahead, it is the first month after what they have prepaid;
+   - if no later month is owed at all (they leave before then, or their fee is 0), next month
+     and the fee in effect then.
 
 ### Dashboard for a selected month M
 

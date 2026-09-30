@@ -334,7 +334,10 @@ class StudentRead(_ReadModel):
     joined_month: Month
     left_month: Month | None
     notes: str | None
-    is_active: bool = Field(description="False once the student is archived (has left).")
+    is_active: bool = Field(
+        description="True until the left month has passed (no left_month, or left_month is "
+        "this month or later). False means Left (archived)."
+    )
     monthly_fee_paise: NonNegativePaise = Field(description="Fee in effect this month.")
     balance_paise: SignedPaise = Field(
         description="All payments minus everything expected up to this month. "
@@ -377,8 +380,9 @@ class StudentDetail(StudentRead):
 
 
 class SuggestedPayment(_ReadModel):
-    """Prefill for the Log payment form: the oldest unpaid or partial month and what's left on
-    it, otherwise the current month and its fee."""
+    """Prefill for the Log payment form: the oldest unpaid or partial month up to now and
+    what's left on it; otherwise the next month that isn't fully paid and what's left on it
+    (usually next month and its fee). See the PRD's ledger rule 9."""
 
     for_month: Month
     amount_paise: NonNegativePaise

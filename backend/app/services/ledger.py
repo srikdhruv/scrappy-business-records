@@ -46,6 +46,7 @@ __all__ = [
     "YetToPayEntry",
     "balance_status",
     "build_dashboard",
+    "has_left",
     "month_status",
     "student_ledger",
 ]
@@ -159,6 +160,8 @@ class StudentLedger:
     current_month: dt.date
     months: tuple[MonthLine, ...]
     """History: see `history_range`."""
+    is_active: bool
+    """False once the left month has passed (see `has_left`)."""
     balance_paise: int
     status: BalanceStatus
     monthly_fee_paise: int
@@ -281,18 +284,40 @@ def current_fee(student: StudentRecord, current_month: dt.date) -> int:
     return student.fee_in_effect(max(current_month, student.joined_month))
 
 
+def has_left(student: StudentRecord, current_month: dt.date) -> bool:
+    """True once the student's left month has passed: they show as Left rather than Active.
+
+    A student leaving after December is still Active in December, and Left from January.
+    """
+    return student.left_month is not None and student.left_month < current_month
+
+
 def suggest_payment(student: StudentRecord, current_month: dt.date) -> Suggestion:
     """Prefill for the Log payment form.
 
-    The oldest due month that is Unpaid or Partial, with what's left on it. Otherwise the current
-    month (or the joining month, if they haven't joined yet) and the fee for it.
+    1. The oldest due month (up to the current month) that is Unpaid or Partial, with what's
+       left on it.
+    2. Otherwise the first month after the current month (and not before joining) that isn't
+       fully paid: usually next month, or the month after what they've paid ahead. The amount
+       is what's left on it, which is its fee unless it is partly paid ahead.
+    3. If there is no such month (they leave before then, or their fee is 0), the month after
+       the current month (or the joining month, if later) and the fee in effect then.
     """
     for m in due_months(student, current_month):
         line = month_line(student, m, current_month)
         if line.is_owing:
             return Suggestion(for_month=m, amount_paise=line.remaining_paise)
-    month = max(current_month, student.joined_month)
-    return Suggestion(for_month=month, amount_paise=student.fee_in_effect(month))
+
+    start = max(add_months(current_month, 1), student.joined_month)
+    # The month after the last paid one is unpaid (if owed), so the search always ends.
+    end = max(start, add_months(max(student.paid_by_month, default=start), 1))
+    if student.left_month is not None:
+        end = min(end, student.left_month)
+    for m in month_range(start, end) if start <= end else []:
+        line = month_line(student, m, current_month)
+        if line.is_owing:
+            return Suggestion(for_month=m, amount_paise=line.remaining_paise)
+    return Suggestion(for_month=start, amount_paise=student.fee_in_effect(start))
 
 
 def student_ledger(student: StudentRecord, current_month: dt.date) -> StudentLedger:
@@ -305,6 +330,7 @@ def student_ledger(student: StudentRecord, current_month: dt.date) -> StudentLed
         months=tuple(
             month_line(student, m, current_month) for m in history_range(student, current_month)
         ),
+        is_active=not has_left(student, current_month),
         balance_paise=bal,
         status=balance_status(bal),
         monthly_fee_paise=current_fee(student, current_month),

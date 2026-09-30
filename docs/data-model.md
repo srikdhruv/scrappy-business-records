@@ -21,7 +21,7 @@
 | `guardian_name` | TEXT NULL | |
 | `batch_label` | TEXT NULL | Free text for now; see future-features §1 |
 | `joined_month` | DATE NOT NULL | First month they owe |
-| `left_month` | DATE NULL | Last month they owe; set means *archived* |
+| `left_month` | DATE NULL | Last month they owe. Once it has passed, the student is *Left* (archived) |
 | `notes` | TEXT NULL | |
 | `created_at`, `updated_at` | DATETIME | |
 
@@ -75,7 +75,7 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 | Method & path | Purpose |
 |---|---|
 | `GET /health` | `{"app": "scrappy-records", "version": "0.1.0", "status": "ok"}` |
-| `GET /students?status=active\|left\|all&q=` | List of students, each with `monthly_fee_paise` (current fee), `balance_paise` and `status` (`up_to_date` / `owes` / `credit`). `active` (default) = no `left_month`; `left` = archived. `q` matches name, guardian or phone, ignoring case (and spaces in phone numbers) |
+| `GET /students?status=active\|left\|all&q=` | List of students, each with `monthly_fee_paise` (current fee), `balance_paise` and `status` (`up_to_date` / `owes` / `credit`). `active` (default) = not left yet (no `left_month`, or `left_month ≥` the current month); `left` = the left month has passed. `q` matches name, guardian or phone, ignoring case (and spaces in phone numbers) |
 | `POST /students` | Create. Body: `name`, `monthly_fee_paise`, `joined_month`, and optionally `phone`, `guardian_name`, `batch_label`, `notes`, `left_month` |
 | `GET /students/{id}` | Detail, including `fee_history`, `months[]` (the ledger; see [Ledger computation](#ledger-computation)) and `payment_count` (so the UI can warn before a delete) |
 | `PATCH /students/{id}` | Partial update. A new fee is sent as `monthly_fee_paise` + `fee_effective_month` (which defaults to the current month, or `joined_month` if that is later). See the edit rules below |
@@ -84,7 +84,7 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 | `POST /payments` | Create. Body: `student_id`, `amount_paise`, `paid_on`, `for_month`, `method`, `note?`. 404 if the student doesn't exist. Any `for_month` is accepted, even one the student isn't active in (it then shows as overpaid) |
 | `GET /payments/{id}` · `PATCH /payments/{id}` · `DELETE /payments/{id}` | `PATCH` may move a payment to another student (404 if that student doesn't exist) |
 | `GET /dashboard?month=YYYY-MM` | See the PRD's "Dashboard for a selected month M" section. Returns `summary`, `yet_to_pay[]`, `backlog[]` and `overpaid[]` |
-| `GET /students/{id}/suggest-payment` | `{for_month, amount_paise}`: the oldest *due* month (up to the current month) that is unpaid or partial, and its remaining amount. Otherwise the current month (or `joined_month`, if they haven't joined yet) and the fee in effect for it |
+| `GET /students/{id}/suggest-payment` | `{for_month, amount_paise}`, as in the PRD's ledger rule 9: the oldest *due* month (up to the current month) that is unpaid or partial, and its remaining amount. Otherwise the first month after the current month (and not before `joined_month`) that isn't fully paid, and what's left on it (its fee, unless partly paid ahead). If no later month is owed (they leave first, or the fee is 0): the month after the current month (or `joined_month`, if later) and the fee in effect then |
 
 **Errors.**
 - **404** (missing resource): `{"detail": "No student with id 3"}` (`ErrorResponse`).
@@ -176,8 +176,10 @@ the edges.
   as credit.
 - **Current fee (`monthly_fee_paise`)** is the fee in effect this month, or in `joined_month`
   for a student who hasn't joined yet.
-- **`is_active`** is `left_month` being empty. A student whose `left_month` is this month or
-  later is archived but still owes up to and including that month.
+- **`is_active`** (and the `status=active|left` filter) is the PRD's ledger rule 8: true while
+  `left_month` is empty or `left_month ≥` the current month. A student leaving after December
+  is active through December and left from January. It depends on the current month, so it is
+  computed, never stored.
 - **Dashboard lists** are sorted by student name, ignoring case. Overpaid rows are oldest
   month first within a student.
 

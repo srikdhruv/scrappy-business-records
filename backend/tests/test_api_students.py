@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import datetime as dt
+
 import pytest
 from fastapi.testclient import TestClient
 from helpers import Json, make_student, months_of, pay
+
+from app.clock import get_current_month
 
 # --------------------------------------------------------------------------- create / read
 
@@ -283,7 +287,10 @@ def test_moving_joined_month_onto_a_later_fee_is_422(api: TestClient, joined: st
     assert response.status_code == 422
     [error] = response.json()["detail"]
     assert error["loc"] == ["body", "joined_month"]
-    assert "2026-05" in error["msg"]
+    assert error["msg"] == (
+        "The joined month can't be on or after a later fee change (May 2026). "
+        "Change that fee first."
+    )
     d = api.get(url).json()  # nothing changed
     assert (d["joined_month"], d["notes"], len(d["fee_history"])) == ("2026-01", None, 2)
 
@@ -335,7 +342,11 @@ def test_suggest_payment(api: TestClient) -> None:
     assert api.get(url).json() == {"for_month": "2026-05", "amount_paise": 100000}
     pay(api, s["id"], "2026-05", 100000)
     pay(api, s["id"], "2026-06")
-    assert api.get(url).json() == {"for_month": "2026-06", "amount_paise": 150000}
+    # Nothing owed: the next month that isn't fully paid.
+    assert api.get(url).json() == {"for_month": "2026-07", "amount_paise": 150000}
+    pay(api, s["id"], "2026-07")
+    pay(api, s["id"], "2026-08", 40000)
+    assert api.get(url).json() == {"for_month": "2026-08", "amount_paise": 110000}
 
 
 def test_suggest_payment_after_fee_change(api: TestClient) -> None:
@@ -343,3 +354,38 @@ def test_suggest_payment_after_fee_change(api: TestClient) -> None:
     api.patch(f"/api/students/{s['id']}", json={"monthly_fee_paise": 250000})
     url = f"/api/students/{s['id']}/suggest-payment"
     assert api.get(url).json() == {"for_month": "2026-06", "amount_paise": 250000}
+
+
+# --------------------------------------------------------------------------- active / left
+
+
+def test_active_until_the_left_month_has_passed(api: TestClient) -> None:
+    # The current month is June 2026.
+    make_student(api, name="Ananya Rao")
+    make_student(api, name="Kabir Mehta", left_month="2026-12")  # leaving after December
+    make_student(api, name="Meera Iyer", left_month="2026-06")  # leaving after this month
+    make_student(api, name="Rohan Desai", left_month="2026-05")  # already left
+
+    def names(status: str) -> list[str]:
+        return [s["name"] for s in api.get("/api/students", params={"status": status}).json()]
+
+    assert names("active") == ["Ananya Rao", "Kabir Mehta", "Meera Iyer"]
+    assert names("left") == ["Rohan Desai"]
+    assert len(names("all")) == 4
+    rows = {s["name"]: s["is_active"] for s in api.get("/api/students?status=all").json()}
+    assert rows == {
+        "Ananya Rao": True,
+        "Kabir Mehta": True,
+        "Meera Iyer": True,
+        "Rohan Desai": False,
+    }
+
+
+def test_leaving_after_december_moves_to_left_in_january(api: TestClient) -> None:
+    s = make_student(api, left_month="2026-12")
+    overrides = api.app.dependency_overrides  # type: ignore[attr-defined]
+    for month, active in [(dt.date(2026, 12, 1), True), (dt.date(2027, 1, 1), False)]:
+        overrides[get_current_month] = lambda m=month: m
+        assert api.get(f"/api/students/{s['id']}").json()["is_active"] is active
+        left = [x["id"] for x in api.get("/api/students", params={"status": "left"}).json()]
+        assert (s["id"] in left) is not active

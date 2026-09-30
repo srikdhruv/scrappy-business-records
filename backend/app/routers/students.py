@@ -31,7 +31,8 @@ def list_students(
     status_filter: StudentListFilter = Query(
         StudentListFilter.active,
         alias="status",
-        description="`active` (default), `left` (archived) or `all`.",
+        description="`active` (default: not left yet, i.e. no left month or it is this "
+        "month or later), `left` (the left month has passed) or `all`.",
     ),
     q: str | None = Query(
         None, max_length=200, description="Case-insensitive search on name, phone, guardian."
@@ -99,6 +100,6 @@ def delete_student(student_id: int, session: SessionDep) -> None:
 def suggest_payment(
     student_id: int, session: SessionDep, current: CurrentMonthDep
 ) -> SuggestedPayment:
-    """The oldest unpaid or partial month and what's left on it; otherwise the current month
-    and its fee."""
+    """The oldest unpaid or partial month up to now and what's left on it; otherwise the next
+    month that isn't fully paid (usually next month) and what's left on it."""
     return service.suggest_payment(session, student_id, current)
