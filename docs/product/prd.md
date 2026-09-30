@@ -33,7 +33,8 @@ can open the app and see who is left to pay.
 
 1. **Install and run locally.** One pasted line installs everything on a laptop with nothing
    pre-installed. A Desktop shortcut opens the app. Data persists and is backed up daily.
-2. **Students.** Create, view, edit, archive and delete. Each student has a profile page.
+2. **Students.** Create, view, edit, archive (and bring back) and delete. Each student has a
+   profile page.
 3. **Payments.** Create, view, edit and delete. Each payment belongs to one student and one
    month.
 4. **Dashboard.** For a chosen month (defaults to this month):
@@ -54,8 +55,9 @@ entry.
 | # | As the owner, I want to… | So that… |
 |---|---|---|
 | S1 | add a student with their monthly fee and joining month | the app knows what they owe |
-| S2 | edit a student, including changing their fee from a given month | past dues stay correct |
+| S2 | edit a student, including changing their fee from a given month, and removing a fee change that hasn't started yet | past dues stay correct, and a raise set by mistake can be undone |
 | S3 | mark a student as left (archive) | they stop owing fees but their history stays |
+| S6 | mark a student who left as coming again, from a month I choose | the months they were away aren't owed |
 | S4 | delete a student entered by mistake | the list stays clean |
 | S5 | open a student's profile | I can see their details, month-by-month status and all payments |
 | P1 | log a payment: student, amount, date paid, which month it is for, method | it is recorded |
@@ -127,7 +129,12 @@ These rules decide every number the app shows.
    `balance_paise`, for reference, but no headline uses it: a net 0 can hide months still owed
    (for example July paid twice instead of August).
 7. **Changing a fee** always asks "from which month?" and records a fee change. Earlier months
-   keep their old expected amount.
+   keep their old expected amount. The new fee lasts until the next fee change already set
+   after it, if any (rule 2), and the form says so ("… until April 2026, when ₹1,800 (already
+   scheduled) starts"). A fee change for a month that already has one replaces it. A fee change
+   that **hasn't started yet** (its month is after the current month) can be removed, after a
+   confirmation; the fee before it then carries on. A fee change that has started, and the
+   first fee (at `joined_month`), can never be removed.
 8. **Active or Left.** A student is **Active** until their left month has passed: they have no
    `left_month`, or `left_month ≥ current month`. After that they are **Left** (archived). So a
    student leaving after December shows as Active through December and as Left from January.
@@ -135,16 +142,17 @@ These rules decide every number the app shows.
 9. **Suggested payment** (what the *Log payment* form fills in):
    - the oldest month up to the current month that is Unpaid or Partial, with what's left on
      it;
-   - otherwise, the first month *after* the current month that the student is enrolled in and
-     hasn't paid, with its fee (or what's left of it, if it is partly paid ahead). Usually that
-     is next month. If they have paid ahead, it is the first month after what they have
-     prepaid. If that month's fee is 0, no amount is suggested;
+   - otherwise, the first month *after* the current month that the student is enrolled in,
+     that has a fee, and that isn't fully paid, with its fee (or what's left of it, if it is
+     partly paid ahead). Usually that is next month. If they have paid ahead, it is the first
+     month after what they have prepaid. Months with a ₹0 fee (a free place, or the months
+     away before coming back, rule 11) are skipped: nothing is ever due for them;
    - if nothing is left to pay in the months they are enrolled in, up to the latest month a
      payment can be logged for (two years ahead), nothing is suggested. That happens when they
-     have left and paid everything, or have paid that far ahead.
+     have left and paid everything, have paid that far ahead, or have no fee to pay.
 
-   It never suggests a month that is already fully paid, one they aren't enrolled in, or one
-   more than two years ahead.
+   It never suggests a month that is already fully paid, one with a ₹0 fee, one they aren't
+   enrolled in, or one more than two years ahead.
 10. **Credit.** The sum of `max(0, paid − expected)` over every month up to the current
     month, including months the student wasn't enrolled in (before joining, after leaving),
     where the whole payment is extra. Anything paid for a month after they left counts too,
@@ -155,6 +163,22 @@ These rules decide every number the app shows.
     Instead, wherever a student is shown as owing (*Yet to pay*, *Backlog*, the students list
     and the profile), their credit is shown next to it ("Paid ₹X extra in Jul 2026"), so the
     owner can fix the payment's month.
+11. **Coming back after leaving.** When a student who left comes again, the owner says which
+    month they're back from: any month after `left_month`, up to two years ahead (this month
+    by default). In one step, with no new kind of record:
+    - the months in between (from the month after `left_month` to the month before they're
+      back) get a **₹0 fee**, one fee change at the month after `left_month`. They are
+      *Not applicable* (rule 4), shown as **No fee**, and are never owed;
+    - from the month they're back, their fee carries on: the fee their schedule already had
+      for that month, which is usually the fee they paid when they left. If they're back the
+      very next month, there is no gap and no fee change is added;
+    - fee changes already set for a month in the gap are replaced by the ₹0 fee (the latest of
+      them is the fee they come back on). Fee changes from the month they're back on are kept;
+    - `left_month` is cleared, so they are Active again.
+
+    A payment already logged for a month in the gap then counts as paid extra (rule 10), like
+    any payment for a month with no fee. Emptying the left month in *Edit* is not offered once
+    it has passed, because that would make every month away owed.
 
 ### Dashboard for a selected month M
 

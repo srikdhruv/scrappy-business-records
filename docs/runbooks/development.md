@@ -77,9 +77,12 @@ frontend/src/
                      (openapi-fetch), queries.ts (hooks)
   pages/             Dashboard, Payments, Students, StudentProfile (+ their tests)
   components/        App building blocks: log-payment (the form), student-form, payments-table,
-                     month-picker, student-combobox, status badges; layout/; ui/ (shadcn/ui)
+                     month-picker, student-combobox, mark-left and come-back dialogs, status
+                     badges; layout/; ui/ (shadcn/ui)
   lib/format.ts      ₹, date and month formatting (the only place that formats them)
   lib/errors.ts      Plain-words messages for API errors, including "Can't reach Scrappy Records"
+  lib/search.ts      The student search both lists use (words in any order, accents, phones)
+  lib/fees.ts        Reading a fee history: the fee in a month, and "until …" sentences
   mocks/             The mock API (MSW) for `make dev-mock` and the tests. Never in the build
   index.css          Theme tokens (CSS variables) and Tailwind setup
   styles/            theme.test.ts checks the text contrast of the theme tokens
@@ -159,7 +162,10 @@ throwaway data folder, and runs the Playwright tests in `frontend/e2e/` against 
 They cover the owner's everyday flows: adding a student and logging their payment from the
 dashboard, moving a payment to another month, a fee change from a chosen month, marking a
 student as left, credit and paid-ahead, deleting with confirmation, and a server-side validation
-message shown next to its field. Each test sets up its own students through the API, relative to
+message shown next to its field. `e2e/fixes.spec.ts` covers the fixes made before v0.1.0:
+coming back after leaving, a scheduled fee change (and removing it), a month off set in
+advance, Enter after clicking Cash, the Students search, the amount cap and the Paid on sort.
+Each test sets up its own students through the API, relative to
 the server's current month. The first run needs a browser: `cd frontend && npx playwright install
 chromium`. CI's `e2e` job runs the same thing, with the browser cached.
 

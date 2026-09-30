@@ -22,7 +22,12 @@ taught by a hired instructor), and each batch has several students.
 - Filter the dashboard and grid by location and batch. Group "Yet to pay" by location, then
   batch.
 - **"Excused / on break" months:** mark a student as not owing for a specific month (holiday,
-  injury) without archiving them.
+  injury) without archiving them. A cheap first version could reuse what *Mark as coming
+  again* already does (PRD ledger rule 11, `POST /students/{id}/return`): a ₹0 fee change for
+  the first month away and their fee again from the month they're back, in one step. A
+  "Taking a break" button would ask for the months off and write exactly those two fee
+  changes; the profile would then show those months as "On a break" rather than "No fee".
+  Until then, the guide's month-off steps do the same by hand with two fee changes.
 - **Migration path from the MVP:**
   - Each student's free-text `batch_label` becomes a suggestion when creating batches.
   - `students.monthly_fee` history maps to an enrollment fee override.
