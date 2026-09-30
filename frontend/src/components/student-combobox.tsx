@@ -36,6 +36,7 @@ export function StudentCombobox({
   clearLabel,
   invalid,
   className,
+  suggestedIds,
   'aria-describedby': describedBy,
 }: {
   id?: string
@@ -48,14 +49,20 @@ export function StudentCombobox({
   clearLabel?: string
   invalid?: boolean
   className?: string
+  /** Students listed first, under "Likely", best first (e.g. for an unassigned payment). */
+  suggestedIds?: number[]
   'aria-describedby'?: string
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const { data: students = [], isLoading } = useStudents('all')
   const selected = students.find((s) => s.id === value)
-  const active = students.filter((s) => s.is_active)
-  const left = students.filter((s) => !s.is_active)
+  const likely = (suggestedIds ?? [])
+    .map((id) => students.find((s) => s.id === id))
+    .filter((s): s is StudentRead => s !== undefined)
+  const rest = students.filter((s) => !likely.includes(s))
+  const active = rest.filter((s) => s.is_active)
+  const left = rest.filter((s) => !s.is_active)
   // The same search as the Students page (lib/search.ts): name, parent, class or phone, any
   // word order, ignoring capitals, accents and the spaces in phone numbers.
   const byValue = new Map(students.map((s) => [itemValue(s), s]))
@@ -197,6 +204,9 @@ export function StudentCombobox({
                   <span className="font-semibold">{clearLabel}</span>
                 </CommandItem>
               </CommandGroup>
+            )}
+            {likely.length > 0 && (
+              <CommandGroup heading="Likely">{likely.map(renderItem)}</CommandGroup>
             )}
             {active.length > 0 && (
               <CommandGroup heading="Students">{active.map(renderItem)}</CommandGroup>

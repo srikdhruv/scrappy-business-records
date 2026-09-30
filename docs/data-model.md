@@ -25,6 +25,7 @@
 | `joined_month` | DATE NOT NULL | First month they owe |
 | `left_month` | DATE NULL | Last month they owe. Once it has passed, the student is *Left* (archived) |
 | `notes` | TEXT NULL | |
+| `uid` | TEXT NULL, unique | A random id (32 hex letters) the student keeps across Excel downloads and uploads; given the first time they're in a *Download everything* file, and kept by a restore. Added by migration `0004` (a new nullable column and index: `ALTER TABLE ... ADD COLUMN`, no row changed). See [Excel](#excel-download-and-upload) |
 | `created_at`, `updated_at` | DATETIME | |
 
 ### `fee_changes`
@@ -60,6 +61,26 @@ still owed, or credit) is worked out every time and never stored: see
 | `note` | TEXT NULL | |
 | `created_at`, `updated_at` | DATETIME | |
 
+### `unassigned_payments`
+Payments from an uploaded Excel file whose student couldn't be matched (no student, or more
+than one, fits the name or phone), kept as written until the owner assigns one (it then moves
+into `payments`) or deletes it. Added by migration `0003`, which only adds this table: nothing
+else changes, and `payments.student_id` stays `NOT NULL`. They belong to no student, so the
+ledger never sees them: no student's or month's totals, and not *Collected*.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `student_text` | TEXT NOT NULL | The student as written in the file (a name, or a phone number); not blank |
+| `phone` | TEXT NULL | The file's phone column, if any |
+| `amount_paise` | INTEGER NOT NULL | > 0 (capped like a payment by the upload) |
+| `paid_on` | DATE NOT NULL | |
+| `for_month` | DATE NOT NULL | |
+| `method` | TEXT NOT NULL | `upi` / `cash` / `other` |
+| `note` | TEXT NULL | |
+| `source` | TEXT NULL | Where it came from, e.g. `Upload: october.xlsx` |
+| `created_at` | DATETIME | |
+
 ### Database safeguards
 
 The database itself rejects bad rows, as a last line of defence behind the API's validation:
@@ -70,6 +91,8 @@ The database itself rejects bad rows, as a last line of defence behind the API's
 - `students.left_month ≥ joined_month`, and `name` isn't blank.
 - `fee_changes.amount_paise ≥ 0`, and `(student_id, effective_month)` is unique.
 - `payments.amount_paise > 0`, and `method` is one of `upi`, `cash`, `other`.
+- `unassigned_payments` has the same checks as `payments` (amount, method, `for_month`,
+  `paid_on`), and `student_text` isn't blank.
 - Foreign keys are enforced (`PRAGMA foreign_keys=ON` on every connection), so deleting a student
   deletes their fee changes and payments.
 
@@ -103,6 +126,15 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 | `GET /dashboard?month=YYYY-MM` | See the PRD's "Dashboard for a selected month M" section. Returns `month`, `current_month`, `summary`, `yet_to_pay[]`, `backlog[]`, `overpaid[]` (months holding credit) and `credit_moves[]` |
 | `GET /report?month=YYYY-MM` | The monthly report: one `ReportRow` per student relevant to the month, and `totals`. See [Monthly report](#monthly-report). `month` defaults to the current month |
 | `GET /report.xlsx?month=YYYY-MM&status=&q=&sort=&order=` | The report as the page shows it, as an Excel file (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`), a download named `scrappy-records-report-YYYY-MM.xlsx`. `status` is a `ReportFilter` (default `all`), `q` the search (as `lib/search.ts`: name, class or phone), `sort` a `ReportSort` and `order` `asc`/`desc` (ties keep the usual order): `services/report.shown`, the same rules as `frontend/src/lib/report.ts`. A title row (with the filter, search and sort in words), the date, frozen bold headings with Excel's filter buttons, one row per student in the screen's column order (money in rupees with the Indian-grouping formats `RUPEES` / `RUPEES_PAISE`), a bold totals row of `SUBTOTAL(109, …)` formulas, and a Collected line (a formula); A4 landscape, one page wide, when printed from Excel. `services/report_xlsx.py` (openpyxl) |
+| `GET /export/students.xlsx?status=active\|left\|all&q=` | The Students page as shown, as an Excel file (`exportStudents`). `q` uses the page's own search rules (`services/text.student_matches`, the Python twin of `lib/search.ts`), not the list endpoint's. See [Excel](#excel-download-and-upload) |
+| `GET /export/payments.xlsx?student_id=&month=&q=&method=&sort=&order=` | The Payments page as shown: its filters (method included, which the list endpoint leaves to the UI) and the table's order (`exportPayments`) |
+| `GET /export/everything.xlsx` | Every record in one workbook: Students, Fee history, Payments and Unassigned payments, with each student's ID (`exportEverything`). Uploading it into an empty app restores everything |
+| `GET /import/template.xlsx?kind=students\|payments` | A blank sheet to fill in, and a *How to fill this in* sheet the upload skips (`importTemplate`) |
+| `POST /import/preview?filename=` | The `.xlsx` file itself as the body (at most 5 MB). Answers `ImportPreview`: what adding the file would do, with every row that needs a choice and the first rows of the rest, and counts for all. **Saves nothing.** A file that can't be read is a 422 with a plain message (`previewImport`) |
+| `POST /import/commit` | `ImportCommit`: the same file again (base64) and the owner's choices, for only the rows she chose something for. The file is read and every row checked again against the records as they are now, a `pre-import` backup is taken (only if anything will be added), and it is all added in one transaction. Answers `ImportResult` (`commitImport`) |
+| `GET /unassigned-payments` | Every unassigned payment, oldest paid first, each with `suggested_student_ids` (`listUnassignedPayments`) |
+| `POST /unassigned-payments/{id}/assign` | Body `{student_id}`. In one transaction: the payment is added for that student and the unassigned row deleted. 201 with the `PaymentRead`. 422 on `student_id` if that student already has the same payment (amount, `paid_on`, `for_month`), or doesn't exist; 404 if the unassigned payment is gone (`assignUnassignedPayment`) |
+| `DELETE /unassigned-payments/{id}` | 204; 404 if it's gone (`deleteUnassignedPayment`) |
 | `GET /students/{id}/suggest-payment` | `{for_month, amount_paise, reason}`, as in the PRD's ledger rule 9. `reason` is `owed` (the oldest *due* month that is unpaid or partial, and what's left on it), `next_unpaid` (nothing is owed yet: the first enrolled month after the current month that has a fee and isn't fully paid, and what's left on it; months with a ₹0 fee are skipped), or `all_paid` (nothing is left in the enrolled months up to 24 months ahead, the latest month a payment can be logged for; `for_month` and `amount_paise` are `null`). It never suggests a month that is already fully paid, one with a ₹0 fee, one outside the months the student is enrolled in, or one more than 24 months ahead |
 
 **Errors.**
@@ -129,11 +161,19 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 | `PaymentRead` | `id`, `student_id`, `student_name`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `paid_direct_paise` (the part that pays `for_month`), `needs_check` (worth a glance in case of a typo: it pays 4 or more months ahead, or some of it is kept as credit; `ledger.needs_check`), `months_ahead` (how many months after the current one it pays), `extra_sent[]` (`ExtraSent`: the rest, paying other months, oldest first), `extra_unused_paise` (credit), `created_at`, `updated_at`. Always `amount = paid_direct + Σ extra_sent + extra_unused` |
 | `DashboardResponse` | `month`, `summary` (`expected_paise`, `collected_paise` (what pays M: Σ `paid_direct + covered_by_credit` for M over every student), `paid_ahead_paise` (for a month after the current one, the same as `collected_paise`; 0 otherwise), `still_due_paise`, `not_fully_paid_count`, `active_student_count`, `logged_paise` (every payment logged for M, as typed: the Payments page's total for M), `covered_by_credit_paise` (the part of `collected_paise` from other months' payments), `sent_elsewhere_paise` (the part of `logged_paise` that paid other months)), `current_month`, `yet_to_pay[]` (each with `paid_paise`, `covered_by_credit_paise` and `credit_paise`), `backlog[]` (each with `months[]` (`BacklogMonth`, with `covered_by_credit_paise`), `total_owed_paise` and `credit_paise`), `overpaid[]` (`OverpaidItem`: months holding credit, with `batch_label`, `phone`, `excess_paise` and `extra_unused_paise`) and `credit_moves[]` (`CreditMoveItem`) |
 | `CreditMoveItem` | Extra money moved into or out of M: `student_id`, `student_name`, `batch_label`, `phone`, `payment_id`, `paid_on`, `from_month` (the month the payment was logged for), `to_month` (the month it pays), `amount_paise`, `payment_amount_paise` (the whole payment), `payment_pays_until` (the latest month the payment pays: `ledger.pays_until`), `payment_needs_check`, `payment_months_ahead`, `payment_extra_unused_paise` (so the check can say why). One per payment and month (the UI groups them by payment); one of the two months is M. Sorted by student name, then `to_month`, then the payment's `(paid_on, id)` |
-| `ReportResponse` | `month`, `current_month`, `today` (the server's date, printed on the report), `rows[]` (`ReportRow`, in `ReportStatus` order, then by name ignoring case and accents), `totals` (`ReportTotals`) |
+| `ReportResponse` | `month`, `current_month`, `today` (the server's date, printed on the report), `rows[]` (`ReportRow`, in `ReportStatus` order, then by name ignoring case and accents), `totals` (`ReportTotals`), `unassigned_count` and `unassigned_paise` (unassigned payments for M: in no row or total, so the report adds a line saying so, and its Excel file a note under the totals) |
 | `ReportRow` | `student_id`, `student_name`, `batch_label`, `phone`, `joined_month`, `left_month`, `is_enrolled` (active in M), `status` (`ReportStatus`), `no_fee_reason` (`NoFeeReason`, only for `no_fee`), `checks[]` (`ReportCheck`: payments logged for M that `ledger.needs_check` flags, with `payment_id`, `paid_on`, `amount_paise`, `pays_until`, `months_ahead`, `extra_unused_paise`, as on the dashboard); for M, the student's `LedgerMonth` fields: `fee_paise` (`expected_paise`), `paid_paise` (logged for M, as typed), `paid_direct_paise`, `covered_by_credit_paise` with `credit_sources[]`, `extra_sent_paise` (Σ `extra_sent`) with `extra_sent[]`, `extra_unused_paise`, `short_paise` (`remaining_paise`); `owed_before_paise` and `owed_before_months[]` (due months before M still Unpaid or Partial: the dashboard's `backlog` entry); and, as of the current month, `owed_now_paise`, `credit_paise`, `paid_ahead_paise` (the `StudentRead` values) |
 | `ReportTotals` | `student_count` and the sums of every row's money fields, plus `collected_paise` (Σ `paid_direct + covered_by_credit`), `not_fully_paid_count` (rows with `short_paise > 0`) and `active_student_count` (rows enrolled in M with a fee above 0). They are the dashboard summary for M: `fee_paise` = `expected_paise`, `paid_paise` = `logged_paise`, `extra_sent_paise` = `sent_elsewhere_paise`, `short_paise` = `still_due_paise`, and `collected_paise`, `covered_by_credit_paise` and the two counts are the same |
 | `SuggestedPayment` | `for_month` (nullable), `amount_paise` (nullable), `reason` |
 | `StudentReturn` (request) | `from_month`, `monthly_fee_paise` (optional) |
+| `UnassignedPaymentRead` | `id`, `student_text`, `phone`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `source`, `created_at`, `suggested_student_ids` (same name or phone first, then whoever the Students search finds for the name as written; at most 5) |
+| `UnassignedAssign` (request) | `student_id` |
+| `ImportPreview` | `filename`, `sheets` (read), `ignored_sheets`, `hidden_sheets`, `students[]` (`ImportStudentPreview`), `payments[]` (`ImportPaymentPreview`), `student_counts` and `payment_counts` (rows by status, all of them), `all_rows_shown` (false when rows that need no choice were only counted), `fee_changes` (fee-history rows restored with the new students), `current_month`,
+`file_sha256` (of the file read, for Add). Every `similar`, `needs_student`, `follows_student` and `possible_duplicate` row is listed; of each other status the first 100 (problems: 1,000) |
+| `ImportStudentPreview` | `row`, `sheet`, `name`, `phone`, `monthly_fee_paise`, `joined_month`, `status`, `reason` (plain words), `student_id` (the student already here it is, or looks like), `add_by_default` (a `similar` row added unless skipped) |
+| `ImportPaymentPreview` | `row`, `sheet`, `student_text`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `status`, `reason`, `student_id` (an existing student it goes to), `student_row` (a student in the same file it goes to), `candidate_ids` (who it may be) |
+| `ImportCommit` (request) | `file` (the .xlsx, base64), `file_sha256` (the preview's), `filename`, `students[]` (`{row, add}`: `add: true` adds a `similar` row, `false` skips any row), `payments[]` (`{sheet, row, choice, student_id?}`). Rows not mentioned do what their status says; rows that aren't in the file are ignored |
+| `ImportResult` | `students_added`, `fee_changes_added`, `payments_added`, `unassigned_added`, `skipped` (rows sent but not added), `backup_file` (the `records-pre-import-…` file, or `null` when nothing was added) |
 | `HealthResponse` | `app`, `version`, `status` |
 
 **Enums.**
@@ -156,6 +196,12 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 - `SuggestionReason`: `owed`, `next_unpaid`, `all_paid`.
 - `PaymentMethod`: `upi`, `cash`, `other`.
 - `FeeKind`: `fee`, `away`.
+- `ImportStudentStatus`: `new`, `exists`, `similar`, `problem`.
+- `ImportPaymentStatus`: `ready`, `needs_student`, `follows_student`, `unassigned`, `duplicate`,
+  `possible_duplicate`, `problem`.
+- `ImportPaymentChoice`: `auto` (what the status says), `student` (with `student_id`),
+  `unassigned`, `skip`, `add` (add anyway, though it looks like a duplicate).
+- `ExportTemplateKind`: `students`, `payments`.
 
 **Lists.** `GET /students` and `GET /payments` return plain JSON arrays, **unpaginated**: at
 this scale (thousands of payments at most) one response is small and fast. Students are sorted by
@@ -264,6 +310,122 @@ September: ₹0 from June, ₹1,800 from September. A payment logged for a gap m
 like any payment for a month with no fee: it pays the oldest month still owed (or later months
 ahead). `left_month` is cleared.
 
+## Excel download and upload
+
+The code is in `services/exports.py` (downloads), `services/spreadsheet.py` (reading a file) and
+`services/imports.py` (preview and add); `openpyxl` reads and writes the files.
+
+**Downloads.** Real Excel dates for *Paid on* (`d mmm yyyy`), months as real first-of-month
+dates shown as `mmm yyyy` (so they sort, and read back exactly whatever the spreadsheet app does
+to them), money in rupees with a ₹ format, bold frozen headings, and text cells kept as text
+(a note starting with `=` is never a formula). File names are
+`scrappy-records-<students|payments|everything>-YYYY-MM-DD.xlsx`. *Download everything* adds a
+grey **Student ID (for restoring)** column to the Students, Fee history and Payments sheets:
+each student's `uid` (given to anyone who hasn't one yet, when the file is made). It links the
+sheets, and finds the same students again when the file is uploaded, into this app or any
+other; a restore gives each new student the uid from the file.
+
+**Reading a file.** At most 5 MB, and a zip that unpacks to at most 80 MB; 5,000 rows a sheet
+for a list someone made. A sheet with the Student ID column (a Download everything file) is
+limited only by the file size (a sanity cap of 300,000 rows): a 3,000-student, 96,000-payment
+file (3 MB) previews in about 5 s and adds in about 6 s. The size a file claims for a sheet is
+ignored (`reset_dimensions`: a stale one would drop rows), hidden sheets are skipped and listed
+in `hidden_sheets`, and a merged range's value counts in every cell it covers (only its first
+64 columns, and only the rows the sheet really has, so a huge merge costs nothing).
+Anything else (not `.xlsx`, an old `.xls`, damaged, password-protected, no recognisable
+headings) is a 422 with a plain message; never a 500. A sheet's kind comes from its name (the
+app's own: *Students*, *Fee history*, *Payments*, *Unassigned payments*) or its headings, found
+in the first 10 rows (a sheet with an amount or method heading, or a date heading and no phone
+column, is tried as payments first, where *Fee(s)* is the amount; *Name, Mobile, Fee, Date* is
+students), ignoring case, punctuation, `₹` and anything in brackets: *Name* or
+*Student*; *Fee* or *Monthly fee*; *Amount*; *Date* or *Paid on*; *Month* or *For month*;
+*Phone*/*Mobile*; *Parent*/*Guardian*; *Class*/*Batch*; *Method*/*Mode*; *Note(s)*/*Remarks*.
+One sheet of each kind is read; the rest are listed in `ignored_sheets`. Cells:
+
+- Dates: date cells, Excel day numbers (also as text: `46300`), `5 Oct 2026`, `05/10/2026`
+  (day first, as in India; a time after it is ignored), `5-10-26`, `2026-10-05`.
+- Months: date cells (their month), `Oct 2026`, `October 2026`, `Oct-26`, `2026-10`, `10/2026`,
+  `10/26`.
+  A payment with no month counts for the month it was paid in; a student with no joined month
+  joins this month.
+- Money: numbers, `₹1,500`, `1500/-`, `Rs. 1,50,000.00`. Negative amounts, text, more than
+  two decimals, and two numbers in one cell (`₹500 700`) are problems.
+- Method: UPI (also GPay, PhonePe, Paytm, BHIM), Cash, or Other for anything else, blank
+  included.
+
+Every row is then checked with the same rules as typing it in: the `StudentCreate` /
+`PaymentCreate` field rules (lengths, the ₹10,00,000 cap, characters that can't be saved) and
+the [limits](#limits). A row that breaks one is a **problem**, with the row number and a plain
+reason, and is skipped.
+
+**Students** are matched with the shared search rules (`services/text.py`,
+`services/matching.py`, all through indexes, so thousands of rows take seconds): names are the
+same when they have the same words, in any order, ignoring capitals, accents and apostrophes (a
+hyphen separates words); phones when they have the same digits (without `+91`). `exists`: same
+name and phone, or same name and neither has a phone, or the same as an earlier row. `similar`:
+same name with a different phone (or one of them has none), the same phone with a different
+name, a name a letter apart (5–9 letters) or two apart (10 or more), a shortened name (*Ananya
+R* and *Ananya Rao*: the same number of words, one the same, the others the start of their
+partner), or more than one student here with the row's name and phone (one is never picked
+silently); a second row with the same name as an earlier one where neither has a phone is
+`similar` too (perhaps two people). All skipped unless the owner picks *Add as new*, except the
+same phone as an earlier row of the file only (siblings), which is added unless she skips it
+(`add_by_default`). Otherwise `new`. Nothing already here is ever changed.
+
+**Student IDs.** Rows of a Download everything file carry the student's `uid`. A student here
+with that uid is that row (`exists`) only if the row's name is theirs and its phone, where both
+have one, agrees: in this app or one the file was restored into. Otherwise (a row copied in
+Excel with a new name typed over it, a crafted row, or a phone changed since) the row is
+`similar` to them: *Skip*, or *Add as new*, which gives the new student a uid of their own. The
+same ID on two rows of the file with different names is handled the same way. The database's
+own ids are never used, so a restore where they came out different changes nothing. Two rows
+with different IDs are different people, so rows are never compared with each other (two
+*Priya S* with no phone, or siblings sharing a phone, stay apart). A row whose ID nobody here has
+is matched by name and phone as usual, each student here being one ID'd row at most. Payments
+and fee history link to their student by ID, but a payment follows its ID only when its own
+name (and phone) agree with that student's row; if not, it `needs_student`, and nothing is ever
+added to a student on the strength of an ID alone. Uids are given with one `UPDATE ... WHERE uid
+IS NULL`, so two downloads at the same moment can't give a student two.
+
+**Payments** go to the student named: through the file's Student ID first (a Download
+everything file), else by name and phone among the students here and the `new`/`similar` ones in
+the same file. It goes to a student by itself only when the name matches (the same name and
+phone beats a name-only match; the same name with a different phone is no match), or when the
+row has only a phone number and it's theirs. The same phone under another name is
+`needs_student`, with that student offered first. One match: `ready` (or `follows_student` when
+it's a `similar` row in the file: it goes to them only if they're added, else it's kept
+unassigned). None, or more than one: `needs_student`, kept as unassigned unless the owner picks
+a student or skips it.
+
+**Duplicates** are counted one for one against where each payment is going (a student here, a
+new one, or unassigned by name as written): `duplicate` when a payment there has the same
+amount, `paid_on`, `for_month`, method and note; `possible_duplicate` when only the method or
+note differ. The same for an earlier row of the file, except that rows linked by Student ID are
+never duplicates of each other (a restore brings back two identical instalments). A payment
+whose student is a `similar` row, or that matches more than one student, is also checked
+against the payments of the students here it may be, so an older download uploaded after an
+edit adds nothing, not even unassigned payments. Both kinds are skipped unless the owner
+chooses **Add anyway** (`choice: "add"`).
+
+**Fee history** (a Download everything file) comes with each `new` student and is restored
+exactly, months away included; it must start at the joined month, have one fee a month, and no
+fee for a month away (else the student is a problem). An existing student's fee history is left
+alone. Without one, a new student gets their *Monthly fee* from their joined month.
+
+**Adding** (`POST /import/commit`) never trusts the preview: the browser sends the very bytes it
+previewed (read once, never from disk again) as base64, with the preview's `file_sha256` and only
+the choices the owner made. A body over 8 MB is refused before it's read (`app/limits.py`); a
+file whose SHA-256 isn't the preview's is a 422 ("The file changed since you previewed it"); a
+choice for a row or sheet that isn't in the file is a 422; and no 422 from this endpoint echoes
+what was sent. Then the server takes the write lock, reads the
+file and the records again, re-checks every row, re-classifies, applies the choices (a choice
+can't add an `exists` or `problem` row; a chosen student who no longer exists means *keep as
+unassigned*), re-checks duplicates, takes the `pre-import` backup (a failed backup is a 422 and
+nothing is added), and adds everything in one transaction (payments in bulk). Any error rolls
+all of it back. Sending the file again, rather than keeping it on the server between the two
+steps, keeps the server stateless: nothing to expire or clean up, and a restart in between
+changes nothing.
+
 ## Ledger computation
 
 The ledger is computed in `services/ledger.py` from a student, their fee changes and their
@@ -320,6 +482,8 @@ the edges.
   computed, never stored.
 - **Dashboard lists** are sorted by student name, ignoring case and accents. Overpaid rows are
   oldest month first within a student.
+
+Unassigned payments (`unassigned_payments`) belong to no student, so none of this counts them.
 
 At this scale (hundreds of students, thousands of payments) computing it on every request is
 effectively instant.

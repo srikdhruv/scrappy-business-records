@@ -7,6 +7,8 @@ import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 
 import { useStudents } from '@/api/queries'
+import { ExcelButtons } from '@/components/excel-buttons'
+import { ExcelUploadDialog } from '@/components/excel-upload-dialog'
 import { PageHeader } from '@/components/layout/page-header'
 import { Panel } from '@/components/panel'
 import { FeeNow } from '@/components/fee-now'
@@ -25,6 +27,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { studentsDownloadUrl } from '@/lib/downloads'
 import { formatMonthShort } from '@/lib/format'
 import { tenureLabel } from '@/lib/labels'
 import { studentMatches } from '@/lib/search'
@@ -42,6 +45,7 @@ export function StudentsPage() {
   const tab: Tab = tabParam && TABS.some((t) => t.value === tabParam) ? tabParam : 'active'
   const [search, setSearch] = useState('')
   const [newOpen, setNewOpen] = useState(false)
+  const [uploadOpen, setUploadOpen] = useState(false)
   const navigate = useNavigate()
   const students = useStudents('all')
 
@@ -62,7 +66,17 @@ export function StudentsPage() {
     <>
       <PageHeader
         title="Students"
-        description="Everyone in your classes. Click a name to see their full history."
+        description={
+          <>
+            <p>Everyone in your classes. Click a name to see their full history.</p>
+            {/* Download: the students shown below, for this tab and this search. */}
+            <ExcelButtons
+              downloadHref={studentsDownloadUrl(tab, search)}
+              onUpload={() => setUploadOpen(true)}
+              everything
+            />
+          </>
+        }
         actions={
           <Button variant="outline" size="lg" onClick={() => setNewOpen(true)}>
             <UserPlusIcon aria-hidden />
@@ -214,6 +228,7 @@ export function StudentsPage() {
       </Panel>
 
       <StudentFormDialog open={newOpen} onOpenChange={setNewOpen} />
+      <ExcelUploadDialog open={uploadOpen} onOpenChange={setUploadOpen} kind="students" />
     </>
   )
 }

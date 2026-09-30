@@ -45,6 +45,10 @@ can open the app and see who is left to pay.
      as Excel or print (see "Monthly report for a selected month M").
 5. **Payments page.** Every payment, sortable and filterable.
 6. **Students page.** Every student, with a status and how long they have been a student.
+7. **Excel.** Download the Students and Payments lists (as shown), or everything, as an Excel
+   file; upload students and payments from one, with a preview first. An upload never changes
+   what is already here, and payments whose student isn't found wait as *unassigned* until
+   given to a student.
 
 ### Not in the MVP
 
@@ -73,6 +77,9 @@ entry.
 | D4 | look at a different month | I can check the past |
 | D5 | log a payment straight from the dashboard | following up is one click |
 | D6 | click out from the dashboard into a report of every student for the month: their status, whether they've paid, how much, how much extra, how much under | at month end I have one list of who paid what, and whom to chase, to keep (Excel) or print |
+| X1 | download the Students or Payments list, or everything, as an Excel file | my records can be moved or shared |
+| X2 | upload students and payments from an Excel file, seeing what will happen first | I can add a list at once, without duplicates or overwriting anything |
+| X3 | give a payment that matched no student to the right student later | nothing uploaded is lost |
 
 ## Data captured
 

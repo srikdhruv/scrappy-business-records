@@ -100,6 +100,10 @@ class Student(TimestampMixin, Base):
     # Last month they owe. Set means the student is archived ("left").
     left_month: Mapped[dt.date | None] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text)
+    # A random id that stays with the student across Excel downloads and uploads (a restore
+    # keeps it), so a Download everything file finds the same students again in any app,
+    # whatever their database ids. Given the first time they're downloaded.
+    uid: Mapped[str | None] = mapped_column(String)
 
     fee_changes: Mapped[list[FeeChange]] = relationship(
         back_populates="student",
@@ -125,6 +129,7 @@ class Student(TimestampMixin, Base):
             "left_month IS NULL OR left_month >= joined_month", name="left_after_joined"
         ),
         Index("ix_students_name", "name"),
+        Index("ix_students_uid", "uid", unique=True),
     )
 
 
@@ -214,4 +219,49 @@ class Payment(TimestampMixin, Base):
         Index("ix_payments_student_id_for_month", "student_id", "for_month"),
         Index("ix_payments_for_month", "for_month"),
         Index("ix_payments_paid_on", "paid_on"),
+    )
+
+
+class UnassignedPayment(Base):
+    """A payment from an uploaded spreadsheet whose student couldn't be matched (or was
+    ambiguous), kept as it was written until the owner assigns it to a student (which moves it
+    into `payments`) or deletes it. It belongs to no student, so it is never counted in any
+    student's or month's totals."""
+
+    __tablename__ = "unassigned_payments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # The student as written in the file (a name, or a phone number).
+    student_text: Mapped[str] = mapped_column(String, nullable=False)
+    phone: Mapped[str | None] = mapped_column(String)
+    amount_paise: Mapped[int] = mapped_column(Integer, nullable=False)
+    paid_on: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    for_month: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    method: Mapped[PaymentMethod] = mapped_column(
+        Enum(
+            PaymentMethod,
+            name="payment_method",
+            native_enum=False,
+            create_constraint=False,  # declared below, like payments.method
+            length=16,
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+    )
+    note: Mapped[str | None] = mapped_column(Text)
+    # Where it came from, e.g. "Upload: fees-october.xlsx".
+    source: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+
+    __table_args__ = (
+        CheckConstraint("length(trim(student_text)) > 0", name="student_text_not_blank"),
+        CheckConstraint(
+            "method IN ({})".format(", ".join(f"'{m.value}'" for m in PaymentMethod)),
+            name="method_valid",
+        ),
+        CheckConstraint("amount_paise > 0", name="amount_positive"),
+        CheckConstraint(_first_of_month("for_month"), name="for_month_first_of_month"),
+        CheckConstraint(_valid_date("paid_on"), name="paid_on_valid_date"),
     )
