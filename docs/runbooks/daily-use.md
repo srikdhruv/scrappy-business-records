@@ -11,23 +11,30 @@ name. **Back to** (under the month) brings you back to this month.
   **Collected**, how much is **Still due**, and how many students are **Not fully paid**.
 - **Yet to pay:** students who haven't paid, or have paid only part (**Partial**), for this
   month, with how much is left. Click **Log payment** next to a name to record their payment. The
-  student, month and amount are filled in for you.
+  student, month and amount are filled in for you: check the amount and press **Enter**.
 - **Earlier months still owed:** anyone who still owes for previous months, the months, and how
   much in total. Click a name to open their profile.
 - **Paid too much:** months where someone paid more than their fee.
+
+A month that hasn't started yet shows who has already **paid ahead** for it. Nothing counts as
+owed until the month comes.
 
 When everyone has paid, you'll see **Everyone's paid for** the month 🎉.
 
 ## When someone pays you
 
 1. Click **+ Log payment** at the top right. It's there on every page.
-2. Start typing the student's name and pick them from the list.
+2. Start typing the student's name, and pick them from the list with the arrow keys and
+   **Enter** (or click their name).
 3. Check the **Amount** and **For month**. They're filled in with the oldest month the student
    still owes (the form says, for example, "Oldest unpaid: August 2026"). If they're paid up,
    it's the next month they haven't paid for. You can change both.
 4. Pick **How they paid**: **UPI**, **Cash** or **Other**.
 5. **Paid on** is today. Change it if they paid on another day. Add a **Note** if you like.
 6. Click **Save payment**, or press **Enter**.
+
+If the amount is much more than their fee, the form asks "Is it right?" in case of an extra zero.
+You can still save it.
 
 That's it. The dashboard updates straight away. If you saved by mistake, click **Undo** in the
 message that appears.
@@ -49,8 +56,10 @@ message that appears.
    left**.
 
 After that month they stop owing, and they move from the **Active** tab to the **Left** tab on
-the Students page. Their history is kept. If they come back, open their profile and click **Mark
-as coming again**.
+the Students page. Until then their profile says "Leaving after …". Their history is kept.
+
+Changed your mind? Before that month, click **Mark as staying**. If they come back later, open
+their profile and click **Mark as coming again**.
 
 ## Changing a student's fee
 
@@ -65,8 +74,10 @@ Earlier months keep the old fee.
 
 - **Wrong payment:** go to **Payments**, find it (search, filter, or click a column heading to
   sort), then click **Edit** or **Delete**. You can also do this from the student's profile.
-- **Paid too much:** the student's profile shows which month was paid extra. Click **Edit
-  payment** next to it, and change the amount or the month if it was meant for another month.
+- **Paid too much:** the student's profile shows which month was paid extra (for example "Paid
+  ₹1,500 extra in Feb 2026"). Click **Edit payment** next to it, and change the amount or the
+  month if it was meant for another month. Paying early for months that haven't started yet is
+  different: that shows as **Paid ahead**, and there is nothing to fix.
 - **Student added by mistake:** open their profile and click **Delete**. This also deletes their
   payments, and the app will ask you to confirm first.
 

@@ -91,7 +91,7 @@ function checkNotTooLate(field: string, month: string | null | undefined, now: s
   if (month && month > latest) {
     invalid(
       field,
-      `${MONTH_LABELS[field]} can’t be later than ${formatMonth(latest)} (two years from now)`,
+      `${MONTH_LABELS[field]} can't be later than ${formatMonth(latest)} (two years from now)`,
     )
   }
 }
@@ -204,7 +204,7 @@ export class MockDb {
     checkMonth('joined_month', body.joined_month)
     checkMonth('left_month', body.left_month)
     if (body.left_month && body.left_month < body.joined_month) {
-      invalid('left_month', 'Left month can’t be before the joined month')
+      invalid('left_month', "Left month can't be before the joined month")
     }
     checkNotTooLate('joined_month', body.joined_month, this.now())
     checkNotTooLate('left_month', body.left_month, this.now())
@@ -255,7 +255,7 @@ export class MockDb {
     checkMonth('left_month', body.left_month)
     checkMonth('fee_effective_month', body.fee_effective_month)
     if (body.left_month && body.joined_month && body.left_month < body.joined_month) {
-      invalid('left_month', 'Left month can’t be before the joined month')
+      invalid('left_month', "Left month can't be before the joined month")
     }
 
     const own = this.fees
@@ -269,7 +269,7 @@ export class MockDb {
     if (joined !== student.joined_month && later && joined >= later.effective_month) {
       invalid(
         'joined_month',
-        `The joined month can’t be on or after a later fee change (${formatMonth(later.effective_month)}). Change that fee first.`,
+        `The joined month can't be on or after a later fee change (${formatMonth(later.effective_month)}). Change that fee first.`,
       )
     }
     const leftSent = 'left_month' in body
@@ -277,14 +277,14 @@ export class MockDb {
     if (left !== null && left < joined) {
       invalid(
         leftSent ? 'left_month' : 'joined_month',
-        'Left month can’t be before the joined month',
+        "Left month can't be before the joined month",
       )
     }
     let feeMonth: string | null = null
     if (fee != null) {
       feeMonth = body.fee_effective_month ?? (now > joined ? now : joined)
       if (feeMonth < joined) {
-        invalid('fee_effective_month', 'The new fee can’t start before the joined month')
+        invalid('fee_effective_month', "The new fee can't start before the joined month")
       }
     }
 
@@ -377,8 +377,8 @@ export class MockDb {
     if (!DATE_RE.test(p.paid_on)) invalid('paid_on', 'Enter a valid date')
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
-    if (p.paid_on < '2000-01-01') invalid('paid_on', 'Paid-on date can’t be before the year 2000')
-    if (p.paid_on > today(tomorrow)) invalid('paid_on', 'Paid-on date can’t be in the future')
+    if (p.paid_on < '2000-01-01') invalid('paid_on', "Paid-on date can't be before the year 2000")
+    if (p.paid_on > today(tomorrow)) invalid('paid_on', "Paid-on date can't be in the future")
     checkMonth('for_month', p.for_month)
     checkNotTooLate('for_month', p.for_month, this.now())
     if (!METHODS.includes(p.method)) invalid('method', "Input should be 'upi', 'cash' or 'other'")

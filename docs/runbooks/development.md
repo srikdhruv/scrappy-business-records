@@ -142,6 +142,17 @@ The mock can never ship: `main.tsx` only imports it behind `import.meta.env.DEV`
 from `node_modules` (it isn't in `public/`). To check, run `make build`, then
 `grep -rc msw backend/app/static`; it finds nothing.
 
+## End-to-end tests
+
+`make e2e` builds the UI, starts the real server (`python -m app`) on a free port with a
+throwaway data folder, and runs the Playwright tests in `frontend/e2e/` against it in Chromium.
+They cover the owner's everyday flows: adding a student and logging their payment from the
+dashboard, moving a payment to another month, a fee change from a chosen month, marking a
+student as left, credit and paid-ahead, deleting with confirmation, and a server-side validation
+message shown next to its field. Each test sets up its own students through the API, relative to
+the server's current month. The first run needs a browser: `cd frontend && npx playwright install
+chromium`. CI's `e2e` job runs the same thing, with the browser cached.
+
 ## Database migrations
 
 1. Change `backend/app/models.py`.

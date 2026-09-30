@@ -67,7 +67,7 @@ describe('student profile', () => {
     await user.click(await screen.findByRole('button', { name: 'August 2026' }))
     await user.click(dialog.getByRole('button', { name: 'Save changes' }))
     expect(
-      await dialog.findByText(/The joined month can’t be on or after a later fee change/),
+      await dialog.findByText(/The joined month can't be on or after a later fee change/),
     ).toBeInTheDocument()
   })
 
