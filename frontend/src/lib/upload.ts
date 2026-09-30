@@ -62,22 +62,48 @@ export interface Summary {
   problems: number
 }
 
+/**
+ * What adding the file would do with these choices. The preview lists every row that needs a
+ * choice, and only counts most of the others (a big file), so the counts come from the server
+ * and the listed choice rows adjust them.
+ */
 export function summarize(preview: ImportPreview, choices: Choices): Summary {
+  const count = (counts: Record<string, number>, ...statuses: string[]) =>
+    statuses.reduce((sum, status) => sum + (counts[status] ?? 0), 0)
+  const students = preview.student_counts
+  const payments = preview.payment_counts
   const byRow = new Map(preview.students.map((s) => [s.row, s]))
-  const outcomes = preview.payments.map((p) => paymentOutcome(p, choices, byRow))
+  // Rows whose outcome depends on a choice: all of them are listed.
+  const chosen = preview.payments.filter(
+    (p) => needsChoice(p) || p.status === 'follows_student' || p.status === 'duplicate',
+  )
+  const outcomes = chosen.map((p) => paymentOutcome(p, choices, byRow))
+  const addedAnyway = chosen.filter((p, i) => p.status === 'duplicate' && outcomes[i] === 'add')
   return {
-    students: preview.students.filter((s) => studentAdded(s, choices)).length,
-    payments: outcomes.filter((o) => o === 'add').length,
-    unassigned: outcomes.filter((o) => o === 'unassigned').length,
-    alreadyHere:
-      preview.students.filter((s) => s.status === 'exists').length +
-      preview.payments.filter((p, i) => p.status === 'duplicate' && outcomes[i] === 'skip').length,
-    toChoose:
-      preview.students.filter(needsChoice).length + preview.payments.filter(needsChoice).length,
-    problems:
-      preview.students.filter((s) => s.status === 'problem').length +
-      preview.payments.filter((p) => p.status === 'problem').length,
+    students:
+      count(students, 'new') +
+      preview.students.filter((s) => s.status === 'similar' && studentAdded(s, choices)).length,
+    payments: count(payments, 'ready') + outcomes.filter((o) => o === 'add').length,
+    unassigned: count(payments, 'unassigned') + outcomes.filter((o) => o === 'unassigned').length,
+    alreadyHere: count(students, 'exists') + count(payments, 'duplicate') - addedAnyway.length,
+    toChoose: count(students, 'similar') + count(payments, 'needs_student', 'possible_duplicate'),
+    problems: count(students, 'problem') + count(payments, 'problem'),
   }
+}
+
+/** How many rows the file has in all (the preview may list only some of them). */
+export function rowCount(counts: Record<string, number>): number {
+  return Object.values(counts).reduce((sum, n) => sum + n, 0)
+}
+
+/** The file as base64, as Add sends it (the server reads it again). */
+export async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  }
+  return btoa(binary)
 }
 
 /** Rows the To choose tab shows: look-alikes, payments without a student, possible duplicates. */

@@ -25,6 +25,7 @@
 | `joined_month` | DATE NOT NULL | First month they owe |
 | `left_month` | DATE NULL | Last month they owe. Once it has passed, the student is *Left* (archived) |
 | `notes` | TEXT NULL | |
+| `uid` | TEXT NULL, unique | A random id (32 hex letters) the student keeps across Excel downloads and uploads; given the first time they're in a *Download everything* file, and kept by a restore. Added by migration `0004` (a new nullable column and index: `ALTER TABLE ... ADD COLUMN`, no row changed). See [Excel](#excel-download-and-upload) |
 | `created_at`, `updated_at` | DATETIME | |
 
 ### `fee_changes`
@@ -129,8 +130,8 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 | `GET /export/payments.xlsx?student_id=&month=&q=&method=&sort=&order=` | The Payments page as shown: its filters (method included, which the list endpoint leaves to the UI) and the table's order (`exportPayments`) |
 | `GET /export/everything.xlsx` | Every record in one workbook: Students, Fee history, Payments and Unassigned payments, with each student's ID (`exportEverything`). Uploading it into an empty app restores everything |
 | `GET /import/template.xlsx?kind=students\|payments` | A blank sheet to fill in, and a *How to fill this in* sheet the upload skips (`importTemplate`) |
-| `POST /import/preview?filename=` | The `.xlsx` file itself as the body (at most 5 MB). Answers `ImportPreview`: what adding each row would do. **Saves nothing.** A file that can't be read is a 422 with a plain message (`previewImport`) |
-| `POST /import/commit` | `ImportCommit`: the preview's rows (their `data`) and the owner's choices. Everything is checked again against the records as they are now, a `pre-import` backup is taken (only if anything will be added), and it is all added in one transaction. Answers `ImportResult` (`commitImport`) |
+| `POST /import/preview?filename=` | The `.xlsx` file itself as the body (at most 5 MB). Answers `ImportPreview`: what adding the file would do, with every row that needs a choice and the first rows of the rest, and counts for all. **Saves nothing.** A file that can't be read is a 422 with a plain message (`previewImport`) |
+| `POST /import/commit` | `ImportCommit`: the same file again (base64) and the owner's choices, for only the rows she chose something for. The file is read and every row checked again against the records as they are now, a `pre-import` backup is taken (only if anything will be added), and it is all added in one transaction. Answers `ImportResult` (`commitImport`) |
 | `GET /unassigned-payments` | Every unassigned payment, oldest paid first, each with `suggested_student_ids` (`listUnassignedPayments`) |
 | `POST /unassigned-payments/{id}/assign` | Body `{student_id}`. In one transaction: the payment is added for that student and the unassigned row deleted. 201 with the `PaymentRead`. 422 on `student_id` if that student already has the same payment (amount, `paid_on`, `for_month`), or doesn't exist; 404 if the unassigned payment is gone (`assignUnassignedPayment`) |
 | `DELETE /unassigned-payments/{id}` | 204; 404 if it's gone (`deleteUnassignedPayment`) |
@@ -167,12 +168,10 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 | `StudentReturn` (request) | `from_month`, `monthly_fee_paise` (optional) |
 | `UnassignedPaymentRead` | `id`, `student_text`, `phone`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `source`, `created_at`, `suggested_student_ids` (same name or phone first, then whoever the Students search finds for the name as written; at most 5) |
 | `UnassignedAssign` (request) | `student_id` |
-| `ImportPreview` | `filename`, `sheets` (read), `ignored_sheets`, `hidden_sheets`, `students[]` (`ImportStudentPreview`), `payments[]` (`ImportPaymentPreview`), `fee_changes` (fee-history rows restored with the new students), `current_month` |
-| `ImportStudentPreview` | `row`, `sheet`, `name`, `phone`, `monthly_fee_paise`, `joined_month`, `status`, `reason` (plain words), `student_id` (the student already here it is, or looks like), `add_by_default` (a `similar` row added unless skipped), `data` (`ImportStudent`, to send back; `null` for a problem) |
-| `ImportPaymentPreview` | `row`, `sheet`, `student_text`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `status`, `reason`, `student_id` (an existing student it goes to), `student_row` (a student in the same file it goes to), `candidate_ids` (who it may be), `data` (`ImportPayment`; `null` for a problem) |
-| `ImportStudent` | `row`, `ref` (the file's Student ID), `name`, `phone`, `guardian_name`, `batch_label`, `notes`, `joined_month`, `left_month`, `monthly_fee_paise`, `fees[]` (`ImportFee`: `effective_month`, `amount_paise`, `kind`; the fee history from a Download everything file, restored exactly) |
-| `ImportPayment` | `row`, `student_text`, `phone`, `student_ref`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `unassigned` (from the Unassigned payments sheet), `source` |
-| `ImportCommit` (request) | `filename`, `students[]` (`{data, add?}`: `add: true` adds a `similar` row, `false` skips any row), `payments[]` (`{data, choice, student_id?}`) |
+| `ImportPreview` | `filename`, `sheets` (read), `ignored_sheets`, `hidden_sheets`, `students[]` (`ImportStudentPreview`), `payments[]` (`ImportPaymentPreview`), `student_counts` and `payment_counts` (rows by status, all of them), `all_rows_shown` (false when rows that need no choice were only counted), `fee_changes` (fee-history rows restored with the new students), `current_month`. Every `similar`, `needs_student`, `follows_student` and `possible_duplicate` row is listed; of each other status the first 100 (problems: 1,000) |
+| `ImportStudentPreview` | `row`, `sheet`, `name`, `phone`, `monthly_fee_paise`, `joined_month`, `status`, `reason` (plain words), `student_id` (the student already here it is, or looks like), `add_by_default` (a `similar` row added unless skipped) |
+| `ImportPaymentPreview` | `row`, `sheet`, `student_text`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `status`, `reason`, `student_id` (an existing student it goes to), `student_row` (a student in the same file it goes to), `candidate_ids` (who it may be) |
+| `ImportCommit` (request) | `file` (the .xlsx, base64), `filename`, `students[]` (`{row, add}`: `add: true` adds a `similar` row, `false` skips any row), `payments[]` (`{sheet, row, choice, student_id?}`). Rows not mentioned do what their status says; rows that aren't in the file are ignored |
 | `ImportResult` | `students_added`, `fee_changes_added`, `payments_added`, `unassigned_added`, `skipped` (rows sent but not added), `backup_file` (the `records-pre-import-…` file, or `null` when nothing was added) |
 | `HealthResponse` | `app`, `version`, `status` |
 
@@ -320,19 +319,24 @@ dates shown as `mmm yyyy` (so they sort, and read back exactly whatever the spre
 to them), money in rupees with a ₹ format, bold frozen headings, and text cells kept as text
 (a note starting with `=` is never a formula). File names are
 `scrappy-records-<students|payments|everything>-YYYY-MM-DD.xlsx`. *Download everything* adds a
-grey **Student ID (for restoring)** column to the Students, Fee history and Payments sheets,
-which links them when the file is uploaded again (IDs aren't kept: the upload gives new ones).
+grey **Student ID (for restoring)** column to the Students, Fee history and Payments sheets:
+each student's `uid` (given to anyone who hasn't one yet, when the file is made). It links the
+sheets, and finds the same students again when the file is uploaded, into this app or any
+other; a restore gives each new student the uid from the file.
 
-**Reading a file.** At most 5 MB, and a zip that unpacks to at most 80 MB; 5,000 rows a sheet,
-or, for a sheet with the Student ID column (a Download everything file), 100,000 rows in all.
-The size a file claims for a sheet is ignored (`reset_dimensions`: a stale one would drop rows),
-hidden sheets are skipped and listed in `hidden_sheets`, and a merged range's value counts in
-every cell it covers.
+**Reading a file.** At most 5 MB, and a zip that unpacks to at most 80 MB; 5,000 rows a sheet
+for a list someone made. A sheet with the Student ID column (a Download everything file) is
+limited only by the file size (a sanity cap of 300,000 rows): a 3,000-student, 96,000-payment
+file (3 MB) previews in about 5 s and adds in about 6 s. The size a file claims for a sheet is
+ignored (`reset_dimensions`: a stale one would drop rows), hidden sheets are skipped and listed
+in `hidden_sheets`, and a merged range's value counts in every cell it covers (only its first
+64 columns, and only the rows the sheet really has, so a huge merge costs nothing).
 Anything else (not `.xlsx`, an old `.xls`, damaged, password-protected, no recognisable
 headings) is a 422 with a plain message; never a 500. A sheet's kind comes from its name (the
 app's own: *Students*, *Fee history*, *Payments*, *Unassigned payments*) or its headings, found
-in the first 10 rows (a sheet with an amount, date or method heading is tried as payments first,
-where *Fee(s)* is the amount), ignoring case, punctuation, `₹` and anything in brackets: *Name* or
+in the first 10 rows (a sheet with an amount or method heading, or a date heading and no phone
+column, is tried as payments first, where *Fee(s)* is the amount; *Name, Mobile, Fee, Date* is
+students), ignoring case, punctuation, `₹` and anything in brackets: *Name* or
 *Student*; *Fee* or *Monthly fee*; *Amount*; *Date* or *Paid on*; *Month* or *For month*;
 *Phone*/*Mobile*; *Parent*/*Guardian*; *Class*/*Batch*; *Method*/*Mode*; *Note(s)*/*Remarks*.
 One sheet of each kind is read; the rest are listed in `ignored_sheets`. Cells:
@@ -359,17 +363,22 @@ same when they have the same words, in any order, ignoring capitals, accents and
 hyphen separates words); phones when they have the same digits (without `+91`). `exists`: same
 name and phone, or same name and neither has a phone, or the same as an earlier row. `similar`:
 same name with a different phone (or one of them has none), the same phone with a different
-name, or a name a letter apart (5–9 letters) or two apart (10 or more); skipped unless the owner
-picks *Add as new*, except the same phone as an earlier row of the file only (siblings), which
-is added unless she skips it (`add_by_default`). Otherwise `new`. Nothing already here is ever
-changed.
+name, a name a letter apart (5–9 letters) or two apart (10 or more), a shortened name (*Ananya
+R* and *Ananya Rao*: the same number of words, one the same, the others the start of their
+partner), or more than one student here with the row's name and phone (one is never picked
+silently); a second row with the same name as an earlier one where neither has a phone is
+`similar` too (perhaps two people). All skipped unless the owner picks *Add as new*, except the
+same phone as an earlier row of the file only (siblings), which is added unless she skips it
+(`add_by_default`). Otherwise `new`. Nothing already here is ever changed.
 
-**Student IDs.** Rows of a Download everything file carry the Student ID they had. Two rows with
-different IDs are different people, so rows are never compared with each other (two *Priya S*
-with no phone, or siblings sharing a phone, stay apart); the same ID twice is the same person.
-They're still matched against the students already here, each of whom can be only one ID'd row
-(the one with the same ID first, which is the case when a file goes back into the app it came
-from; any other is `similar`). Payments and fee history link to their student by ID.
+**Student IDs.** Rows of a Download everything file carry the student's `uid`. A student here
+with that uid *is* that row (`exists`), even if their name or phone has changed since the file
+was made (the reason says so), in this app or one the file was restored into. The database's
+own ids are never used, so a restore where they came out different changes nothing. Two rows
+with different IDs are different people, so rows are never compared with each other (two
+*Priya S* with no phone, or siblings sharing a phone, stay apart); the same ID twice is the same
+person. A row whose ID nobody here has is matched by name and phone as usual, each student here
+being one ID'd row at most. Payments and fee history link to their student by ID.
 
 **Payments** go to the student named: through the file's Student ID first (a Download
 everything file), else by name and phone among the students here and the `new`/`similar` ones in
@@ -385,19 +394,26 @@ a student or skips it.
 new one, or unassigned by name as written): `duplicate` when a payment there has the same
 amount, `paid_on`, `for_month`, method and note; `possible_duplicate` when only the method or
 note differ. The same for an earlier row of the file, except that rows linked by Student ID are
-never duplicates of each other (a restore brings back two identical instalments). Both are
-skipped unless the owner chooses **Add anyway** (`choice: "add"`).
+never duplicates of each other (a restore brings back two identical instalments). A payment
+whose student is a `similar` row, or that matches more than one student, is also checked
+against the payments of the students here it may be, so an older download uploaded after an
+edit adds nothing, not even unassigned payments. Both kinds are skipped unless the owner
+chooses **Add anyway** (`choice: "add"`).
 
 **Fee history** (a Download everything file) comes with each `new` student and is restored
 exactly, months away included; it must start at the joined month, have one fee a month, and no
 fee for a month away (else the student is a problem). An existing student's fee history is left
 alone. Without one, a new student gets their *Monthly fee* from their joined month.
 
-**Adding** (`POST /import/commit`) never trusts the preview: it takes the write lock, reads the
-records again, re-checks every row, re-classifies, applies the choices (a choice can't add an
-`exists` or `problem` row; a chosen student who no longer exists means *keep as unassigned*),
-re-checks duplicates, takes the `pre-import` backup (a failed backup is a 422 and nothing is
-added), and adds everything in one transaction. Any error rolls all of it back.
+**Adding** (`POST /import/commit`) never trusts the preview: the browser sends the file again
+(base64) with only the choices the owner made, and the server takes the write lock, reads the
+file and the records again, re-checks every row, re-classifies, applies the choices (a choice
+can't add an `exists` or `problem` row; a chosen student who no longer exists means *keep as
+unassigned*), re-checks duplicates, takes the `pre-import` backup (a failed backup is a 422 and
+nothing is added), and adds everything in one transaction (payments in bulk). Any error rolls
+all of it back. Sending the file again, rather than keeping it on the server between the two
+steps, keeps the server stateless: nothing to expire or clean up, and a restart in between
+changes nothing.
 
 ## Ledger computation
 

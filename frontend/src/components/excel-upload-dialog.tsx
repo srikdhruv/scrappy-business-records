@@ -49,6 +49,8 @@ import {
   emptyChoices,
   needsChoice,
   paymentKey,
+  rowCount,
+  fileToBase64,
   studentAdded,
   summarize,
   summarySentence,
@@ -76,9 +78,6 @@ const PAYMENT_STATUS: Record<ImportPaymentPreview['status'], { tone: Tone; label
   possible_duplicate: { tone: 'partial', label: 'Possible duplicate' },
   problem: { tone: 'owed', label: 'Problem' },
 }
-
-/** The most rows each table shows (a Download everything file can have thousands). */
-const SHOWN_ROWS = 400
 
 // ---- the dialog ----------------------------------------------------------------------------------
 
@@ -134,26 +133,22 @@ export function ExcelUploadDialog({
   const add = async () => {
     if (!preview || !summary) return
     try {
+      // The file goes again, with only the choices she made: the server reads it and checks
+      // every row once more, so nothing from the preview is taken on trust.
       const result = await commitImport.mutateAsync({
+        file: await fileToBase64(file!),
         filename: preview.filename,
-        students: preview.students.flatMap((s) => {
-          if (!s.data) return []
-          const add = choices.students.get(s.row)
-          return [add === undefined ? { data: s.data } : { data: s.data, add }]
-        }),
+        students: [...choices.students].map(([row, add]) => ({ row, add })),
         payments: preview.payments.flatMap((p): ImportPaymentDecision[] => {
-          if (!p.data) return []
           const choice = choices.payments.get(paymentKey(p))
+          const where = { sheet: p.sheet, row: p.row }
           if (choice?.startsWith('student:')) {
-            return [
-              { data: p.data, choice: 'student' as const, student_id: Number(choice.slice(8)) },
-            ]
+            return [{ ...where, choice: 'student', student_id: Number(choice.slice(8)) }]
           }
           if (choice === 'skip' || choice === 'unassigned' || choice === 'add') {
-            return [{ data: p.data, choice }]
+            return [{ ...where, choice }]
           }
-          // What its status says; the server works that out again for itself.
-          return [{ data: p.data, choice: 'auto' as const }]
+          return [] // what its status says
         }),
       })
       const title = addedSentence(
@@ -371,14 +366,11 @@ function PreviewBody({
     status === 'exists' || status === 'duplicate' || status === 'problem'
   const keep = (row: { status: string }) =>
     filter === 'all' || (filter === 'choose' ? needsChoice(row) : skipped(row.status))
-  const studentRows = preview.students.filter(keep)
-  const paymentRows = preview.payments.filter(keep)
-  // A long file (a Download everything one) is shown in part; every row is still handled.
-  const students = studentRows.slice(0, SHOWN_ROWS)
-  const payments = paymentRows.slice(0, SHOWN_ROWS)
-  const skippedCount =
-    preview.students.filter((s) => skipped(s.status)).length +
-    preview.payments.filter((p) => skipped(p.status)).length
+  const students = preview.students.filter(keep)
+  const payments = preview.payments.filter(keep)
+  const skippedCount = summary.alreadyHere + summary.problems
+  const studentTotal = rowCount(preview.student_counts)
+  const paymentTotal = rowCount(preview.payment_counts)
 
   const setPayment = (p: ImportPaymentPreview, choice: PaymentChoice) =>
     setChoices((c) => ({ ...c, payments: new Map(c.payments).set(paymentKey(p), choice) }))
@@ -422,8 +414,8 @@ function PreviewBody({
       <div className="max-h-[48vh] space-y-5 overflow-auto rounded-xl border border-border/80">
         {students.length > 0 && (
           <RowTable
-            caption={`Students (${preview.students.length})`}
-            more={studentRows.length - students.length}
+            caption={`Students (${studentTotal.toLocaleString('en-IN')})`}
+            more={preview.all_rows_shown ? 0 : studentTotal - preview.students.length}
             headings={['Row', 'Name', 'Phone', 'Monthly fee', 'Joined', 'What happens']}
           >
             {students.map((s) => (
@@ -461,8 +453,8 @@ function PreviewBody({
         )}
         {payments.length > 0 && (
           <RowTable
-            caption={`Payments (${preview.payments.length})`}
-            more={paymentRows.length - payments.length}
+            caption={`Payments (${paymentTotal.toLocaleString('en-IN')})`}
+            more={preview.all_rows_shown ? 0 : paymentTotal - preview.payments.length}
             headings={['Row', 'Student', 'Amount', 'Paid on', 'For month', 'What happens']}
           >
             {payments.map((p) => (
@@ -516,7 +508,7 @@ function RowTable({
 }: {
   caption: string
   headings: string[]
-  /** Rows not shown (a long file): they're still added, skipped or kept as listed above. */
+  /** Rows not listed (a long file): they need no choice, and the summary counts them. */
   more: number
   children: ReactNode
 }) {
@@ -526,8 +518,8 @@ function RowTable({
         <tfoot>
           <tr>
             <td colSpan={headings.length} className="px-3 py-3 text-sm text-muted-foreground">
-              …and {more.toLocaleString('en-IN')} more rows, not shown here. They’re handled the
-              same way: the summary above counts them all.
+              …and {more.toLocaleString('en-IN')} more rows that need nothing from you, not listed
+              here. The summary above counts them all.
             </td>
           </tr>
         </tfoot>
@@ -628,7 +620,7 @@ function PaymentWhatHappens({
       </StatusLine>
     )
   }
-  if (p.status !== 'needs_student' && p.status !== 'unassigned') {
+  if (p.status !== 'needs_student') {
     return <StatusLine {...status} reason={p.reason} />
   }
   // Needs a student: keep it unassigned (default), skip it, or give it to someone.

@@ -1471,7 +1471,7 @@ row. **Nothing is saved yet.**
 |---|---|---|---|
 | **New** | Green | Nobody like them is in the app yet | Added |
 | **Already exists** | Grey | Someone with the same name and phone is already in the app (or the same name, and neither has a phone), or it repeats an earlier row of the file. It says who: *"Already here: Ananya Rao (90000 00001)"* | Skipped. Nothing about the student already here is changed |
-| **Looks similar** | Amber | The same name but a different phone, the same phone but a different name, or a name a letter or two apart (*Ananyaa Rao* and *Ananya Rao*), as someone already here or an earlier row of the file | You choose: **Skip** (already chosen for you) or **Add as new**. When it's only the same phone as an earlier row of the file (*"perhaps a brother or sister"*), **Add as new** is chosen for you |
+| **Looks similar** | Amber | The same name but a different phone, the same phone but a different name, a name a letter or two apart (*Ananyaa Rao* and *Ananya Rao*) or shortened (*Ananya R*), as someone already here or an earlier row of the file; or more than one student here has this name and phone (the app never picks one for you); or an earlier row has the same name and neither has a phone | You choose: **Skip** (already chosen for you) or **Add as new**. When it's only the same phone as an earlier row of the file (*"perhaps a brother or sister"*), **Add as new** is chosen for you |
 | **Problem** | Red | Something in the row can't be used. The reason says what, such as *"Monthly fee is missing"* or *"Joined month “13/2026” isn't a month"* | Skipped. Fix it in the file and upload it again: the rows already added then show as *Already exists* |
 
 **…and for a payment:**
@@ -1515,11 +1515,13 @@ It has exactly the students or payments the page shows, in the same order:
    **Fee history** (every fee each student has had, months away included), **Payments** and
    **Unassigned payments**.
 
-The grey **Student ID (for restoring)** column links the sheets together. Leave it as it is:
-uploading this file into an empty app brings back every record exactly, every Dashboard number
-included. Two students with the same name (or brothers and sisters sharing a phone) stay two
-students, because their IDs are different, and two identical payments on one day both come
-back.
+The grey **Student ID (for restoring)** column links the sheets together, and stays with each
+student for good. Leave it as it is: uploading this file into an empty app brings back every
+record exactly, every Dashboard number included. Two students with the same name (or brothers
+and sisters sharing a phone) stay two students, because their IDs are different, and two
+identical payments on one day both come back. Uploading it again later (into this app, or the
+one it was restored into) finds every student by that ID, even if their phone has changed
+since, and adds nothing twice.
 
 **Upload a file**
 1. On **Students** or **Payments**, click **Upload Excel**. (Either page takes both students
@@ -1567,8 +1569,12 @@ back.
 - **The same rules as typing it in:** a fee or payment of at most ₹10,00,000, no month more
   than two years ahead, no paid-on date in the future.
 - **Up to 5 MB, and 5,000 rows a sheet** for a list you made. A **Download everything** file
-  can have up to 100,000 rows in all. Split anything bigger into several files. A very long
-  file shows its first rows in the preview; the summary counts them all.
+  just has to be under 5 MB (years of records are). A long file lists every row that needs a
+  choice from you and the first few of the rest; the summary counts them all.
+- **A list of students with a date** (*Name, Mobile, Fee, Date*) is read as students. A list
+  with an amount or a payment method, or a date and no phone, is read as payments.
+- **An older download uploaded again** adds nothing that's already here, even if a phone number
+  has changed since.
 - Only Excel workbooks (`.xlsx`). An old-style `.xls` file: open it in Excel, choose **File →
   Save As → Excel Workbook**, and upload that. Google Sheets: **File → Download → Microsoft
   Excel**.

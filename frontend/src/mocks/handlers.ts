@@ -6,7 +6,6 @@
 import { delay, http, HttpResponse, type JsonBodyType } from 'msw'
 
 import type {
-  ImportCommit,
   PaymentCreate,
   PaymentSort,
   PaymentUpdate,
@@ -169,10 +168,20 @@ export function createHandlers(db: MockDb, { latency = 0 }: HandlerOptions = {})
       )
     }),
 
-    http.post(api('/import/commit'), async ({ request }) => {
+    http.post(api('/import/commit'), async () => {
       await wait()
-      const body = (await request.json()) as ImportCommit
-      return respond(() => db.commitImport(body))
+      return HttpResponse.json(
+        {
+          detail: [
+            {
+              loc: ['body'],
+              msg: 'The demo can’t read Excel files. Try it in the real app.',
+              type: 'value_error',
+            },
+          ],
+        },
+        { status: 422 },
+      )
     }),
 
     http.get(api('/dashboard'), async ({ request }) => {

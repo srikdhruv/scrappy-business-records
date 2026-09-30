@@ -32,15 +32,6 @@ function student(
     reason: null,
     student_id: null,
     add_by_default: false,
-    data:
-      status === 'problem'
-        ? null
-        : {
-            row,
-            name,
-            monthly_fee_paise: 150000,
-            joined_month: '2026-10',
-          },
     ...extra,
   }
 }
@@ -65,25 +56,30 @@ function payment(
     student_id: null,
     student_row: null,
     candidate_ids: [],
-    data:
-      status === 'problem'
-        ? null
-        : {
-            row,
-            student_text: who,
-            amount_paise: 150000,
-            paid_on: '2026-10-05',
-            for_month: '2026-10',
-            method: 'upi',
-            unassigned: false,
-          },
     ...extra,
   }
 }
 
 const idOf = (name: string) => mockDb.students.find((s) => s.name === name)!.id
 
-function thePreview(): ImportPreview {
+type Listed = Omit<ImportPreview, 'student_counts' | 'payment_counts' | 'all_rows_shown'>
+
+/** A preview listing every row: the counts are those rows'. */
+function counted(preview: Listed): ImportPreview {
+  const count = (rows: { status: string }[]) =>
+    rows.reduce<Record<string, number>>(
+      (c, r) => ({ ...c, [r.status]: (c[r.status] ?? 0) + 1 }),
+      {},
+    )
+  return {
+    ...preview,
+    student_counts: count(preview.students),
+    payment_counts: count(preview.payments),
+    all_rows_shown: true,
+  }
+}
+
+function thePreview(): Listed {
   const kabir = idOf('Kabir Mehta')
   const ananya = idOf('Ananya Rao')
   return {
@@ -122,7 +118,7 @@ function thePreview(): ImportPreview {
 }
 
 /** Answer the preview with `preview`, and record what Add sends. */
-function answerPreview(preview: () => ImportPreview) {
+function answerPreview(preview: () => ImportPreview | Listed) {
   const uploads: { type: string | null; size: number; filename: string | null }[] = []
   const commits: ImportCommit[] = []
   server.use(
@@ -133,7 +129,8 @@ function answerPreview(preview: () => ImportPreview) {
         size: body.byteLength,
         filename: new URL(request.url).searchParams.get('filename'),
       })
-      return HttpResponse.json(preview())
+      const answer = preview()
+      return HttpResponse.json('student_counts' in answer ? answer : counted(answer))
     }),
     http.post('*/api/import/commit', async ({ request }) => {
       commits.push((await request.clone().json()) as ImportCommit)
@@ -210,18 +207,12 @@ describe('Upload Excel', () => {
 
     const [sent] = commits
     expect(sent!.filename).toBe('october.xlsx')
-    // Problem rows aren't sent; the look-alike is sent with add: true.
-    expect(sent!.students.map((s) => [s.data.row, s.add])).toEqual([
-      [2, undefined],
-      [3, undefined],
-      [4, true],
-    ])
-    expect(sent!.payments.map((p) => [p.data.row, p.choice, p.student_id])).toEqual([
-      [2, 'auto', undefined],
-      [3, 'auto', undefined],
-      [4, 'student', idOf('Kabir Mehta')],
-      [5, 'skip', undefined],
-      [6, 'auto', undefined],
+    // The file itself goes again (the server reads it once more), with only her choices.
+    expect(atob(sent!.file)).toBe('PK fake xlsx')
+    expect(sent!.students).toEqual([{ row: 4, add: true }])
+    expect(sent!.payments).toEqual([
+      { sheet: 'Payments', row: 4, choice: 'student', student_id: idOf('Kabir Mehta') },
+      { sheet: 'Payments', row: 5, choice: 'skip' },
     ])
   })
 
@@ -288,28 +279,30 @@ describe('Upload Excel', () => {
     expect(summary).toHaveTextContent('Will add 2 students and 1 payment.')
     await user.click(dialog.getByRole('button', { name: 'Add' }))
     await waitFor(() => expect(commits).toHaveLength(1))
-    expect(commits[0]!.students.map((s) => [s.data.row, s.add])).toEqual([
-      [2, undefined],
-      [3, undefined], // the server adds it by default too
-    ])
-    expect(commits[0]!.payments.map((p) => [p.data.row, p.choice])).toEqual([
-      [2, 'add'],
-      [3, 'auto'],
-    ])
+    expect(commits[0]!.students).toEqual([]) // the server adds Meera by default too
+    expect(commits[0]!.payments).toEqual([{ sheet: 'Payments', row: 2, choice: 'add' }])
   })
 
-  it('shows part of a very long file, and says so', async () => {
+  it('counts every row of a long file, though only some are listed', async () => {
     answerPreview(() => ({
-      ...thePreview(),
-      students: [],
-      payments: Array.from({ length: 450 }, (_, i) =>
-        payment(i + 2, 'Ananya Rao', 'ready', { student_id: idOf('Ananya Rao') }),
-      ),
+      ...counted({
+        ...thePreview(),
+        students: [],
+        payments: Array.from({ length: 100 }, (_, i) =>
+          payment(i + 2, 'Ananya Rao', 'ready', { student_id: idOf('Ananya Rao') }),
+        ),
+      }),
+      student_counts: { new: 3000 },
+      payment_counts: { ready: 96000 },
+      all_rows_shown: false,
     }))
     const { user, dialog } = await openUpload('/payments')
     await user.upload(dialog.getByLabelText('Excel file to upload'), file())
-    expect(await dialog.findByTestId('upload-summary')).toHaveTextContent('Will add 450 payments.')
-    expect(dialog.getByText(/…and 50 more rows, not shown here/)).toBeInTheDocument()
+    expect(await dialog.findByTestId('upload-summary')).toHaveTextContent(
+      'Will add 3000 students and 96000 payments.',
+    )
+    expect(dialog.getByText('Payments (96,000)')).toBeInTheDocument()
+    expect(dialog.getByText(/…and 95,900 more rows that need nothing from you/)).toBeInTheDocument()
   })
 
   it('says when there is nothing new to add', async () => {
@@ -327,16 +320,33 @@ describe('Upload Excel', () => {
     expect(dialog.getByRole('button', { name: 'Nothing to add' })).toBeDisabled()
   })
 
-  it('adds through the mock API, and the Students page shows them at once', async () => {
+  it('after Add, the Students page shows them at once', async () => {
     const { user, dialog } = await openUpload('/students')
     server.use(
       http.post('*/api/import/preview', () =>
-        HttpResponse.json({
-          ...thePreview(),
-          students: [student(2, 'Ishaan Kapoor', 'new')],
-          payments: [],
-        }),
+        HttpResponse.json(
+          counted({
+            ...thePreview(),
+            students: [student(2, 'Ishaan Kapoor', 'new')],
+            payments: [],
+          }),
+        ),
       ),
+      http.post('*/api/import/commit', () => {
+        mockDb.createStudent({
+          name: 'Ishaan Kapoor',
+          monthly_fee_paise: 150000,
+          joined_month: '2026-10',
+        })
+        return HttpResponse.json({
+          students_added: 1,
+          fee_changes_added: 1,
+          payments_added: 0,
+          unassigned_added: 0,
+          skipped: 0,
+          backup_file: 'records-pre-import-20261015-100000.db',
+        })
+      }),
     )
     await user.upload(dialog.getByLabelText('Excel file to upload'), file())
     await dialog.findByTestId('upload-summary')

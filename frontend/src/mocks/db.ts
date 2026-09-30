@@ -3,8 +3,6 @@
  * payments) and answers with the same shapes as the real API (`src/api/schema.d.ts`).
  */
 import type {
-  ImportCommit,
-  ImportResult,
   PaymentCreate,
   PaymentRead,
   PaymentSort,
@@ -618,70 +616,6 @@ export class MockDb {
   deleteUnassigned(id: number): void {
     if (!this.unassigned.some((u) => u.id === id)) notFound('Unassigned payment')
     this.unassigned = this.unassigned.filter((u) => u.id !== id)
-  }
-
-  /**
-   * A simple stand-in for adding an upload: the real checks are the server's. New and chosen
-   * students are added; payments go to a chosen student, or one with exactly that name, or
-   * wait as unassigned.
-   */
-  commitImport(body: ImportCommit): ImportResult {
-    let students = 0
-    let payments = 0
-    let unassigned = 0
-    for (const { data, add } of body.students ?? []) {
-      if (add === false) continue
-      if (!add && this.students.some((s) => s.name === data.name)) continue
-      this.createStudent({
-        name: data.name,
-        monthly_fee_paise: data.monthly_fee_paise,
-        joined_month: data.joined_month,
-        phone: data.phone,
-        guardian_name: data.guardian_name,
-        batch_label: data.batch_label,
-        notes: data.notes,
-        left_month: data.left_month,
-      })
-      students += 1
-    }
-    for (const { data, choice, student_id } of body.payments ?? []) {
-      if (choice === 'skip') continue
-      const named = this.students.filter((s) => s.name === data.student_text)
-      const to =
-        choice === 'student'
-          ? student_id
-          : choice !== 'unassigned' && !data.unassigned && named.length === 1
-            ? named[0]!.id
-            : null
-      if (to) {
-        this.createPayment({ ...data, student_id: to })
-        payments += 1
-      } else {
-        this.unassigned.push({
-          id: this.id(),
-          student_text: data.student_text,
-          phone: data.phone ?? null,
-          amount_paise: data.amount_paise,
-          paid_on: data.paid_on,
-          for_month: data.for_month,
-          method: data.method,
-          note: data.note ?? null,
-          source: body.filename ? `Upload: ${body.filename}` : 'Upload',
-          created_at: nowIso(),
-          suggested_student_ids: [],
-        })
-        unassigned += 1
-      }
-    }
-    const total = (body.students?.length ?? 0) + (body.payments?.length ?? 0)
-    return {
-      students_added: students,
-      fee_changes_added: students,
-      payments_added: payments,
-      unassigned_added: unassigned,
-      skipped: total - students - payments - unassigned,
-      backup_file: students + payments + unassigned ? 'records-pre-import-demo.db' : null,
-    }
   }
 
   // ---- Dashboard ------------------------------------------------------------------------------
