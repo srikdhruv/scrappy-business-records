@@ -67,7 +67,7 @@ jobs:
           fetch-depth: 0 # the release tags, for the saved-data sample reminder
       - name: Migrations only add (no drops, renames, type changes or deleting SQL)
         run: python3 scripts/ci/check_migrations_only_add.py
-      - name: The newest release has its saved-data sample (a reminder; the release enforces it)
+      - name: Every release has its saved-data sample (a reminder; the release enforces it)
         run: python3 scripts/ci/check_release_fixture.py --latest --warn
       # setup-uv publishes no floating major tag (e.g. v10), so pin the exact release.
       - uses: astral-sh/setup-uv@v10.2.0

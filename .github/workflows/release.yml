@@ -31,10 +31,10 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME doesn't match backend/pyproject.toml version $version. Bump the version (and run uv lock) first."
             exit 1
           fi
-      # ADR 0004: every release's data must upgrade intact. The release before this one must
+      # ADR 0004: every release's data must upgrade intact. Every release before this one must
       # have its saved-data sample (backend/tests/fixtures/releases/), which the backend tests
       # below upgrade with this code. After releasing vX: scripts/make_release_fixture.py vX.
-      - name: The previous release has its saved-data sample
+      - name: Every earlier release has its saved-data sample
         run: python3 scripts/ci/check_release_fixture.py --tag "$GITHUB_REF_NAME"
       - name: Migrations only add
         run: python3 scripts/ci/check_migrations_only_add.py
