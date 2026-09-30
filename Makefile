@@ -72,11 +72,7 @@ run: ## Serve the production build from :8765, as the user's laptop does (data i
 	@echo "Open http://127.0.0.1:$(PORT)"
 	$(DEV_ENV) $(UV) python -m app
 
-package: ## Build the self-contained bundle zip for this OS into dist/
-	@if [ ! -f scripts/build_bundle.py ]; then \
-		echo "make package: scripts/build_bundle.py doesn't exist yet (it arrives with the packaging PR)."; \
-		exit 1; \
-	fi
+package: build ## Build the UI, then the self-contained bundle zip for this OS into dist/ (self-tested)
 	$(UV) python scripts/build_bundle.py
 
 db-reset: ## Delete ./.devdata (dev database, logs and backups)

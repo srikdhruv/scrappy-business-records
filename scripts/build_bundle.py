@@ -90,8 +90,33 @@ TARGETS = {
     ),
 }
 
-# Parts of the standard library the app never uses; dropping them makes the download smaller.
-PRUNE = ("test", "idlelib", "turtledemo", "tkinter", "lib2to3", "ensurepip")
+# Parts of Python the app never uses (tests, IDLE, Tk, pip, C headers). Dropping them makes the
+# download smaller. Standard-library folders, then globs relative to the bundle's python/ folder.
+PRUNE_STDLIB = ("test", "idlelib", "turtledemo", "tkinter", "lib2to3", "ensurepip")
+PRUNE_GLOBS = (
+    "include",
+    "share",
+    "libs",  # Windows import libraries, for compiling extensions
+    "tcl",  # Windows Tcl/Tk
+    "DLLs/_tkinter.pyd",
+    "DLLs/tcl*.dll",
+    "DLLs/tk*.dll",
+    "lib/tcl*",  # macOS Tcl/Tk
+    "lib/tk*",
+    "lib/itcl*",
+    "lib/thread*",
+    "lib/libtcl*",
+    "lib/libtk*",
+    "lib/python3.12/lib-dynload/_tkinter*",
+    "bin/idle*",
+    "bin/pip*",
+    "bin/2to3*",
+    "bin/pydoc*",
+    "**/*.pdb",  # Windows debug symbols
+    "DLLs/_test*.pyd",
+    "DLLs/_ctypes_test.pyd",
+    "DLLs/xxlimited*.pyd",
+)
 
 WINDOWS_CMD = r"""@echo off
 rem Starts Scrappy Records like the Desktop shortcut does, but in a console so errors show.
@@ -179,9 +204,28 @@ def install_python(archive: Path, bundle: Path, target: Target) -> None:
     for marker in (bundle / "python").rglob("EXTERNALLY-MANAGED"):
         marker.unlink()
     lib = stdlib_dir(bundle, target)
-    for name in PRUNE:
-        shutil.rmtree(lib / name, ignore_errors=True)
-    shutil.rmtree(bundle / "python" / "tcl", ignore_errors=True)  # Tk data (Windows)
+    doomed = [lib / name for name in PRUNE_STDLIB]
+    doomed += [p for pattern in PRUNE_GLOBS for p in (bundle / "python").glob(pattern)]
+    doomed += list((bundle / target.site_packages).glob("pip*"))
+    remove(doomed)
+
+
+def remove(paths: list[Path]) -> None:
+    for path in paths:
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
+
+
+def remove_console_scripts(bundle: Path, target: Target) -> None:
+    """Drop `uvicorn`, `alembic`... wrappers: nothing uses them, and their #! lines point at the
+    build machine."""
+    python = bundle / "python"
+    remove(
+        [python / "Scripts", bundle / target.site_packages / "bin"]
+        + [p for p in (python / "bin").glob("*") if not p.name.startswith("python")]
+    )
 
 
 def uv_exe() -> str:
@@ -446,6 +490,7 @@ def main() -> None:
     bundle.mkdir(parents=True)
     install_python(fetch_python(target), bundle, target)
     install_dependencies(bundle, target, native)
+    remove_console_scripts(bundle, target)
     copy_app(bundle)
     add_extras(bundle, target, name, version)
     precompile(bundle, target, native)
