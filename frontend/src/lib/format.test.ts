@@ -5,7 +5,6 @@ import {
   formatMonth,
   formatMonthShort,
   formatRupees,
-  formatTenure,
   MAX_AMOUNT_PAISE,
   monthsBetween,
   paiseToRupeesInput,
@@ -162,22 +161,5 @@ describe('dates and months', () => {
   it('counts months between', () => {
     expect(monthsBetween('2025-07', '2026-10')).toBe(15)
     expect(monthsBetween('2026-10', '2026-07')).toBe(-3)
-  })
-})
-
-describe('formatTenure', () => {
-  it.each([
-    ['2025-07', '2026-10', '1 yr 3 mo'],
-    ['2026-06', '2026-10', '4 mo'],
-    ['2026-10', '2026-10', 'New this month'],
-    ['2025-10', '2026-10', '1 yr'],
-    ['2023-09', '2026-10', '3 yrs 1 mo'],
-    ['2026-11', '2026-10', 'Starts November 2026'],
-  ])('joined %s, now %s -> %s', (joined, now, expected) => {
-    expect(formatTenure(joined, now)).toBe(expected)
-  })
-
-  it('accepts a Date', () => {
-    expect(formatTenure('2026-06', new Date(2026, 9, 1))).toBe('4 mo')
   })
 })

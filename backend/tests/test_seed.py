@@ -90,9 +90,16 @@ def test_seed_mix(session: Session) -> None:
     assert 4 <= len(yet) <= 10  # a realistic handful still to pay this month
     assert board.summary.active_student_count == 24
 
-    # Standing: Aarav has credit (paid ahead), the backlog students owe, Rohan is settled.
+    # Standing: Aarav has paid ahead (up to date, not credit), the backlog students owe, Rohan
+    # is settled.
     status = {r.name: ledger.student_ledger(r, NOW).status for r in records}
-    assert status["Aarav Bhat"] is BalanceStatus.credit
+    assert status["Aarav Bhat"] is BalanceStatus.up_to_date
+    assert (
+        ledger.student_ledger(
+            next(r for r in records if r.name == "Aarav Bhat"), NOW
+        ).paid_ahead_paise
+        > 0
+    )
     assert status["Arjun Menon"] is BalanceStatus.owes
     assert status["Rohan Desai"] is BalanceStatus.up_to_date
     assert Counter(status.values())[BalanceStatus.up_to_date] >= 12

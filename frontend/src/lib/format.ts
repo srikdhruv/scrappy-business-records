@@ -56,6 +56,9 @@ export function formatRupees(paise: number): string {
  */
 export const MAX_AMOUNT_PAISE = 100_000_000
 
+/** A month can be set at most this far after the current month (backend `MONTHS_AHEAD`). */
+export const MONTHS_AHEAD = 24
+
 // The whole-rupee part: plain digits, or correctly grouped with commas the Indian way
 // (1,50,000) or the Western way (150,000). Mis-grouped input like "15,00" is rejected, and so is
 // a comma group starting with 0 ("0,500").
@@ -166,22 +169,4 @@ export function addMonths(month: string, n: number): string {
 /** Whole months from `from` to `to` (negative if `to` is earlier). */
 export function monthsBetween(from: string, to: string): number {
   return monthIndex(to) - monthIndex(from)
-}
-
-/**
- * How long someone has been a student, counted in calendar months from the month they joined.
- * formatTenure("2025-07", "2026-10") -> "1 yr 3 mo"; "2026-06" -> "4 mo"; same month ->
- * "New this month". `now` may be a Date or a "YYYY-MM" month (defaults to today).
- */
-export function formatTenure(joinedMonth: string, now: Date | string = new Date()): string {
-  const nowMonth = typeof now === 'string' ? now : currentMonth(now)
-  const months = monthsBetween(joinedMonth, nowMonth)
-  if (months < 0) return `Starts ${formatMonth(joinedMonth)}`
-  if (months === 0) return 'New this month'
-  const years = Math.floor(months / 12)
-  const rest = months % 12
-  const parts: string[] = []
-  if (years > 0) parts.push(`${years} ${years === 1 ? 'yr' : 'yrs'}`)
-  if (rest > 0) parts.push(`${rest} mo`)
-  return parts.join(' ')
 }

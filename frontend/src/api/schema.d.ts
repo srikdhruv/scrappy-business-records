@@ -569,10 +569,21 @@ export interface components {
             monthly_fee_paise: number;
             /**
              * Balance Paise
-             * @description All payments minus everything expected up to this month. Negative means they owe; positive means credit.
+             * @description Net: all payments minus everything expected up to this month. For reference only: money paid ahead or paid twice can cancel out months still owed, so headlines use `status` and `owed_paise`.
              */
             balance_paise: number;
+            /** @description `owes` if anything is owed for a due month (`owed_paise` > 0); otherwise `credit` if a due month was paid too much (`credit_paise` > 0); otherwise `up_to_date`. */
             status: components["schemas"]["BalanceStatus"];
+            /**
+             * Owed Paise
+             * @description Still owed: the sum of what's left on every due month (active months up to and including the current month) that is Unpaid or Partial.
+             */
+            owed_paise: number;
+            /**
+             * Paid Ahead Paise
+             * @description Money paid for months after the current month that they're still enrolled in (not due yet; not credit). Months after left_month count as credit instead.
+             */
+            paid_ahead_paise: number;
             /**
              * Credit Paise
              * @description Money in overpaid months up to this month: the sum of max(0, paid - expected) over months up to and including the current month. Payments for later months (paid ahead) are not credit.
@@ -580,7 +591,7 @@ export interface components {
             credit_paise: number;
             /**
              * Tenure Months
-             * @description How many months they have been a student: joined_month up to the current month (or left_month, if earlier), counting both. 0 if they haven't joined yet.
+             * @description How long they have been a student, in months. Still coming: whole months since joined_month (0 in the joining month or before). Left (left_month before the current month): the months enrolled, both ends counted (left_month - joined_month + 1).
              */
             tenure_months: number;
             /**
@@ -662,10 +673,21 @@ export interface components {
             monthly_fee_paise: number;
             /**
              * Balance Paise
-             * @description All payments minus everything expected up to this month. Negative means they owe; positive means credit.
+             * @description Net: all payments minus everything expected up to this month. For reference only: money paid ahead or paid twice can cancel out months still owed, so headlines use `status` and `owed_paise`.
              */
             balance_paise: number;
+            /** @description `owes` if anything is owed for a due month (`owed_paise` > 0); otherwise `credit` if a due month was paid too much (`credit_paise` > 0); otherwise `up_to_date`. */
             status: components["schemas"]["BalanceStatus"];
+            /**
+             * Owed Paise
+             * @description Still owed: the sum of what's left on every due month (active months up to and including the current month) that is Unpaid or Partial.
+             */
+            owed_paise: number;
+            /**
+             * Paid Ahead Paise
+             * @description Money paid for months after the current month that they're still enrolled in (not due yet; not credit). Months after left_month count as credit instead.
+             */
+            paid_ahead_paise: number;
             /**
              * Credit Paise
              * @description Money in overpaid months up to this month: the sum of max(0, paid - expected) over months up to and including the current month. Payments for later months (paid ahead) are not credit.
@@ -673,7 +695,7 @@ export interface components {
             credit_paise: number;
             /**
              * Tenure Months
-             * @description How many months they have been a student: joined_month up to the current month (or left_month, if earlier), counting both. 0 if they haven't joined yet.
+             * @description How long they have been a student, in months. Still coming: whole months since joined_month (0 in the joining month or before). Left (left_month before the current month): the months enrolled, both ends counted (left_month - joined_month + 1).
              */
             tenure_months: number;
             /**

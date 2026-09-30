@@ -22,6 +22,7 @@ make setup
 | `make help` | List every target |
 | `make setup` | `uv sync --locked` in `backend/` and `npm ci` in `frontend/` |
 | `make dev` | API with auto-reload on http://127.0.0.1:8765 and the Vite UI on http://localhost:5173 (open this one; it proxies `/api`). Data and backups go in `./.devdata/`. Ctrl-C stops both |
+| `make dev-mock` | Only the UI, on http://localhost:5173, with a pretend API and demo data in the browser (no backend needed). See [Mock API](#mock-api) |
 | `make seed` | Fill `./.devdata/` with realistic, fictional demo students and payments (`python -m app.seed`). It refuses if there are students already: to start over, run `make db-reset` first. It only runs with `SCRAPPY_HOME` set, so it can't touch a real install, and `--force` first backs up the database into `$SCRAPPY_HOME/seed-backups/` |
 | `make test` | Backend pytest and frontend vitest |
 | `make e2e` | Build, then run the Playwright end-to-end tests (`frontend/playwright.config.ts`) against the production server |
@@ -71,10 +72,14 @@ frontend/src/
   main.tsx, App.tsx  Entry and router
   routes.tsx         Every client route (/, /payments, /students, /students/:id)
   providers.tsx      QueryClient, tooltips, Log payment, toasts
-  api/               schema.d.ts (generated), client.ts (openapi-fetch), queries.ts (hooks)
-  pages/             Dashboard, Payments, Students, StudentProfile
-  components/        App building blocks; layout/ (shell, page header); ui/ (shadcn/ui)
+  api/               schema.d.ts (generated), types.ts (what the UI imports), client.ts
+                     (openapi-fetch), queries.ts (hooks)
+  pages/             Dashboard, Payments, Students, StudentProfile (+ their tests)
+  components/        App building blocks: log-payment (the form), student-form, payments-table,
+                     month-picker, student-combobox, status badges; layout/; ui/ (shadcn/ui)
   lib/format.ts      ₹, date and month formatting (the only place that formats them)
+  lib/errors.ts      Plain-words messages for API errors, including "Can't reach Scrappy Records"
+  mocks/             The mock API (MSW) for `make dev-mock` and the tests. Never in the build
   index.css          Theme tokens (CSS variables) and Tailwind setup
   styles/            theme.test.ts checks the text contrast of the theme tokens
   test/              Vitest setup and render helpers
@@ -102,11 +107,55 @@ scripts/
   app works offline.
 - **Log payment.** Open the app-wide form from anywhere with
   `useLogPayment().openLogPayment({ studentId, forMonth, amountPaise })`.
+- **Log payment and edit payment** use the same form:
+  `useLogPayment().openEditPayment(payment)`.
 - **API calls.** Use `api` from `src/api/client.ts` with `unwrap()`, inside TanStack Query hooks
-  in `src/api/queries.ts`. Types come from `src/api/schema.d.ts`, e.g.
-  `import type { StudentRead } from '@/api/schema'`.
+  in `src/api/queries.ts`. Every change (create, edit, delete) refetches students, payments and
+  the dashboard (`invalidateRecords`), so no screen shows an old number. Import types from
+  `src/api/types.ts`, e.g. `import type { StudentRead } from '@/api/types'`. It only re-exports
+  the generated `schema.d.ts`, so any change to the API is a type error in the UI.
+- **"Now" is the server's month.** Use `current_month` from the API (`useServerMonth()`, or the
+  field on a student or the dashboard), never the laptop's clock, for anything the ledger
+  decides: due or not, "Member for", suggestions.
+- **Standing.** A student's headline comes from `status` and `owed_paise` (PRD rule 6), never
+  from the net `balance_paise`: "Owes ₹2,000 (Jul, Aug)", with "Paid ahead…" or "Paid ₹X extra
+  in…" as notes beside it.
+- **Words and colours.** Status badges come from `src/components/status.tsx`: Paid (green),
+  Partial (amber), Unpaid/Owes (muted red), Paid ahead/Credit (teal). Use plain words: "Owes",
+  "Paid", "Paid ahead", "Left". Never "arrears" or "delinquent".
+- **Destructive actions** go through `ConfirmDialog`, which says exactly what will be deleted.
 - **shadcn/ui.** Add components with `npx shadcn@latest add <name>` from `frontend/`, then run
   `make fmt`.
+
+## Mock API
+
+`make dev-mock` (or `npm run dev:mock` in `frontend/`) runs only the UI. A service worker
+([MSW](https://mswjs.io)) answers every `/api` call from an in-memory copy of the ledger rules in
+`frontend/src/mocks/`, loaded with about 20 made-up students and a year of payments. Creating,
+editing and deleting all work, and the dashboard reacts. Reloading the page starts again from
+the demo data.
+
+- `http://localhost:5173/?demo=empty` starts with no students (the first-run screen).
+- `http://localhost:5173/?demo=all-paid` starts with everyone paid for this month.
+
+The Vitest suite uses the same handlers in Node (`src/mocks/node.ts`), with the clock frozen at
+15 October 2026 (`withMockApi()` in `src/test/render.tsx`).
+
+The mock can never ship: `main.tsx` only imports it behind `import.meta.env.DEV`, which is
+`false` in production builds, and the service worker file is served by the dev server straight
+from `node_modules` (it isn't in `public/`). To check, run `make build`, then
+`grep -rc msw backend/app/static`; it finds nothing.
+
+## End-to-end tests
+
+`make e2e` builds the UI, starts the real server (`python -m app`) on a free port with a
+throwaway data folder, and runs the Playwright tests in `frontend/e2e/` against it in Chromium.
+They cover the owner's everyday flows: adding a student and logging their payment from the
+dashboard, moving a payment to another month, a fee change from a chosen month, marking a
+student as left, credit and paid-ahead, deleting with confirmation, and a server-side validation
+message shown next to its field. Each test sets up its own students through the API, relative to
+the server's current month. The first run needs a browser: `cd frontend && npx playwright install
+chromium`. CI's `e2e` job runs the same thing, with the browser cached.
 
 ## Database migrations
 

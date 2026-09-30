@@ -95,8 +95,10 @@ def test_detail_ledger_with_payments(api: TestClient) -> None:
     assert by_month["2026-04"]["remaining_paise"] == 50000
     assert by_month["2026-05"]["excess_paise"] == 50000
     assert [m["is_due"] for m in d["months"]] == [True] * 4 + [False] * 2
-    # 600000 paid - 4 x 150000 due
-    assert (d["balance_paise"], d["status"]) == (0, "up_to_date")
+    # 600000 paid - 4 x 150000 due: a net 0. But April and June are still owed (May's extra and
+    # August's early payment don't cancel them), so the headline is "owes".
+    assert (d["balance_paise"], d["status"]) == (0, "owes")
+    assert (d["owed_paise"], d["credit_paise"], d["paid_ahead_paise"]) == (200000, 50000, 150000)
     assert (d["payment_count"], d["total_paid_paise"]) == (4, 600000)
 
 
