@@ -36,9 +36,12 @@ __all__ = [
     "BacklogItem",
     "BacklogMonth",
     "BalanceStatus",
+    "CreditMoveItem",
+    "CreditSource",
     "DashboardResponse",
     "DashboardSummary",
     "ErrorResponse",
+    "ExtraSent",
     "FeeChangeRead",
     "FeeKind",
     "HealthResponse",
@@ -207,7 +210,15 @@ class _ReadModel(BaseModel):
 
 
 class MonthStatus(enum.StrEnum):
-    """Status of one student for one month (PRD "Ledger rules", rule 4)."""
+    """Status of one student for one month (PRD "Ledger rules", rule 4), counting what was paid
+    for the month itself plus extra money from other payments that covers it (rule 10).
+
+    - `paid`: fully paid. It was paid **with credit** when `covered_by_credit_paise > 0`.
+    - `partial`, `unpaid`: some, or none, of the fee is covered.
+    - `overpaid`: some of the money paid for this month wasn't needed by any month, so it is
+      credit (`extra_unused_paise > 0`).
+    - `not_applicable`: no fee, and none of this month's money is left as credit.
+    """
 
     paid = "paid"
     partial = "partial"
@@ -217,7 +228,9 @@ class MonthStatus(enum.StrEnum):
 
 
 class BalanceStatus(enum.StrEnum):
-    """Overall standing of a student (PRD "Ledger rules", rule 6)."""
+    """Overall standing of a student (PRD "Ledger rules", rule 6): `owes` if any due month is
+    still short after extra money has covered what it can; else `credit` if some money wasn't
+    needed by any month; else `up_to_date`."""
 
     up_to_date = "up_to_date"
     owes = "owes"
@@ -408,22 +421,22 @@ class StudentRead(_ReadModel):
     )
     status: BalanceStatus = Field(
         description="`owes` if anything is owed for a due month (`owed_paise` > 0); otherwise "
-        "`credit` if any month was paid more than its fee (`credit_paise` > 0); otherwise "
+        "`credit` if some money wasn't needed by any month (`credit_paise` > 0); otherwise "
         "`up_to_date`."
     )
     owed_paise: NonNegativePaise = Field(
         description="Still owed: the sum of what's left on every due month (active months up to "
-        "and including the current month) that is Unpaid or Partial."
+        "and including the current month), after extra money has covered the oldest months."
     )
     paid_ahead_paise: NonNegativePaise = Field(
-        description="Money paid for months after the current month that they're still enrolled "
-        "in, up to each month's fee (not due yet; not credit). Anything above the fee, and "
-        "anything for a month after left_month, counts as credit instead."
+        description="Money that pays months after the current month that they're still "
+        "enrolled in: what was logged for them, up to each fee, plus extra money from other "
+        "payments that covers them."
     )
     credit_paise: NonNegativePaise = Field(
-        description="Money paid above the fee: the sum of max(0, paid - expected) over every "
-        "month with a payment, later months included (all of it where the fee is 0). Paying a "
-        "later month up to its fee is paid ahead, not credit."
+        description="Money no month needed: what's left of the payments once each has paid its "
+        "own month and covered every unpaid month it could (due months, then later ones up to "
+        "left_month or 24 months ahead). The sum of the months' extra_unused_paise."
     )
     next_fee_change: FeeChangeRead | None = Field(
         description="The first fee change after the month monthly_fee_paise is for, if any "
@@ -442,18 +455,61 @@ class StudentRead(_ReadModel):
     updated_at: UtcDatetime
 
 
+class CreditSource(_ReadModel):
+    """Extra money from one payment, logged for another month, that covers this month."""
+
+    payment_id: int
+    paid_on: dt.date
+    for_month: Month = Field(description="The month that payment was logged for.")
+    amount_paise: PositivePaise = Field(description="How much of it covers this month.")
+
+
+class ExtraSent(_ReadModel):
+    """Money paid above a month's fee that covers another month."""
+
+    to_month: Month = Field(description="The month it covers.")
+    amount_paise: PositivePaise
+
+
 class LedgerMonth(_ReadModel):
-    """One row of a student's month-by-month ledger."""
+    """One row of a student's month-by-month ledger, after extra money has been handed out
+    (PRD ledger rule 10). For every month:
+    `paid_paise = paid_direct_paise + Σ extra_sent + extra_unused_paise`, and
+    `paid_direct_paise + covered_by_credit_paise + remaining_paise = expected_paise`."""
 
     month: Month
     expected_paise: NonNegativePaise
-    paid_paise: NonNegativePaise
-    remaining_paise: NonNegativePaise = Field(description="max(0, expected - paid)")
-    excess_paise: NonNegativePaise = Field(description="max(0, paid - expected)")
+    paid_paise: NonNegativePaise = Field(
+        description="Everything logged for this month, exactly as typed."
+    )
+    paid_direct_paise: NonNegativePaise = Field(
+        description="The part of paid_paise that pays this month: at most its fee."
+    )
+    covered_by_credit_paise: NonNegativePaise = Field(
+        description="Extra money from payments logged for other months that pays this month "
+        "(the sum of credit_sources)."
+    )
+    credit_sources: list[CreditSource] = Field(
+        description="Where covered_by_credit_paise came from, in the order it was handed out."
+    )
+    extra_sent: list[ExtraSent] = Field(
+        description="Where the money paid for this month above its fee went, one entry per "
+        "month covered, oldest first."
+    )
+    extra_unused_paise: NonNegativePaise = Field(
+        description="Money paid for this month that no month needed: credit."
+    )
+    remaining_paise: NonNegativePaise = Field(
+        description="What's still left: max(0, expected - paid_direct - covered_by_credit)."
+    )
+    excess_paise: NonNegativePaise = Field(
+        description="max(0, paid - expected): what was paid for this month above its fee "
+        "(extra_sent plus extra_unused_paise)."
+    )
     status: MonthStatus
     is_due: bool = Field(
         description="True for months up to and including the current month. "
-        "Payments for later months are 'paid ahead'."
+        "What pays a later month is 'paid ahead'."
     )
 
 
@@ -512,6 +568,9 @@ class PaymentUpdate(_Model):
 
 
 class PaymentRead(_ReadModel):
+    """A payment exactly as typed, plus where its money went (PRD ledger rule 10):
+    `amount_paise = paid_direct_paise + Σ extra_sent + extra_unused_paise`."""
+
     id: int
     student_id: int
     student_name: str
@@ -520,6 +579,23 @@ class PaymentRead(_ReadModel):
     for_month: Month
     method: PaymentMethod
     note: str | None
+    paid_direct_paise: NonNegativePaise = Field(
+        description="The part that pays for_month itself (at most what was left of its fee)."
+    )
+    needs_check: bool = Field(
+        description="Worth a glance, in case of a typo: it pays 4 or more months after the "
+        "current one (months_ahead), or some of it is kept as credit (extra_unused_paise > 0). "
+        "Paying months owed never flags."
+    )
+    months_ahead: int = Field(
+        ge=0,
+        description="How many months after the current one it pays (its own, and where its "
+        "extra went).",
+    )
+    extra_sent: list[ExtraSent] = Field(
+        description="The rest, covering other unpaid months, oldest first."
+    )
+    extra_unused_paise: NonNegativePaise = Field(description="What no month needed: credit.")
     created_at: UtcDatetime
     updated_at: UtcDatetime
 
@@ -529,13 +605,28 @@ class PaymentRead(_ReadModel):
 
 class DashboardSummary(_ReadModel):
     expected_paise: NonNegativePaise = Field(description="Expected for M from active students.")
-    collected_paise: NonNegativePaise = Field(description="Payments whose for_month is M.")
-    paid_ahead_paise: NonNegativePaise = Field(
-        description="For a month after the current one: what's paid for it by students "
-        "enrolled then, up to each one's fee (anything above is credit). 0 for the current "
-        "month and earlier ones, which use collected_paise."
+    collected_paise: NonNegativePaise = Field(
+        description="What pays M: payments logged for M, up to each fee, plus extra money from "
+        "payments logged for other months that covers M (Σ paid_direct + covered_by_credit)."
     )
-    still_due_paise: NonNegativePaise = Field(description="Sum of max(0, expected - paid).")
+    paid_ahead_paise: NonNegativePaise = Field(
+        description="For a month after the current one: the same as collected_paise (what pays "
+        "it ahead of time). 0 for the current month and earlier ones."
+    )
+    still_due_paise: NonNegativePaise = Field(
+        description="What's left on M, after extra money, over students active in M."
+    )
+    logged_paise: NonNegativePaise = Field(
+        description="Every payment logged for M, as typed: the Payments page's total for M. "
+        "collected = logged - sent_elsewhere - (kept as credit) + covered_by_credit."
+    )
+    covered_by_credit_paise: NonNegativePaise = Field(
+        description="The part of collected_paise that came from payments logged for other months."
+    )
+    sent_elsewhere_paise: NonNegativePaise = Field(
+        description="The part of logged_paise that paid other months (the rest above the fees "
+        "is kept as credit)."
+    )
     not_fully_paid_count: int = Field(ge=0, description="Students unpaid or partial for M.")
     active_student_count: int = Field(
         ge=0, description="Students with a fee due in M: active in M, with a fee above 0."
@@ -550,19 +641,25 @@ class YetToPayItem(_ReadModel):
     batch_label: str | None
     phone: str | None
     expected_paise: NonNegativePaise
-    paid_paise: NonNegativePaise
+    paid_paise: NonNegativePaise = Field(description="Logged for M, as typed.")
+    covered_by_credit_paise: NonNegativePaise = Field(
+        description="Extra money from payments logged for other months that covers M."
+    )
     remaining_paise: PositivePaise
     status: Literal[MonthStatus.unpaid, MonthStatus.partial]
     credit_paise: NonNegativePaise = Field(
-        description="The student's money paid above the fee (see StudentRead.credit_paise), "
-        "so the UI can say they have credit."
+        description="The student's credit (see StudentRead.credit_paise). Almost always 0 "
+        "here: extra money covers unpaid months first."
     )
 
 
 class BacklogMonth(_ReadModel):
     month: Month
     expected_paise: NonNegativePaise
-    paid_paise: NonNegativePaise
+    paid_paise: NonNegativePaise = Field(description="Logged for this month, as typed.")
+    covered_by_credit_paise: NonNegativePaise = Field(
+        description="Extra money from payments logged for other months that covers it."
+    )
     remaining_paise: PositivePaise
     status: Literal[MonthStatus.unpaid, MonthStatus.partial]
 
@@ -577,13 +674,14 @@ class BacklogItem(_ReadModel):
     months: list[BacklogMonth] = Field(description="Oldest first.")
     total_owed_paise: PositivePaise
     credit_paise: NonNegativePaise = Field(
-        description="The student's money paid above the fee (see StudentRead.credit_paise), "
-        "so the UI can say they have credit."
+        description="The student's credit (see StudentRead.credit_paise). Almost always 0 "
+        "here: extra money covers unpaid months first."
     )
 
 
 class OverpaidItem(_ReadModel):
-    """A student-month up to M where paid > expected."""
+    """A student-month up to M (or later, from the current month on) holding money that no
+    month needed: credit (`extra_unused_paise > 0`)."""
 
     student_id: int
     student_name: str
@@ -592,7 +690,32 @@ class OverpaidItem(_ReadModel):
     month: Month
     expected_paise: NonNegativePaise
     paid_paise: PositivePaise
-    excess_paise: PositivePaise
+    excess_paise: PositivePaise = Field(description="max(0, paid - expected), as on LedgerMonth.")
+    extra_unused_paise: PositivePaise = Field(description="The part of it no month needed: credit.")
+
+
+class CreditMoveItem(_ReadModel):
+    """Extra money from a payment logged for one month (`from_month`) that covers another
+    (`to_month`). On M's dashboard, one of the two is M."""
+
+    student_id: int
+    student_name: str
+    batch_label: str | None
+    phone: str | None
+    payment_id: int
+    paid_on: dt.date
+    from_month: Month = Field(description="The month the payment was logged for.")
+    to_month: Month = Field(description="The month its extra money covers.")
+    amount_paise: PositivePaise
+    payment_amount_paise: PositivePaise = Field(description="The whole payment, as typed.")
+    payment_pays_until: Month = Field(
+        description="The latest month the payment pays (so a screen can say 'pays up to …')."
+    )
+    payment_needs_check: bool = Field(description="See PaymentRead.needs_check.")
+    payment_months_ahead: int = Field(ge=0, description="See PaymentRead.months_ahead.")
+    payment_extra_unused_paise: NonNegativePaise = Field(
+        description="The part of the payment no month needed (credit)."
+    )
 
 
 class DashboardResponse(_ReadModel):
@@ -603,4 +726,8 @@ class DashboardResponse(_ReadModel):
     summary: DashboardSummary
     yet_to_pay: list[YetToPayItem]
     backlog: list[BacklogItem]
-    overpaid: list[OverpaidItem]
+    overpaid: list[OverpaidItem] = Field(description="Months holding credit (money not used).")
+    credit_moves: list[CreditMoveItem] = Field(
+        description="Extra money moved out of M's payments, or into M from other months' "
+        "payments. By student, then the month covered, then the payment's date."
+    )

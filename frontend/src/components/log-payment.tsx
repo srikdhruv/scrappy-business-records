@@ -7,6 +7,10 @@
  *   openEditPayment(payment)
  *
  * The dialog is rendered once, inside <LogPaymentProvider>.
+ *
+ * As the amount is typed, it previews where money above the month's fee will go (PRD ledger
+ * rule 10: "₹1,500 extra will cover August 2026 (unpaid)"), worked out from the student's
+ * payments with `lib/allocation.ts`. It never stops a save.
  */
 import {
   BanknoteIcon,
@@ -33,10 +37,11 @@ import {
   useCreatePayment,
   useDeletePayment,
   useStudent,
+  useStudentPayments,
   useSuggestedPayment,
   useUpdatePayment,
 } from '@/api/queries'
-import type { PaymentMethod, PaymentRead } from '@/api/types'
+import type { CreditSource, PaymentMethod, PaymentRead } from '@/api/types'
 import { MonthPicker } from '@/components/month-picker'
 import { StudentCombobox } from '@/components/student-combobox'
 import { Button } from '@/components/ui/button'
@@ -52,7 +57,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { errorMessage, fieldErrors } from '@/lib/errors'
+import { allocate, expectedFrom, monthShare, previewPayment } from '@/lib/allocation'
 import { amountProblem } from '@/lib/amount'
+import { creditSourceText, paymentUseText, previewText } from '@/lib/credit'
 import {
   addMonths,
   formatDate,
@@ -205,6 +212,9 @@ const SERVER_FIELDS: Record<string, Field> = {
 /** Amounts this many times the month's fee get a gentle "is this right?" (never blocking). */
 const LARGE_AMOUNT_FACTOR = 3
 
+/** Sorts a payment being logged after every saved one (they're handed out by date, then id). */
+const NEW_PAYMENT_ID = Number.MAX_SAFE_INTEGER
+
 function validate(values: {
   studentId: number | null
   amount: string
@@ -261,6 +271,7 @@ function PaymentForm({
 
   const suggestion = useSuggestedPayment(mode === 'create' ? (studentId ?? undefined) : undefined)
   const student = useStudent(studentId ?? undefined)
+  const studentPayments = useStudentPayments(studentId ?? undefined)
 
   if (
     mode === 'create' &&
@@ -394,11 +405,48 @@ function PaymentForm({
   const looksLarge =
     amountPaise !== null && fee > 0 && amountPaise >= fee * LARGE_AMOUNT_FACTOR && !errors.amount
 
-  // When editing, show the month as it would be without this payment, so the change is clear.
+  // The month as it stands without this payment (when editing, without the payment being
+  // edited), and where money above its fee would go. Worked out from the student's payments;
+  // until they load, a new payment's month comes from the server's month row.
+  const ofThisStudent = studentPayments.data?.every((p) => p.student_id === studentId)
+  const worked = (() => {
+    if (!info || info.id !== studentId || !forMonth || !studentPayments.data || !ofThisStudent) {
+      return null
+    }
+    const others = studentPayments.data.filter((p) => p.id !== payment?.id)
+    const expected = expectedFrom(info, info.fee_history)
+    const share = monthShare(allocate(others, info, expected, info.current_month), forMonth)
+    const logged = others
+      .filter((p) => p.for_month === forMonth)
+      .reduce((sum, p) => sum + p.amount_paise, 0)
+    const facts = factsFrom({
+      month: forMonth,
+      expected_paise: expected(forMonth),
+      paid_paise: logged,
+      ...share,
+    })
+    const preview =
+      amountPaise !== null && !errors.amount
+        ? previewPayment({
+            others,
+            draft: {
+              id: payment?.id ?? NEW_PAYMENT_ID,
+              for_month: forMonth,
+              amount_paise: amountPaise,
+              paid_on: /^\d{4}-\d{2}-\d{2}$/.test(paidOn) ? paidOn : today(),
+            },
+            student: info,
+            expected,
+            now: info.current_month,
+          })
+        : null
+    return { facts, preview, excluding: others.length < studentPayments.data.length }
+  })()
   const factsRow =
-    monthRow && payment && mode === 'edit' && payment.for_month === monthRow.month
-      ? withoutPayment(monthRow, payment.amount_paise)
-      : monthRow
+    worked?.facts ?? (mode === 'create' && monthRow ? factsFrom(monthRow) : undefined)
+  const extraText = worked?.preview ? previewText(worked.preview) : null
+  // What an unchanged payment does now, as the Payments page says it.
+  const savedUse = mode === 'edit' && payment ? paymentUseText(payment) : null
 
   const prefilledStudent = mode === 'edit' || prefill?.studentId !== undefined
 
@@ -411,6 +459,7 @@ function PaymentForm({
             ? 'Fix any detail and save.'
             : 'Record money you’ve received from a student.'}
         </DialogDescription>
+        {savedUse && <p className="text-sm font-bold text-credit">Now: {savedUse}.</p>}
       </DialogHeader>
 
       {formError && (
@@ -457,17 +506,12 @@ function PaymentForm({
               }}
               aria-invalid={Boolean(errors.amount) || undefined}
               aria-describedby={
-                errorId('amount') ?? (looksLarge ? 'payment-amount-check' : undefined)
+                errorId('amount') ?? (looksLarge || extraText ? 'payment-amount-check' : undefined)
               }
               className="h-12 pl-8 text-xl font-bold tabular-nums"
             />
           </div>
           <FieldError id={errorId('amount')} message={errors.amount} />
-          {looksLarge && (
-            <p id="payment-amount-check" className="text-sm font-semibold text-partial">
-              That’s much more than the {formatRupees(fee)} fee. Is it right?
-            </p>
-          )}
         </div>
         <div className="grid content-start gap-2">
           <Label htmlFor="payment-month">For month</Label>
@@ -495,6 +539,22 @@ function PaymentForm({
           <FieldError id={errorId('forMonth')} message={errors.forMonth} />
         </div>
       </div>
+
+      {/* A slipped zero, and where money above the month's fee will go: never blocking. */}
+      {(looksLarge || extraText) && (
+        <p
+          id="payment-amount-check"
+          className="-mt-2 rounded-xl bg-credit-soft/70 px-4 py-2.5 text-base font-semibold text-credit"
+          aria-live="polite"
+        >
+          {looksLarge && (
+            <span className="text-partial">
+              That’s much more than the {formatRupees(fee)} fee. Is it right?{' '}
+            </span>
+          )}
+          {extraText}
+        </p>
+      )}
 
       {(hint || factsRow) && (
         <div
@@ -526,7 +586,7 @@ function PaymentForm({
               row={factsRow}
               joined={info?.joined_month}
               left={info?.left_month ?? undefined}
-              excludingThis={mode === 'edit' && factsRow !== monthRow}
+              excludingThis={mode === 'edit' && Boolean(worked?.excluding)}
               editing={mode === 'edit'}
             />
           )}
@@ -628,14 +688,29 @@ function FieldError({ id, message }: { id?: string; message?: string }) {
 interface FactsRow {
   month: string
   expected_paise: number
+  /** What pays the month: its own payments (up to the fee) and credit from other payments.
+   * For a month with no fee: what was logged for it. */
   paid_paise: number
   remaining_paise: number
+  credit_sources: CreditSource[]
 }
 
-/** The month as if `amount` hadn't been paid (the payment being edited). */
-function withoutPayment(row: FactsRow, amount: number): FactsRow {
-  const paid = Math.max(0, row.paid_paise - amount)
-  return { ...row, paid_paise: paid, remaining_paise: Math.max(0, row.expected_paise - paid) }
+function factsFrom(m: {
+  month: string
+  expected_paise: number
+  paid_paise: number
+  paid_direct_paise: number
+  covered_by_credit_paise: number
+  credit_sources: CreditSource[]
+}): FactsRow {
+  const counted = m.paid_direct_paise + m.covered_by_credit_paise
+  return {
+    month: m.month,
+    expected_paise: m.expected_paise,
+    paid_paise: m.expected_paise > 0 ? counted : m.paid_paise,
+    remaining_paise: Math.max(0, m.expected_paise - counted),
+    credit_sources: m.credit_sources,
+  }
 }
 
 /** What's already recorded for the chosen month, e.g. "September: ₹500 of ₹1,500 paid". */
@@ -682,6 +757,11 @@ function MonthFacts({
   return (
     <span className="text-muted-foreground">
       <span className="font-semibold text-foreground">{name}:</span> {text}
+      {row.credit_sources.length > 0 && (
+        <span className="block text-sm font-semibold text-credit">
+          Includes {row.credit_sources.map((c) => creditSourceText(c)).join(', ')}.
+        </span>
+      )}
     </span>
   )
 }

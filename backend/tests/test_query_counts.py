@@ -72,5 +72,7 @@ def test_single_rows_and_writes_use_few_queries(api: TestClient) -> None:
         body = api.patch(f"/api/payments/{p['id']}", json={"amount_paise": 5}).json()
     assert body["updated_at"].endswith("Z")
     assert len(detail) <= 3
-    assert len(payment) <= 2
-    assert len(update) <= 4
+    # A payment comes with where its money went, so the student's fee changes and payments are
+    # loaded with it: the student (joined to the payment), fee changes, payments.
+    assert len(payment) <= 3
+    assert len(update) <= 5

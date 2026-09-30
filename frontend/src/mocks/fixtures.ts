@@ -1,8 +1,9 @@
 /**
  * Demo data for the mock API: about 20 obviously fictional students and a year of payments,
  * built relative to "now" so the dashboard always looks lived-in. The mix covers every case the
- * screens handle: fully paid, partial, unpaid, backlog from earlier months, overpaid, paid
- * ahead, a fee change, students who left, and students who joined this month.
+ * screens handle: fully paid, partial, unpaid, backlog from earlier months, a payment whose
+ * extra pays an unpaid month, extra kept as credit, paid ahead, a fee change, students who left,
+ * and students who joined this month.
  *
  * Every name and phone number here is made up.
  */
@@ -98,8 +99,10 @@ export const DEMO_STUDENTS: StudentSpec[] = [
     batch: MON_WED,
     fee: 1500,
     joined: 10,
-    partial: { 0: 500 },
-    extra: { 7: 3000 },
+    // Paid for two months at once, logged for this month, while last month was unpaid: the
+    // extra pays last month (PRD ledger rule 10).
+    unpaid: [1],
+    extra: { 0: 3000 },
   },
   { name: 'Myra Desai', batch: SAT, fee: 1800, joined: 18, method: 'cash' },
   { name: 'Reyansh Bose', guardian: 'Anjali Bose', batch: SUN_KIDS, fee: 1200, joined: 7 },
@@ -115,7 +118,16 @@ export const DEMO_STUDENTS: StudentSpec[] = [
     unpaid: [1],
     notes: 'Moved to another city.',
   },
-  { name: 'Dev Malhotra', batch: TUE_THU, fee: 1800, joined: 24, left: 8, method: 'cash' },
+  {
+    name: 'Dev Malhotra',
+    batch: TUE_THU,
+    fee: 1800,
+    joined: 24,
+    left: 8,
+    method: 'cash',
+    // ₹200 more than every fee owed, and nothing left to pay: credit.
+    extra: { 8: 2000 },
+  },
 ]
 
 /** Deterministic "random" numbers, so the demo data is the same every time. */
@@ -243,6 +255,7 @@ export function allPaidFixture(now: Date = new Date()): Fixture {
       ...s,
       unpaid: undefined,
       partial: undefined,
+      extra: undefined,
     })),
     now,
   )

@@ -15,10 +15,12 @@ import type {
   StudentReturn,
   StudentUpdate,
 } from '@/api/types'
+import { monthsAhead, needsCheck } from '@/lib/allocation'
 import { nextFeeChange, returnFee } from '@/lib/fees'
 import { addMonths, currentMonth, formatMonth, today } from '@/lib/format'
 
 import {
+  allocation,
   balance,
   creditPaise,
   dashboard,
@@ -459,7 +461,18 @@ export class MockDb {
 
   private toPaymentRead(payment: PaymentRow): PaymentRead {
     const student = this.students.find((s) => s.id === payment.student_id)
-    return { ...payment, student_name: student?.name ?? '' }
+    const use = student
+      ? allocation(this.book(student), this.now()).uses.find((u) => u.payment.id === payment.id)
+      : undefined
+    return {
+      ...payment,
+      student_name: student?.name ?? '',
+      paid_direct_paise: use?.paid_direct_paise ?? 0,
+      needs_check: use ? needsCheck({ ...use, for_month: payment.for_month }, this.now()) : false,
+      months_ahead: use ? monthsAhead({ ...use, for_month: payment.for_month }, this.now()) : 0,
+      extra_sent: use?.extra_sent ?? [],
+      extra_unused_paise: use?.extra_unused_paise ?? payment.amount_paise,
+    }
   }
 
   listPayments(params: {

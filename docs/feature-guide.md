@@ -42,7 +42,7 @@ Opening the app, moving between its three pages, and knowing that what you see i
 
 ### What you'll see
 
-![The Dashboard for September 2026: the side menu on the left with Dashboard, Payments and Students, the month name with arrows, four summary boxes, the Yet to pay list and, on the right, Earlier months still owed and Paid too much.](images/feature-guide/dashboard.png)
+![The Dashboard for September 2026: the side menu on the left with Dashboard, Payments and Students, the month name with arrows, four summary boxes, the Yet to pay list and, on the right, Earlier months still owed and Extra money used.](images/feature-guide/dashboard.png)
 
 **Opening the app.** On Windows, double-click **Scrappy Records** on your Desktop (an orange
 circle with a ₹ on it). On a Mac, open **Scrappy Records** from the *Applications* folder in
@@ -139,7 +139,7 @@ banner goes away.
 ### What it's for
 
 Seeing, for one month, who has paid, who hasn't yet, what's still owed from earlier months, and
-who paid too much. It opens on **this month**.
+where money paid above a fee went. It opens on **this month**.
 
 ### What you'll see
 
@@ -153,18 +153,18 @@ arrow on each side. Under it, one line:
 
 **The four summary boxes** are all about the month at the top.
 
-![Four summary boxes: Expected ₹42,200 from 24 students in September; Collected ₹33,750 with a green bar at 80% of what's expected; Still due ₹8,450 in red, left to collect for September; Not fully paid 6 of 24, students to follow up with.](images/feature-guide/dashboard-summary.png)
+![Four summary boxes: Expected ₹42,200 from 24 students in September; Collected ₹33,750 with a green bar at 80% of what's expected and a small line '₹2,000 logged for September paid other months.'; Still due ₹8,450 in red, left to collect for September; Not fully paid 6 of 24, students to follow up with.](images/feature-guide/dashboard-summary.png)
 
 | Box | What the number means | How it's worked out |
 |---|---|---|
 | **Expected** | What everyone enrolled that month should pay in total | Each student's fee for that month, added up, for everyone enrolled that month. "From 24 students in September" says how many of them have a fee that month (someone on a month off, or with a free place, isn't counted) |
-| **Collected** | What has come in for that month so far | Every payment logged *for* that month, added up, whatever day it was paid on. The bar and percentage compare it with Expected (the bar stops at 100%) |
-| **Still due** | What's still left to collect for that month | For each enrolled student, their fee minus what they've paid for that month (never below ₹0), added up. Red while anything is left, green at ₹0 |
+| **Collected** | What has come in for that month so far | What pays that month, added up, whatever day it was paid on: payments logged *for* that month (up to each fee), plus money paid above the fee in another month that went to this one (see [extra money](#extra-money-pays-the-months-still-owed)). The bar and percentage compare it with Expected (the bar stops at 100%). When that differs from what was logged for the month, a small line under it says why: *"Includes ₹1,500 of extra money from other months' payments."*, *"₹1,500 logged for September paid other months."* |
+| **Still due** | What's still left to collect for that month | For each enrolled student, their fee minus what pays it (never below ₹0), added up. Red while anything is left, green at ₹0 |
 | **Not fully paid** | How many students haven't paid that month in full | The number of names in *Yet to pay*, "of" the number of students with a fee that month. Green with "Everyone has paid" at 0 |
 
 > Example: Pooja's fee is ₹1,500 and she has paid ₹750 for September, so she adds ₹750 to
-> **Still due**. Someone who paid ₹2,500 against a ₹2,000 fee adds ₹0, not −₹500: extra
-> money in one place never hides money owed somewhere else.
+> **Still due**. Someone who paid ₹2,500 against a ₹2,000 fee adds ₹0, not −₹500: the extra
+> ₹500 goes to the oldest month they still owe, and is counted there.
 
 **Yet to pay** lists everyone enrolled that month who hasn't paid it in full, A to Z. The
 number next to the heading is how many there are, and the line under it says how much is still
@@ -176,44 +176,57 @@ Each row shows:
 - their name (click it to open their profile; hover to see a long name in full);
 - **Unpaid** (red: nothing paid for that month) or **Partial** (amber: some paid);
 - their class or batch, if you entered one;
-- **₹X left**, and under it either their fee (*Fee ₹1,200*) or what they've paid so far
-  (*₹750 of ₹1,500 paid*);
-- a note such as *Paid ₹500 extra in Jul 2026*, if they also paid too much for some month (so
-  you can check whether that payment was meant for this month);
+- **₹X left**, and under it either their fee (*Fee ₹1,200*) or what's paid so far
+  (*₹750 of ₹1,500 paid*, counting any extra money from another month's payment);
 - a **Log payment** button.
 
 **Earlier months still owed** lists everyone who still owes for any month *before* the one at
 the top, including students who have since left. The line under the heading is the total.
 
-<img src="images/feature-guide/dashboard-earlier-and-extra.png" alt="Earlier months still owed, with 3 students: Arjun Menon ₹3,600 with red labels Jun 2026, Jul 2026 and Aug 2026; Dev Malhotra ₹6,000 with Apr 2026 and Jul 2026; Kavya Pillai ₹600 with an amber label 'Jun 2026 · part paid'. Below, Paid too much: Vihaan Joshi, July 2026, paid ₹2,500, fee ₹2,000, +₹500." width="300">
+<img src="images/feature-guide/dashboard-earlier-and-extra.png" alt="Earlier months still owed, with 3 students: Arjun Menon ₹3,600 with red labels Jun 2026, Jul 2026 and Aug 2026; Dev Malhotra ₹6,000 with Apr 2026 and Jul 2026; Kavya Pillai ₹600 with an amber label 'Jun 2026 · part paid'. Below, Extra money used: Vihaan Joshi, '₹2,000 extra from the 2 Sep 2026 payment for Sep 2026', with an arrow to Aug 2026." width="300">
 
 Each row shows the total they owe from those months and one label per month: red for a month
 with nothing paid, amber with *"· part paid"* for a month partly paid. Hover over a label to see
 what's left on it (*June 2026: ₹1,200 left*). Click a row to open the student's profile.
 
-**Paid too much** lists every month, up to the one at the top, where someone paid more than
-their fee: *July 2026 · paid ₹2,500, fee ₹2,000*, and the extra (**+₹500**) in teal. It includes
-payments logged for a month the student wasn't enrolled in (before they joined, after they
-left, or while they were away), because nothing was due then. On this month's Dashboard (or a
-later one) it also lists later months paid more than their fee, so every *Paid extra* and
-*Credit* on the Students page can be found here. Click a row to open the profile and fix it.
+**Extra money used** (*"Money that paid a different month than it was logged for."*) appears
+when money paid above a fee went to another month, in or out of the month at the top (see
+[extra money](#extra-money-pays-the-months-still-owed)). There is one row per payment, however
+many months it paid; months in a row are shown as a range. Each row says whose, how much, and
+which payment it came from: *Vihaan Joshi · ₹2,000 extra from the 2 Sep 2026 payment for Sep
+2026 → **Aug 2026***. In the picture, Vihaan paid ₹4,000 for September and nothing for August:
+August is paid with September's extra, so he isn't in *Earlier months still owed*. Click a row
+to open the profile.
 
-When a section has nobody in it, it says so calmly with a green tick: *"Nothing owed from
-earlier months."*, *"No one has paid more than their fee."*
+A payment that pays **4 or more months ahead** (months not due yet), or has money **no month
+needs**, gets an amber line saying why, in case it's a slip of the finger: *"Check: this
+₹45,000 payment pays up to Sep 2028 — 24 months ahead; ₹7,500 isn't needed by any month"* (with
+*→ Oct 2026 to Sep 2028* on the right). Paying months still owed (a catch-up, a quarterly
+payment, a top-up of a part-paid month) never gets one. If it's right, there's nothing to
+do.
+
+**Extra kept as credit** appears only when someone paid more than every fee they owe, so no
+month needed the money (usually someone who has left): *May 2026 · paid ₹2,500, fee ₹2,000*,
+and the extra (**+₹500**) in teal. On this month's Dashboard (or a later one) it lists every
+such month, so every *Credit* on the Students page can be found here. Click a row to open the
+profile and fix the payment if it was a mistake.
+
+When *Earlier months still owed* has nobody in it, it says so calmly with a green tick:
+*"Nothing owed from earlier months."*
 
 **A month that hasn't started yet** (click the right arrow past this month) is shown calmly,
 because nothing is owed until the month comes:
 
 ![The Dashboard for October 2026: 'Looking ahead: October isn't due yet. Back to September 2026'. The boxes read Expected ₹42,200, Paid ahead ₹1,500 (4% of what's expected), Not due yet ₹40,700 (Due in October), Not paid ahead 23 of 24 (Nothing to follow up yet). The list is titled Not paid ahead yet, with grey Not due yet labels and amounts marked 'due'.](images/feature-guide/dashboard-future-month.png)
 
-- **Collected** becomes **Paid ahead**: money already paid for that month in advance, up to
-  each student's fee (anything paid above a fee is *Paid extra*, not paid ahead).
+- **Collected** becomes **Paid ahead**: what pays that month in advance, up to each student's
+  fee (a payment logged for it, or extra money from another month's payment).
 - **Still due** becomes **Not due yet**, in grey.
 - **Not fully paid** becomes **Not paid ahead**, with *"Nothing to follow up yet"*.
 - **Yet to pay** becomes **Not paid ahead yet**, with grey **Not due yet** labels (or teal
   **Part paid ahead**), and amounts marked *due* instead of *left*.
 - **Earlier months still owed** stops at this month, because later months can't be owed yet.
-  **Paid too much** also lists later months paid more than their fee.
+  **Extra kept as credit** also lists later months.
 
 **The celebration.** When everyone enrolled that month has paid in full, *Yet to pay* shows a
 🎉 and *"Everyone's paid for March!"* with how much was collected:
@@ -240,8 +253,8 @@ students enrolled it says *"No students were coming in …"*, and the last box s
 3. Click **Save payment**. If that paid the month in full, their row disappears from the list.
 
 **Open a student's profile**
-1. Click their name in *Yet to pay*, or anywhere on their row in *Earlier months still owed*
-   or *Paid too much*.
+1. Click their name in *Yet to pay*, or anywhere on their row in *Earlier months still owed*,
+   *Extra money used* or *Extra kept as credit*.
 
 **Add your first student**
 1. On the welcome card, click **New student**. See [New student](#new-student-and-edit-student).
@@ -251,9 +264,10 @@ students enrolled it says *"No students were coming in …"*, and the last box s
 - "This month" is the laptop's current month. The Dashboard always opens on it.
 - **Earlier months still owed** is always about months *before* the one at the top. So on this
   month's Dashboard it shows the old debts, and *Yet to pay* shows this month's.
-- **Collected** counts every payment logged for that month, even one from a student who wasn't
-  enrolled then (that one also appears in *Paid too much*). So Collected can be more than
-  Expected.
+- **Collected** counts what pays that month: a payment above its fee counts ₹X for its own
+  month and the rest where it went. So Collected is never more than Expected, and it can differ
+  from the [Payments page](#payments-page)'s total for that month, which adds up payments as
+  they were logged.
 - Looking back at an earlier month shows it **as it stands today**: someone who paid June's fee
   late, in August, no longer appears in June's *Yet to pay*.
 - A student whose last month has passed isn't counted in later months at all.
@@ -264,20 +278,23 @@ students enrolled it says *"No students were coming in …"*, and the last box s
 - **Route:** `/`, with `?month=YYYY-MM` for any month other than the server's current one
   (`setMonth` drops the parameter for the current month).
 - **Components:** `frontend/src/pages/dashboard-page.tsx` (`MonthSwitcher`, `SummaryCards`,
-  `YetToPay`, `Backlog`, `Overpaid`, `FirstRun`), `components/panel.tsx`,
-  `components/status.tsx` (`StatusPill`, `ExtraPaidNote`), `components/student-avatar.tsx`.
+  `YetToPay`, `Backlog`, `CreditMoves` ("Extra money used", from `credit_moves`), `Credit`
+  ("Extra kept as credit", from `overpaid`), `FirstRun`), `components/panel.tsx`,
+  `components/status.tsx` (`StatusPill`), `components/student-avatar.tsx`.
 - **API:** `GET /api/dashboard?month=` (`getDashboard`) → `DashboardResponse`;
   `GET /api/students?status=all` (`listStudents`), only to detect the first run.
 - **Backend:** `routers/dashboard.py` → `services/dashboard.get_dashboard` →
   `services/ledger.build_dashboard`. "Future" means `month > current_month` from the
   response, never the browser's clock.
 - **PRD:** ledger rules 1–5 and 10, and "Dashboard for a selected month M" (the *Backlog*
-  section is labelled **Earlier months still owed**, *Overpaid* is **Paid too much**). Stories
-  D1–D5.
+  section is labelled **Earlier months still owed**, *Credit moves* is **Extra money used**,
+  *Overpaid* is **Extra kept as credit**). Stories D1–D5.
 - **Tests:** `frontend/src/pages/dashboard-page.test.tsx`; `backend/tests/test_api_dashboard.py`;
-  `backend/tests/test_ledger.py` (`test_dashboard_*`, `test_dashboard_entries_carry_credit`);
+  `backend/tests/test_ledger.py` (`test_dashboard_*`, `test_dashboard_entries_carry_credit`),
+  `test_allocation.py` (`test_the_real_case_september_paid_double_august_unpaid`);
   `frontend/e2e/records.spec.ts` → "add a student, see them in Yet to pay, log their payment,
-  and the dashboard updates".
+  and the dashboard updates"; `frontend/e2e/credit.spec.ts` → "the real case: this month paid
+  double while last month was unpaid".
 
 </details>
 
@@ -330,6 +347,9 @@ Under the hint, one line says what's already recorded for the chosen month, for 
 - *"June: already fully paid (₹1,200)."* (in green), so you notice before paying it twice;
 - *"May: before they joined, so no fee is due."* or *"… after they left, so no fee is due."*
 
+If some of it was paid by extra money from another payment, a teal line says which: *"Includes
+₹2,000 credit from the 2 Sep 2026 payment (for Sep 2026)."*
+
 When the form was opened for a later month while an older one is still owed (as from the
 Dashboard's *Yet to pay*), the hint points it out with a **Pay June instead** button (see the
 first picture).
@@ -351,11 +371,24 @@ profile."*
 
 **Note (optional):** anything you want to remember, for example *"paid by grandmother"*.
 
-**The large-amount check.** If the amount is **three times the month's fee or more**, a gentle
-amber line asks *"That's much more than the ₹1,500 fee. Is it right?"*, in case of an extra
-zero. It never stops you saving.
+**Where extra money will go.** If the amount is more than what's left of the month's fee, a
+teal line under the amount says what this payment's extra will pay, before you save (see
+[extra money](#extra-money-pays-the-months-still-owed)): *"₹1,200 more than the September fee:
+it will pay June 2026 (unpaid)."* It names each month, oldest first: *(unpaid)* or *(part
+paid)* for a month owed, then months *ahead*. A long run is shortened (*"9 months ahead
+(November 2026 to July 2027)"*). If nothing is owed anywhere, it says the money *"will be kept
+as credit"*. The amounts are exactly what the payment's row will say once saved. It never stops
+you saving.
 
-<img src="images/feature-guide/log-payment-large-amount.png" alt="The form for Ananya Rao with ₹15000 typed, and under the amount, in amber: 'That's much more than the ₹1,500 fee. Is it right?'" width="420">
+<img src="images/feature-guide/log-payment-extra.png" alt="The form for Arjun Menon, for September 2026, with ₹2400 typed, and under the amount, in teal: '₹1,200 more than the September fee: it will pay June 2026 (unpaid).'" width="420">
+
+**The large-amount check.** If the amount is **three times the month's fee or more**, the same
+line starts, in amber, *"That's much more than the ₹1,500 fee. Is it right?"*, in case of an
+extra zero, and then says where the extra would go. It never stops you saving. If it's saved
+anyway, the profile and the Dashboard ask you to check it once more (see
+[Student profile](#student-profile)).
+
+<img src="images/feature-guide/log-payment-large-amount.png" alt="The form for Ananya Rao with ₹15000 typed for October 2026, and under the amount: in amber 'That's much more than the ₹1,500 fee. Is it right?', then in teal '₹13,500 more than the October fee: it will pay 9 months ahead (November 2026 to July 2027).'" width="420">
 
 **The amount rules.** You can type the amount the way you'd write it:
 
@@ -400,14 +433,17 @@ cursor in **Amount**, so you can check it and press **Enter**. It opens this way
 
 **Edit a payment**
 1. Find it on the [Payments page](#payments-page) or in a student's profile, and click
-   **Edit** (or **Edit payment** next to a month that was paid too much).
+   **Edit** (or **Edit payment** next to a month with money kept as credit).
 2. Change the student, amount, month, method, date or note.
 3. Click **Save changes**. You'll see *"Payment updated"*.
 
-![The Edit payment form for Vihaan Joshi: Amount ₹2500, For month July 2026, and 'July: ₹2,000 fee, nothing else paid.', method UPI, paid on 7 Jul 2026, note 'Paid extra by mistake', with Save changes.](images/feature-guide/edit-payment.png)
+![The Edit payment form for Vihaan Joshi: 'Now: ₹2,000 went to Aug 2026.' under the title, Amount ₹4000, For month September 2026, a teal line '₹2,000 more than the September fee: it will pay August 2026 (unpaid).', 'September: ₹2,000 fee, nothing else paid.', method UPI, paid on 2 Sep 2026, note 'Paid for two months', with Save changes.](images/feature-guide/edit-payment.png)
 
-When editing, the line about the month leaves out the payment you're editing (*"July: ₹2,000
-fee, nothing else paid."*), so you can see what the month will look like with your change.
+When editing, a teal line under the title says what the payment does now, if some of it pays
+another month (*"Now: ₹2,000 went to Aug 2026."*). The line about the month leaves out the
+payment you're editing (*"September: ₹2,000 fee, nothing else paid."*), and the line under the
+amount says where the extra would go with your change, so you can see the effect before
+saving.
 
 ### Good to know
 
@@ -420,16 +456,17 @@ fee, nothing else paid."*), so you can see what the month will look like with yo
 - If something is missing, the form says what, next to that box, when you try to save:
   *"Choose who paid."*, *"Pick the month this payment is for."*, *"Enter the date they paid."*,
   *"This date is in the future."*
-- **One payment is for one month.** If a parent pays for two months at once, log two payments
-  (see [Everyday situations](#a-parent-pays-for-two-months-at-once)). Splitting one payment
-  across months automatically isn't built yet; see
-  [smarter handling of extra money](product/future-features.md#2b-smarter-handling-of-extra-money)
-  in the future features.
-- A payment for a month that hasn't started is fine: it shows as **Paid ahead**.
+- **Money above the fee is never lost.** A payment is logged for one month; whatever is more
+  than that month's fee pays the oldest month still owed (then later months ahead). So if a
+  parent pays for two months at once, just log it once (see
+  [Everyday situations](#a-parent-pays-for-two-months-at-once)). The payment itself is kept
+  exactly as you typed it.
+- A payment for a month that hasn't started is fine: it shows as **Paid ahead**. It pays that
+  month only (up to its fee), never an older one.
 - The calendar greys out months before they joined and after they left, so you can't log a
   payment for those. One can still end up there if **Joined in** or **Left in month** is
-  changed later (or they're marked as left) after a payment was logged. It then counts as paid
-  too much, because no fee was due that month.
+  changed later (or they're marked as left) after a payment was logged. No fee was due that
+  month, so all of it is extra, and it pays the oldest month still owed.
 - Undo is only offered right after logging a new payment. To take back an edit, edit it again.
 - Pressing **Esc**, clicking **Cancel** or the **×** closes the form without saving.
 
@@ -443,11 +480,17 @@ fee, nothing else paid."*), so you can see what the month will look like with yo
   (`studentMatches`, shared with the Students page), `lib/amount.ts` (`amountProblem`, which
   reads the amount with `parseRupees` to tell "too big" from "not an amount") and
   `lib/format.ts` (`rupeesToPaise`, `MAX_AMOUNT_PAISE`, `MONTHS_AHEAD`). Enter on a method
-  button is `onMethodKeyDown`.
+  button is `onMethodKeyDown`. The extra-money line is `previewPayment` in `lib/allocation.ts`
+  (a copy of `ledger.allocate`, run with the new payment added; it reports that payment's own
+  `extra_sent` and credit, as its row will say once saved) and `previewText` in
+  `lib/credit.ts`; the month line comes from the same allocation, without the payment being
+  edited. The profile and dashboard "Check: …" lines come from `needs_check` /
+  `payment_needs_check` (`ledger.needs_check`) and `checkText`.
 - **API:** `GET /api/students/{id}/suggest-payment` (`suggestPayment`) → `SuggestedPayment`
   (`reason`: `owed` / `next_unpaid` / `all_paid`); `GET /api/students/{id}` (`getStudent`) for
   the month facts, the fee and the month limits; `GET /api/students?status=all`
-  (`listStudents`) for the list; `POST /api/payments` (`createPayment`);
+  (`listStudents`) for the list; `GET /api/payments?student_id=` (`useStudentPayments`) for the
+  extra-money line; `POST /api/payments` (`createPayment`);
   `PATCH /api/payments/{id}` (`updatePayment`); Undo is `DELETE /api/payments/{id}`
   (`deletePayment`).
 - **Backend:** `services/students.suggest_payment` → `ledger.suggest_payment`;
@@ -455,11 +498,13 @@ fee, nothing else paid."*), so you can see what the month will look like with yo
   at most 24 months ahead, `paid_on` from 2000-01-01 to tomorrow); the amount cap is
   `MAX_AMOUNT_PAISE` in `app/schemas.py`. A 422's `loc` field is shown next to the matching box
   (`SERVER_FIELDS`).
-- **Rules:** the suggestion is PRD ledger rule 9; the 3× check is `LARGE_AMOUNT_FACTOR`; the
-  suggestion never overwrites what was typed or what the caller prefilled for that student.
-- **PRD:** stories P1, P2, P4, D5; ledger rules 3, 4, 5 and 9.
+- **Rules:** the suggestion is PRD ledger rule 9; the extra-money line is rule 10; the 3× check at entry
+  is `LARGE_AMOUNT_FACTOR`; the suggestion never overwrites what was typed or what the caller
+  prefilled for that student.
+- **PRD:** stories P1, P2, P4, P5, D5; ledger rules 3, 4, 5, 9 and 10.
 - **Tests:** `frontend/src/components/log-payment.test.tsx` ("saves with Enter after
-  clicking a method button…", "finds a student the same way as the Students page");
+  clicking a method button…", "finds a student the same way as the Students page", "previews
+  where money above the month's fee will go…"); `lib/allocation.test.ts`, `lib/credit.test.ts`;
   `frontend/src/lib/format.test.ts`, `lib/amount.test.ts` (amount parsing and the cap),
   `lib/search.test.ts`; `backend/tests/test_api_payments.py`, `test_api_bounds.py`,
   `test_api_students.py` (`test_suggest_payment*`), `test_ledger.py` (`test_suggest_*`);
@@ -497,7 +542,7 @@ Seeing every payment you've ever logged, finding any one of them, and fixing mis
 | **Paid on** | The day the money was paid, like *9 Sep 2026* |
 | **Student** | Their name. Click it to open their profile |
 | **Amount** | The amount in ₹ |
-| **For month** | The month the payment counts towards, like *Sep 2026* |
+| **For month** | The month the payment was logged for, like *Sep 2026*. If some of it was more than that month's fee, a teal line under it says where that went: *₹2,000 went to Aug 2026* (or *₹500 kept as credit* if no month needed it) |
 | **Method** | UPI, Cash or Other |
 | **Note** | The note, if any (hidden on a narrow window, so Edit and Delete stay visible) |
 
@@ -527,7 +572,10 @@ and their **total**, for whatever filters are on:
 The month filter goes by the month a payment is **for**, not the day it was paid. So
 "September" plus "Cash" is the cash paid *for* September, even if some of it came in October,
 and it leaves out cash paid in September for other months. It isn't a count of the cash you
-received during September.
+received during September. The total adds up payments exactly as they were logged, so a
+payment whose extra went to another month counts in full here; the Dashboard's **Collected**
+counts that extra in the month it paid. With a month chosen, the last row says so: *"₹6,600
+total (as logged; ₹1,500 of it paid other months)"*.
 
 **Fix a payment**
 1. Click **Edit** on its row. The [Edit payment](#log-payment-and-edit-payment) form opens.
@@ -559,20 +607,23 @@ received during September.
 - **Components:** `frontend/src/pages/payments-page.tsx` (filters; the search is debounced
   250 ms and lives in page state), `components/payments-table.tsx` (TanStack Table v9 sorting,
   total footer, Edit/Delete, `ConfirmDialog`; **Paid on** has `sortDescFirst`, so its first
-  click turns the starting newest-first order round), `components/confirm-dialog.tsx`.
+  click turns the starting newest-first order round; the "went to" line is `paymentUseText` in
+  `lib/credit.ts`, from `extra_sent` and `extra_unused_paise`), `components/confirm-dialog.tsx`.
 - **API:** `GET /api/payments?student_id=&month=&q=` (`listPayments`, default
   `sort=paid_on&order=desc`); `DELETE /api/payments/{id}` (`deletePayment`); Edit uses
   `updatePayment`. The **method** filter and the column **sorting** run in the browser over the
   list already loaded.
 - **Backend:** `routers/payments.py` → `services/payments.list_payments` (accent- and
-  case-insensitive `q` via `services/text.py`), `delete_payment`.
-- **PRD:** stories P3, P4; ledger rule 3.
+  case-insensitive `q` via `services/text.py`; where each payment's money went from
+  `ledger.payment_uses`), `delete_payment`.
+- **PRD:** stories P3, P4; ledger rules 3 and 10.
 - **Tests:** `frontend/src/pages/payments-page.test.tsx` ("shows oldest first on the first
   click on Paid on…"); `frontend/e2e/fixes.spec.ts` → "the first click on "Paid on" shows the
   oldest payment first"; `backend/tests/test_api_payments.py`
   (`test_sorting`, `test_filters_and_search`, `test_default_sort_is_newest_paid_on_first`),
   `test_api_bounds.py` (`test_search_and_sort_ignore_case_and_accents`),
-  `test_query_counts.py`.
+  `test_query_counts.py`, `test_allocation.py` (`test_the_payments_list_says_where_each_payment_went`);
+  `pages/payments-page.test.tsx` ("says where money above a month's fee went").
 
 </details>
 
@@ -608,13 +659,14 @@ a class or batch, and ignores capitals.
 | **Member for** | How long they've been coming (see below) |
 
 **Status** is one coloured label, sometimes with a small note under it:
-- **Owes ₹4,800** (red): some month up to this one isn't fully paid. The amount is what's left
-  on all of those months together.
-- **Credit ₹500** (teal): nothing is owed, but some month was paid more than its fee.
+- **Owes ₹4,800** (red): some month up to this one isn't fully paid, even after any money paid
+  above a fee has gone to the oldest months owed. The amount is what's left on all of those
+  months together.
+- **Credit ₹500** (teal): nothing is owed, and ₹500 was paid that no month needs (usually by
+  someone who has left).
 - **Up to date** (green, with a tick): nothing owed, nothing extra.
-- Under it, a teal **Paid ahead ₹1,500** if they've paid for months still to come, and a teal
-  **₹500 paid extra** if they owe but also paid too much somewhere (so you can check whether
-  that payment went to the wrong month).
+- Under it, a teal **Paid ahead ₹1,500** if some of what they paid is for months still to
+  come.
 
 **Member for:**
 - **8 mo** or **1 yr 4 mo**, with *Since Jan 2026* under it: whole months since the month they
@@ -649,8 +701,9 @@ a class or batch, and ignores capitals.
 
 - The **Status** is about all months up to this one, not just this month. To see only this
   month, use the Dashboard.
-- Paying ahead or paying extra for one month never hides a month that's still owed: a student
-  shows **Owes** until every due month is paid.
+- Money paid above a fee pays the oldest month still owed first, so a month paid twice
+  instead of the next one shows **Up to date**, not **Owes**. A payment logged for a later month
+  pays that month only, so paying ahead never hides a month that's still owed.
 - A student marked as leaving stays on the **Active** tab until their last month has passed,
   then moves to **Left** by themselves.
 - The search is the same as the student list in [Log payment](#log-payment-and-edit-payment):
@@ -662,8 +715,8 @@ a class or batch, and ignores capitals.
 
 - **Route:** `/students`, with `?tab=left|all` (Active is the default).
 - **Components:** `frontend/src/pages/students-page.tsx`; `components/status.tsx`
-  (`BalanceChip`, `PaidAheadNote`, `ExtraPaidNote`); `lib/status.ts` (`standingLabel`,
-  `balanceTone`); `lib/labels.ts` (`tenureLabel`, `formatMonthCount`).
+  (`BalanceChip`, `PaidAheadNote`); `lib/status.ts` (`standingLabel`, `balanceTone`);
+  `lib/labels.ts` (`tenureLabel`, `formatMonthCount`).
 - **API:** `GET /api/students?status=all` (`listStudents`) once; the tabs (`is_active`) and the
   search are filtered in the browser. The search is `studentMatches` in `lib/search.ts`, the
   same one the Log payment student list uses: every word must appear in the name, guardian,
@@ -671,7 +724,8 @@ a class or batch, and ignores capitals.
   digits without spaces or punctuation. The server's own `status` and `q` filters aren't used
   by this page.
 - **Backend:** `services/students.list_students` → `ledger.student_ledger` (`standing_status`,
-  `owed`, `credit`, `paid_ahead`, `tenure_months`, `has_left`, `current_fee`).
+  `owed`, `credit`, `paid_ahead`, all after `allocate`; `tenure_months`, `has_left`,
+  `current_fee`).
 - **PRD:** scope item 6; ledger rules 6, 8 and 10; `tenure_months` in
   [data model](data-model.md#ledger-computation).
 - **Tests:** `frontend/src/pages/students-page.test.tsx` ("searches like Log payment…"),
@@ -786,10 +840,11 @@ history:
   stays as it is, and the form's sentence names it. Their profile's *Details → Fee history*
   lists each fee and when it starts.
 - Choosing an **earlier** month for a new fee changes those past months too. A month that was
-  paid at the old fee then shows as **Partial** (if the fee went up) or **Paid extra** (if it
-  went down).
+  paid at the old fee then shows as **Partial** (if the fee went up); if it went down, the
+  difference pays the oldest month still owed.
 - Changing **Joined in** changes which months they owe. Moving it later than a payment makes
-  that payment "paid too much"; moving it earlier adds months they owe.
+  all of that payment extra, so it pays the first month they owe; moving it earlier adds months
+  they owe.
 - **Joined in** can't move to or past a later fee change: *"The joined month can't be on or
   after a later fee change (April 2026). Change that fee first."*
 - The form checks before saving and explains next to the box: *"Enter their name."*, *"Pick the
@@ -853,26 +908,29 @@ if they're leaving (**Leaving after September 2026**) or have left (**Left after
 | Headline | Colour | When |
 |---|---|---|
 | **Owes ₹4,800 (Jun–Sep)** | Red | Some month up to this one isn't fully paid. The brackets say which: up to three months by name (*Jul, Aug*), a longer run as *Jun–Sep*, otherwise *(5 months)* |
-| **Credit ₹500** | Teal | Nothing is owed, but some month was paid more than its fee |
+| **Credit ₹500** | Teal | Nothing is owed, and ₹500 was paid that no month needs (every month they owe, up to when they leave or two years ahead, is paid) |
 | **Up to date** | Green | Nothing owed, nothing extra |
 
 Under the headline:
-- small teal notes: **Paid ahead to Oct 2026** (every month up to then is paid in full;
-  otherwise **Paid ahead ₹X**), and, if they owe, **Paid ₹500 extra in Jul 2026** (so you can
-  match the extra money to the month that's missing);
-- one plain sentence: *"4 months not fully paid."*, *"Paid ₹500 more than the fee."*,
+- a small teal note: **Paid ahead to Oct 2026** (every month up to then is paid in full;
+  otherwise **Paid ahead ₹X**);
+- one plain sentence: *"4 months not fully paid."*, *"Paid ₹500 more than every fee owed."*,
   *"Everything due is paid, and ahead to October 2026."* (a month with no fee in between
   doesn't stop the count) or *"Everything due so far has been paid."*;
+- if a payment may be a slip of the finger (it pays 4 or more months ahead, or has money no
+  month needs), an amber line for each, with the reason: *"Check: this ₹15,000 payment pays up
+  to Jun 2027 — 9 months ahead"*, with **Edit payment**. (Money no month needs is shown in the
+  credit box below instead.) Paying months still owed never gets one. If it's right, there's
+  nothing to do;
 - if they owe, an **Oldest unpaid** box (*June 2026 · ₹1,200 left*) with **Log payment**;
-- if some month was paid too much, a list of those months (*July 2026 · ₹2,500 paid for a
-  ₹2,000 fee*), each with **Edit payment**, and *"If it was meant for another month, change that
-  payment's month."* A payment for a month **after they left** is always in this list, because
-  nothing is owed then: *"₹2,500 paid for Jul 2026, after they left — was it for May?"* (the
-  question names the oldest month they still owe, if any);
+- if they have credit, a box **₹500 kept as credit** listing the payment it's in (*₹2,500 paid
+  for Jul 2026, after they left · ₹500 of it not needed*), with **Edit payment**, and *"Extra
+  money pays any month still owed first. Nothing is owed now for this to pay, so it's kept. If
+  it was a mistake, change that payment."*;
 - at the bottom, everything they've ever paid: *"₹8,400 paid in total, across 7 payments."*, or
   *"No payments yet."*
 
-<img src="images/feature-guide/profile-credit.png" alt="A teal Balance card: 'Credit ₹500', 'Paid ₹500 more than the fee.', and a box '₹500 paid extra: July 2026 · ₹2,500 paid for a ₹2,000 fee' with an Edit payment button and 'If it was meant for another month, change that payment's month.'" width="320"> <img src="images/feature-guide/profile-paid-after-leaving.png" alt="A red Balance card for a student who left after May: 'Owes ₹2,500 (May)', a teal note 'Paid ₹2,500 extra in Jul 2026', an Oldest unpaid box 'May 2026 · ₹2,500 left' with Log payment, and '₹2,500 paid extra: ₹2,500 paid for Jul 2026, after they left — was it for May?' with Edit payment." width="320">
+<img src="images/feature-guide/profile-credit.png" alt="A teal Balance card for a student who left after May: 'Credit ₹500', 'Paid ₹500 more than every fee owed.', and a box '₹500 kept as credit: ₹2,500 paid for Jul 2026, after they left · ₹500 of it not needed' with an Edit payment button and 'Extra money pays any month still owed first. Nothing is owed now for this to pay, so it's kept. If it was a mistake, change that payment.'" width="320">
 
 **The Details card:** **Monthly fee** (this month's, and the next one if it's already set:
 *₹1,800, then ₹2,000 from November 2026*, or *No fee until December 2026, then ₹1,000*),
@@ -894,7 +952,8 @@ came back on (the one right after *Away (no fee)*) has no **Remove** either: wit
 stay away for good. To change it, set a new fee with **Edit**.
 
 **Month by month** (*"What was due each month, and what came in."*): one row per month, newest
-first, from the month they joined to this month (and any later month they've paid ahead for).
+first, from the month they joined to this month (and any later month they've paid ahead for,
+directly or with extra money).
 
 ![The Month by month table for Arjun Menon: September, August, July and June 2026 at ₹1,200 fee, nothing paid, red Unpaid, each with a Log payment button; May 2026 back to November 2025 paid ₹1,200 with a green Paid label.](images/feature-guide/profile-month-by-month.png)
 
@@ -902,17 +961,35 @@ first, from the month they joined to this month (and any later month they've pai
 |---|---|
 | **Month** | The month |
 | **Fee** | The fee for that month (— if none was due) |
-| **Paid** | Everything paid for that month (— if nothing) |
-| **Status** | A label (below), plus *₹600 left* for a part-paid month or *₹500 extra* for an overpaid one |
-| *(button)* | **Log payment** on a month still owed; **Edit payment** on a month paid too much |
+| **Paid** | Everything logged for that month, exactly as typed. A month paid only by another payment's extra shows it in teal, *₹1,500 (credit)*; one paid by both shows *+ ₹700 credit* under the amount; — if nothing |
+| **Status** | A label (below), plus *₹600 left* for a part-paid month or *₹500 kept as credit*. Under it, a teal note for money that moved (see below) |
+| *(button)* | **Log payment** on a month still owed; **Edit payment** on a month with money kept as credit |
+
+**Extra money in the table.** When a payment is more than its month's fee, the extra pays the
+oldest month still owed (see [extra money](#extra-money-pays-the-months-still-owed)), and both
+months say so:
+- the month it paid: **Paid** (or **Partial**, if it paid only part), with *₹2,000 credit from
+  the 2 Sep 2026 payment (for Sep 2026)*: how much, which payment, and the month that payment
+  was logged for (payments made the same day for the same month are added together). Its
+  **Paid** column shows *₹2,000 (credit)* in teal;
+- the month the payment was for: *₹2,000 extra → Aug 2026*, with months in a row as a range
+  (*₹36,000 extra → Oct 2026 to Sep 2028*).
+
+![Vihaan Joshi's Month by month: September 2026, fee ₹2,000, paid ₹4,000, Paid, with the note '₹2,000 extra → Aug 2026'; August 2026, fee ₹2,000, paid —, Paid, with the note '₹2,000 credit from the 2 Sep 2026 payment (for Sep 2026)'.](images/feature-guide/profile-credit-used.png)
+
+A payment for a month after they left, or while they were away, is all extra (no fee was due):
+its month shows **No fee** with a note of where it went. If some of it wasn't needed by any
+month, that month shows **Paid extra** with *₹500 kept as credit* and **Edit payment**:
+
+![Rohan Desai's Month by month after leaving: July 2026, no fee, paid ₹2,500, Paid extra, '₹500 kept as credit', the note '₹2,000 extra → May 2026' and Edit payment; May 2026, fee ₹2,500, paid ₹500, Paid, with the note '₹2,000 credit from the 2 May 2026 payment (for Jul 2026)'.](images/feature-guide/profile-paid-after-leaving.png)
 
 The labels:
-- **Paid** (green tick), **Partial** (amber), **Unpaid** (red): for this month and earlier.
-- **Paid extra** (teal +): more than the fee was paid, in any month (even one still to come),
-  or anything was paid for a month with no fee (after they left, or while they were away); the
-  row is tinted teal.
-- **Paid ahead** or **Part paid ahead** (teal ▸▸): a later month already paid, up to its fee
-  (or part of it), while they're still enrolled.
+- **Paid** (green tick), **Partial** (amber), **Unpaid** (red): for this month and earlier,
+  counting extra money from other payments (the note says which).
+- **Paid extra** (teal +): some of the money logged for this month wasn't needed by any month,
+  so it's kept as credit; the row is tinted teal.
+- **Paid ahead** or **Part paid ahead** (teal ▸▸): a later month already paid (or partly), by a
+  payment logged for it or by extra money, while they're still enrolled.
 - **Not due yet** (grey): a later month not paid yet. It isn't owed.
 - **No fee** (grey): a month with a ₹0 fee and nothing paid, such as a month off or the months
   away before they came back. It's never owed.
@@ -942,12 +1019,15 @@ by the heading is how many there are.
    *Oldest unpaid* box, or **Log payment** on a month in *Month by month*.
 2. Check the amount and click **Save payment**.
 
-**Fix a month that was paid too much**
+**Fix money kept as credit**
 1. Click **Edit payment** next to that month (in the Balance card or in *Month by month*).
 2. If there's one payment for that month, it opens straight away. If there are several, the
    *Payments* list below shows just that month's payments (click **Edit** on the right one; click
    **Show all** to see everything again).
-3. Change the amount, or the **For month** if it was meant for another month, and save.
+3. Change the amount if it was typed wrong, and save.
+
+Money above a fee that paid another month owed needs no fixing: nothing is wrong. (If it was
+really meant for someone else, edit the payment's **Student**.)
 
 **Mark them as left**
 1. Click **Mark as left**.
@@ -973,7 +1053,8 @@ by the heading is how many there are.
    Change it if they're coming back on a different fee.
 4. Read what will happen: the months away get **no fee**, so nothing is owed for them, and
    from the month they're back they owe that fee. If they had paid for a month while they were
-   away, it says that payment will show as paid extra. If you'd already set a month off for
+   away, it says that payment will then be extra, and pay the oldest month they still owe (or
+   their fee ahead). If you'd already set a month off for
    later, it names it and keeps it: *"No fee in November 2026 was set earlier, and stays. If
    that's wrong, remove it in Fee history afterwards."*
 5. Click **Mark as coming again**. You'll see *"Rohan Desai is coming again — From September
@@ -1037,8 +1118,9 @@ until December 2026, then ₹1,000"*, and the Students page shows *No fee* with 
 ### Good to know
 
 - **Owes always comes first.** If any due month is short, the headline says **Owes**, however
-  much was paid ahead or extra elsewhere. Payments are always kept exactly as you typed them;
-  the app never moves money between months by itself.
+  much was paid ahead. Money paid above a fee pays the oldest month still owed first, so it
+  never sits as credit while a month is owed. Payments themselves are always kept exactly as
+  you typed them: the notes only show where their money counts.
 - **Mark as coming again** never makes the months away owed: they get a ₹0 fee (**No fee**),
   and their fee carries on from the month they're back. It's usually the fee they paid when
   they left. If a new fee had already been set for a month while they were away, they come back
@@ -1047,8 +1129,8 @@ until December 2026, then ₹1,000"*, and the Students page shows *No fee* with 
 - **Delete** removes the student and all their payments for good. **Mark as left** keeps
   everything, and is almost always what you want.
 - Months after they left with nothing paid aren't listed in *Month by month*. A month after they
-  left that *has* a payment is listed, marked **Paid extra**, with **Edit payment**: it was
-  probably meant for an earlier month.
+  left that *has* a payment is listed, with a note of where its money went (usually their last
+  month owed).
 - If a profile's address points at someone who was deleted, you'll see **Student not found**
   and a link to the Students page.
 
@@ -1061,8 +1143,9 @@ until December 2026, then ₹1,000"*, and the Students page shows *No fee* with 
   `lib/fees.ts` `returnFee`, which skips an earlier return's ₹0 months), `components/fee-now.tsx`
   ("No fee until …, then …", from `next_fee_change`),
   `components/confirm-dialog.tsx`, `components/payments-table.tsx` (`showStudent={false}`),
-  `components/status.tsx` (`MonthStatusBadge`, `PaidAheadNote`, `ExtraPaidNote`),
-  `lib/status.ts`, `lib/labels.ts` (`tenurePhrase`).
+  `components/status.tsx` (`MonthStatusBadge`, `PaidAheadNote`, `CreditNote`),
+  `lib/credit.ts` (`creditSourceText`, `extraSentText`), `lib/status.ts`, `lib/labels.ts`
+  (`tenurePhrase`).
 - **API:** `GET /api/students/{id}` (`getStudent`) → `StudentDetail` (`months[]`,
   `fee_history[]`, `payment_count`, `total_paid_paise`); `GET /api/payments?student_id=`
   (`listPayments`); `PATCH /api/students/{id}` (`updateStudent`) for Mark as left and Mark as
@@ -1071,7 +1154,8 @@ until December 2026, then ₹1,000"*, and the Students page shows *No fee* with 
   (`deleteFeeChange`) for Remove in Fee history; `DELETE /api/students/{id}`
   (`deleteStudent`).
 - **Backend:** `services/students.get_student` / `student_detail` → `ledger.student_ledger`
-  (`history_range`, `month_line`, `standing_status`, `owed`, `credit`, `paid_ahead`);
+  (`history_range`, `month_line`, `standing_status`, `owed`, `credit`, `paid_ahead`, all from
+  `allocate`);
   `services/students.return_student` (one transaction that takes the write lock first,
   `app.db.lock_for_writing`, so a double click can't apply it twice: a ₹0 fee change after
   `left_month`,
@@ -1080,8 +1164,9 @@ until December 2026, then ₹1,000"*, and the Students page shows *No fee* with 
   first fee, never one that has started), `delete_student` (payments cascade).
 - **Display rules:** the headline comes from `status` + `owed_paise` / `credit_paise`, never
   `balance_paise`. "Paid ahead to …" is the last contiguous fully-paid month after the current
-  one, before `left_month`. A month after `left_month` with a payment counts as due for the
-  badge and the extra-money list (`afterLeft`), matching `ledger.credit`.
+  one, before `left_month`. The notes come from `credit_sources` and `extra_sent`; the credit
+  box and **Edit payment** from `extra_unused_paise`. A month after `left_month` with a payment
+  counts as due for the badge (`afterLeft`).
 - **PRD:** stories S2, S3, S4, S5, S6; ledger rules 4, 5, 6, 7, 10 and 11.
 - **Tests:** `frontend/src/pages/student-profile-page.test.tsx` ("Mark as coming again", "lists
   the fee history and removes a scheduled change…", "can come back on a different fee…"),
@@ -1092,12 +1177,15 @@ until December 2026, then ₹1,000"*, and the Students page shows *No fee* with 
   change shows in the message and can be removed…";
   `backend/tests/test_api_students.py` (`test_detail_ledger_with_payments`,
   `test_balance_status_credit`, `test_delete_cascades_to_payments`); `test_ledger.py`
-  (`test_paying_ahead_never_hides_months_owed`,
-  `test_paying_a_month_twice_never_hides_the_month_missed`); `frontend/e2e/records.spec.ts` →
-  "money paid too much is shown as extra…", "deleting a student asks first…", "a month paid
-  twice instead of the next one still shows as owed", "moving the joined month past a payment
-  shows owes…", "a payment for a month after leaving is flagged, never paid ahead";
-  `backend/tests/test_ledger.py::test_a_payment_for_a_month_after_leaving_is_credit_not_paid_ahead`.
+  (`test_paying_ahead_never_hides_months_owed`, `test_paying_a_month_twice_pays_the_month_missed`,
+  `test_a_payment_for_a_month_after_leaving_pays_what_is_owed_never_paid_ahead`);
+  `test_allocation.py` (every case of the rule, and property tests);
+  `pages/student-profile-page.test.tsx` ("uses a payment for two months to pay the month
+  missed…", "shows extra money no month needed as credit…"); `frontend/e2e/records.spec.ts` →
+  "money paid too much pays the next month owed…", "deleting a student asks first…", "a month
+  paid twice instead of the next one pays the month missed", "moving the joined month past a
+  payment uses it for the first month owed", "a payment for a month after leaving pays the month
+  owed…"; `frontend/e2e/credit.spec.ts`.
 
 </details>
 
@@ -1109,15 +1197,20 @@ The same word always has the same colour, everywhere in the app.
 
 | Word | Colour | Where you'll see it | Exactly when |
 |---|---|---|---|
-| **Paid** | Green, with a tick | Profile, *Month by month* | This month or an earlier one, and exactly the fee was paid |
-| **Partial** | Amber | Dashboard *Yet to pay*; *Earlier months still owed* (as "· part paid"); profile | This month or an earlier one, and some but not all of the fee was paid |
-| **Unpaid** | Muted red | Dashboard *Yet to pay*; *Earlier months still owed* (a red month label); profile | This month or an earlier one, a fee was due, and nothing was paid |
-| **Overpaid** | — | Not shown as a word. The app says **Paid extra** or **Paid too much** instead | More was paid for a month than its fee (the rules' name for it) |
-| **Paid extra** | Teal, with a + | Profile *Month by month*; "Paid ₹500 extra in Jul 2026" notes on the Dashboard and profile; "₹500 paid extra" on the Students page | Any month, even one still to come, where more than the fee was paid, or anything was paid for a month with no fee (before they joined, after they left, while they were away) |
-| **Paid too much** | Teal amounts (+₹500) | The Dashboard section of that name | The list of every such month up to the one you're looking at |
-| **Paid ahead** | Teal, with ▸▸ | Profile *Month by month* and Balance card ("Paid ahead to Oct 2026"); Students page ("Paid ahead ₹1,500"); the Dashboard's second box for a later month | Money paid for a month that hasn't started yet, while they're still enrolled then, up to that month's fee. Anything above the fee is **Paid extra** instead. **Part paid ahead** means only part of that month's fee |
+| **Paid** | Green, with a tick | Profile, *Month by month* | This month or an earlier one, and the whole fee is paid: by payments for it, by extra money from another payment (a teal note says which), or both |
+| **Partial** | Amber | Dashboard *Yet to pay*; *Earlier months still owed* (as "· part paid"); profile | This month or an earlier one, and some but not all of the fee is paid |
+| **Unpaid** | Muted red | Dashboard *Yet to pay*; *Earlier months still owed* (a red month label); profile | This month or an earlier one, a fee was due, and nothing pays it |
+| **… credit from the … payment (for …)** | Teal note | Profile *Month by month*; the Log payment form | Extra money from another month's payment that pays this month: "₹2,000 credit from the 2 Sep 2026 payment (for Sep 2026)" |
+| **… extra → …** | Teal note | Profile *Month by month* | Where this month's money above its fee went: "₹2,000 extra → Aug 2026" |
+| **… went to …** | Teal line | Payments page and the profile's *Payments*; "Now: …" in Edit payment | Where a payment's money above its month's fee went: "₹2,000 went to Aug 2026" |
+| **Extra money used** | Teal arrow (→ Aug 2026) | The Dashboard section of that name | Money that paid a different month than it was logged for, into or out of the month you're looking at |
+| **Check: this ₹X payment …** | Amber | Profile Balance card; Dashboard *Extra money used* | A payment that pays 4 or more months ahead, or has money no month needs, with the reason ("pays up to Jun 2027 — 9 months ahead", "₹500 isn't needed by any month"): worth a glance in case of a typo. Paying months owed never gets one. Nothing to do if it's right |
+| **Overpaid** | — | Not shown as a word. The app says **Paid extra** or **kept as credit** instead | Some of a month's money wasn't needed by any month (the rules' name for it) |
+| **Paid extra** | Teal, with a + | Profile *Month by month* | A month holding money that no month needed: it's kept as credit (the row also says "₹500 kept as credit") |
+| **Extra kept as credit** | Teal amounts (+₹500) | The Dashboard section of that name (shown only when there is some) | Every month holding credit, up to the one you're looking at |
+| **Paid ahead** | Teal, with ▸▸ | Profile *Month by month* and Balance card ("Paid ahead to Oct 2026"); Students page ("Paid ahead ₹1,500"); the Dashboard's second box for a later month | A month that hasn't started yet, already paid while they're still enrolled then: by a payment for it, or by extra money once every month due is paid. **Part paid ahead** means only part of that month's fee |
 | **Owes ₹X** | Muted red | Students page *Status*; profile Balance headline | Any month up to this one is Unpaid or Partial. ₹X is what's left on all of them |
-| **Credit ₹X** | Teal | Students page; profile Balance headline | Nothing is owed, but some month was paid more than its fee, or something was paid for a month with no fee (after they left, or while they were away). ₹X is the extra. It is never used up automatically for later months: to count it, edit that payment's month |
+| **Credit ₹X** | Teal | Students page; profile Balance headline | Nothing is owed, and ₹X was paid that no month needs: every month they owe, up to when they leave (or two years ahead), is already paid. Usually someone who left and paid a little extra |
 | **Up to date** | Green, with a tick | Students page; profile Balance headline | Nothing owed and nothing extra |
 | **Not due yet** | Grey | Profile *Month by month*; Dashboard for a later month (labels and the third box) | A month that hasn't started, not paid yet. Nothing is owed until it comes |
 | **No fee** | Grey | Profile *Month by month* and *Fee history* | A month whose fee is ₹0, with nothing paid: a free place, a month off, or the months away before they came back. Never owed |
@@ -1158,16 +1251,41 @@ in [Log payment](#log-payment-and-edit-payment).
 
 ### A parent pays for two months at once
 
-Log **two payments**, one for each month:
-1. Log the first payment as usual, for the first month and its fee.
-2. Click **+ Log payment** again and choose the same student. The form now suggests the next
-   month. Check it, and click **Save payment**.
+Just **log it once**, with the whole amount:
+1. Click **Log payment** as usual. Leave **For month** on the month the form suggests (or the
+   month they said it's for).
+2. Type the whole amount, for example ₹3,000 for two ₹1,500 months. The teal line under it
+   says where the extra goes: *"₹1,500 more than the September fee: it will pay August 2026
+   (unpaid)."*
+3. Click **Save payment**.
 
-If you've already logged it as one big payment for one month, that month shows **Paid extra** and
-the other shows as owed, with a note like *"Paid ₹1,500 extra in Aug 2026"*. Fix it by editing
-that payment down to one month's fee, then logging the second month. (Splitting one payment
-automatically isn't built yet; see
-[smarter handling of extra money](product/future-features.md#2b-smarter-handling-of-extra-money).)
+Both months now show **Paid**; the one paid with the extra says which payment it came from. See
+[extra money](#extra-money-pays-the-months-still-owed) below.
+
+### Extra money pays the months still owed
+
+Whenever a payment is more than what's left of its month's fee, the extra isn't lost and
+doesn't need fixing:
+
+1. The payment first pays **the month it was logged for**.
+2. The extra pays **the oldest month still owed**, then the next, and so on, whether those
+   months are before or after the month it was logged for.
+3. When nothing is owed any more, it pays **later months ahead** (up to when they leave, or
+   two years ahead): **Paid ahead**.
+4. Anything still left is kept as **credit** (*Credit ₹X*): nothing needs it.
+
+Months with no fee (a month off, the months away) are skipped. If a student made several such
+payments, the one paid first is used first.
+
+Nothing you typed is changed: the payment still shows the amount and month you logged it with.
+The app works this out again every time, so if you edit or delete that payment, the months it
+paid change straight away. You can always see where the money went: the month it paid says
+*"₹1,500 credit from the 5 Sep 2026 payment (for Sep 2026)"*, the month it was for says
+*"₹1,500 extra → Aug 2026"*, the payment says *"₹1,500 went to Aug 2026"*, and the Dashboard
+lists it under **Extra money used**.
+
+A payment logged for a *later* month pays that month (up to its fee) before anything else: it
+never pays an older month unless it's more than that month's fee.
 
 ### A parent pays part now and part later
 
@@ -1275,8 +1393,8 @@ The month off now shows **No fee**, and every other month keeps its fee. Don't s
 until it's done, they have no fee from the month off onwards. Made a mistake with a month that
 hasn't started yet? **Remove** it from *Fee history* and start again.
 
-If they had already paid for the month off, that payment shows as **Paid extra**: edit it and
-move its **For month** to the month they're back.
+If they had already paid for the month off, that payment is now extra, and pays the next month
+they owe (see [extra money](#extra-money-pays-the-months-still-owed)): nothing to fix.
 
 Or simply leave the month as it is and add a note (**Edit** → **Notes**, e.g. *"No fee for
 December, away"*); the month then keeps showing as owed.
@@ -1288,11 +1406,10 @@ come back, use **Mark as coming again** instead: it does this for you.)
 
 Open their profile and look at **Month by month** to see which month shows as owed, then:
 
-1. **Was the payment logged for the wrong month?** A common one: the same month paid twice
-   (it shows **Paid extra**) while the next month shows **Unpaid**. Or a student was marked as
-   left (or their **Left in month** was changed) after a payment was logged for a later month:
-   the profile then says *"… after they left — was it for May?"*. Click **Edit payment** on the
-   extra month and change its **For month**.
+1. **Was the payment logged for a later month?** A payment for a later month pays that month
+   (paid ahead), not an older one still owed. If it was really meant for the older month, edit
+   it on the **Payments** page and change its **For month**. (Money *above* a month's fee pays
+   the oldest month owed by itself: see [extra money](#extra-money-pays-the-months-still-owed).)
 2. **Was it logged for someone else?** Search their name on the **Payments** page. If it isn't
    there, search the other student's name, then **Edit** the payment and change the **Student**.
 3. **Was the amount typed wrong?** Edit it on the **Payments** page.
@@ -1325,6 +1442,12 @@ Open their profile and look at **Month by month** to see which month shows as ow
   to how records are kept: what you typed in is never changed or removed, and before each new
   version is released it's checked against records saved by every earlier version. See
   [Updating](runbooks/update.md). The version you have is at the bottom of the side menu.
+
+  > **After the update that brings "extra money pays the months still owed":** nothing you
+  > typed changes, but money already recorded above a month's fee now pays the oldest months
+  > still owed, by itself. So some students' status may change (for example from **Owes** to
+  > **Up to date**). Glance at the Students page afterwards. If you had already sorted out a
+  > "Paid too much" by hand (by editing the payment), it stays as you left it.
 - **Deleting is for good.** Deleted payments and students can't be brought back from inside
   the app, which is why it always asks first. The daily backup is the safety net: see
   [troubleshooting](runbooks/troubleshooting.md#i-deleted-something-by-mistake).
@@ -1345,6 +1468,7 @@ Open their profile and look at **Month by month** to see which month shows as ow
 | Dashboard summary and lists | `pages/dashboard-page.tsx` | `GET /api/dashboard` (`getDashboard`) | `services/dashboard.get_dashboard` → `ledger.build_dashboard` | `pages/dashboard-page.test.tsx`, `test_api_dashboard.py`, `test_ledger.py` |
 | First run | `pages/dashboard-page.tsx` (`FirstRun`) | `GET /api/students` (`listStudents`) | `services/students.list_students` | `pages/dashboard-page.test.tsx` |
 | Log payment prefill and hints | `components/log-payment.tsx` | `GET /api/students/{id}/suggest-payment` (`suggestPayment`), `GET /api/students/{id}` (`getStudent`) | `services/students.suggest_payment` → `ledger.suggest_payment` | `components/log-payment.test.tsx`, `test_ledger.py`, `test_api_students.py` |
+| Extra money covers unpaid months (credit allocation) | `lib/allocation.ts` (preview), `lib/credit.ts` (the words), `components/log-payment.tsx`, `pages/student-profile-page.tsx`, `components/payments-table.tsx`, `pages/dashboard-page.tsx` (`CreditMoves`, `Credit`) | `LedgerMonth` (`getStudent`), `PaymentRead` (`listPayments`), `DashboardResponse.credit_moves` (`getDashboard`) | `ledger.allocate`, `ledger.payment_uses` | `test_allocation.py`, `test_ledger_on_v0_1_0_data.py`, `lib/allocation.test.ts`, `lib/credit.test.ts`, `e2e/credit.spec.ts` |
 | Save, edit, undo a payment | `components/log-payment.tsx` | `POST /api/payments` (`createPayment`), `PATCH /api/payments/{id}` (`updatePayment`), `DELETE /api/payments/{id}` (`deletePayment`) | `services/payments.create_payment`, `update_payment`, `delete_payment`; `services/bounds.py` | `components/log-payment.test.tsx`, `test_api_payments.py`, `test_api_bounds.py`, `e2e/records.spec.ts` |
 | Amount rules and ₹10,00,000 cap | `lib/format.ts` (`rupeesToPaise`, `parseRupees`), `lib/amount.ts` | (all amount fields) | `app/schemas.py` (`MAX_AMOUNT_PAISE`) | `lib/format.test.ts`, `lib/amount.test.ts`, `test_api_payments.py::test_amount_cap` |
 | Payments list, filters, sort, total | `pages/payments-page.tsx`, `components/payments-table.tsx` | `GET /api/payments` (`listPayments`) | `services/payments.list_payments` | `pages/payments-page.test.tsx`, `test_api_payments.py` |
@@ -1373,10 +1497,11 @@ Following the red **₹8,450** in the Dashboard's *Still due* box from the datab
    turns each into a pure `ledger.StudentRecord` (`services/students.to_record`).
 3. **Calculated** in `services/ledger.build_dashboard`, for each student:
    - `is_active(M)`: `joined_month ≤ M` and no `left_month`, or `M ≤ left_month` (PRD rule 1);
-   - `month_line(student, M)`: `expected` is the fee in effect for M (rule 2), `paid` is the
-     sum of payments with `for_month = M` (rule 3), and `remaining = max(0, expected − paid)`;
-   - `still_due += remaining` for every active student. (Being `max(0, …)`, one student's extra
-     money can't reduce another's, or their own other months.)
+   - `month_line(student, M)`: `expected` is the fee in effect for M (rule 2); what pays it is
+     the student's payments for M up to the fee, plus extra money from their other payments
+     (`ledger.allocate`, rule 10); `remaining = max(0, expected − what pays it)`;
+   - `still_due += remaining` for every active student. (One student's extra money never pays
+     another student's months.)
 4. **Sent** as `summary.still_due_paise` (integer paise, e.g. `845000`) in `DashboardResponse`.
 5. **Shown** by `useDashboard()` (`src/api/queries.ts`) → `SummaryCards` in
    `pages/dashboard-page.tsx` → `formatRupees(845000)` = **₹8,450** (`src/lib/format.ts`), red
@@ -1386,9 +1511,9 @@ With the demo data: Anika ₹1,800 + Arjun ₹1,200 + Ira ₹1,500 + Pooja (₹1
 Riya ₹1,200 + Siddharth ₹2,000 = ₹8,450, the same six students listed in *Yet to pay*.
 
 The other headline numbers follow the same path: a student's **Owes** is `ledger.owed` (the
-same `remaining`, summed over every due month), **Credit** is `ledger.credit` (the sum of
-`max(0, paid − expected)` over due months), and **Paid ahead** is `ledger.paid_ahead` (payments
-for months after the current one). The current month always comes from the server
+same `remaining`, summed over every due month), **Credit** is `ledger.credit` (money no month
+needed, after `allocate`), and **Paid ahead** is `ledger.paid_ahead` (what pays months after
+the current one). The current month always comes from the server
 (`app.clock`), never from the browser.
 
 ### Open questions found while writing this guide

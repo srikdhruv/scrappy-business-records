@@ -150,7 +150,8 @@ export interface paths {
         };
         /**
          * List Payments
-         * @description Every payment matching the filters, with the student's name.
+         * @description Every payment matching the filters, with the student's name and where its money went
+         *     (its own month, other unpaid months, or credit).
          */
         get: operations["listPayments"];
         put?: never;
@@ -233,7 +234,7 @@ export interface components {
             total_owed_paise: number;
             /**
              * Credit Paise
-             * @description The student's money paid above the fee (see StudentRead.credit_paise), so the UI can say they have credit.
+             * @description The student's credit (see StudentRead.credit_paise). Almost always 0 here: extra money covers unpaid months first.
              */
             credit_paise: number;
         };
@@ -252,9 +253,14 @@ export interface components {
             expected_paise: number;
             /**
              * Paid Paise
-             * @description Amount in paise, 0 or more.
+             * @description Logged for this month, as typed.
              */
             paid_paise: number;
+            /**
+             * Covered By Credit Paise
+             * @description Extra money from payments logged for other months that covers it.
+             */
+            covered_by_credit_paise: number;
             /**
              * Remaining Paise
              * @description Amount in paise, more than 0.
@@ -268,10 +274,101 @@ export interface components {
         };
         /**
          * BalanceStatus
-         * @description Overall standing of a student (PRD "Ledger rules", rule 6).
+         * @description Overall standing of a student (PRD "Ledger rules", rule 6): `owes` if any due month is
+         *     still short after extra money has covered what it can; else `credit` if some money wasn't
+         *     needed by any month; else `up_to_date`.
          * @enum {string}
          */
         BalanceStatus: "up_to_date" | "owes" | "credit";
+        /**
+         * CreditMoveItem
+         * @description Extra money from a payment logged for one month (`from_month`) that covers another
+         *     (`to_month`). On M's dashboard, one of the two is M.
+         */
+        CreditMoveItem: {
+            /** Student Id */
+            student_id: number;
+            /** Student Name */
+            student_name: string;
+            /** Batch Label */
+            batch_label: string | null;
+            /** Phone */
+            phone: string | null;
+            /** Payment Id */
+            payment_id: number;
+            /**
+             * Paid On
+             * Format: date
+             */
+            paid_on: string;
+            /**
+             * From Month
+             * @description The month the payment was logged for.
+             * @example 2026-10
+             */
+            from_month: string;
+            /**
+             * To Month
+             * @description The month its extra money covers.
+             * @example 2026-10
+             */
+            to_month: string;
+            /**
+             * Amount Paise
+             * @description Amount in paise, more than 0.
+             */
+            amount_paise: number;
+            /**
+             * Payment Amount Paise
+             * @description The whole payment, as typed.
+             */
+            payment_amount_paise: number;
+            /**
+             * Payment Pays Until
+             * @description The latest month the payment pays (so a screen can say 'pays up to …').
+             * @example 2026-10
+             */
+            payment_pays_until: string;
+            /**
+             * Payment Needs Check
+             * @description See PaymentRead.needs_check.
+             */
+            payment_needs_check: boolean;
+            /**
+             * Payment Months Ahead
+             * @description See PaymentRead.months_ahead.
+             */
+            payment_months_ahead: number;
+            /**
+             * Payment Extra Unused Paise
+             * @description The part of the payment no month needed (credit).
+             */
+            payment_extra_unused_paise: number;
+        };
+        /**
+         * CreditSource
+         * @description Extra money from one payment, logged for another month, that covers this month.
+         */
+        CreditSource: {
+            /** Payment Id */
+            payment_id: number;
+            /**
+             * Paid On
+             * Format: date
+             */
+            paid_on: string;
+            /**
+             * For Month
+             * @description The month that payment was logged for.
+             * @example 2026-10
+             */
+            for_month: string;
+            /**
+             * Amount Paise
+             * @description How much of it covers this month.
+             */
+            amount_paise: number;
+        };
         /** DashboardResponse */
         DashboardResponse: {
             /**
@@ -291,8 +388,16 @@ export interface components {
             yet_to_pay: components["schemas"]["YetToPayItem"][];
             /** Backlog */
             backlog: components["schemas"]["BacklogItem"][];
-            /** Overpaid */
+            /**
+             * Overpaid
+             * @description Months holding credit (money not used).
+             */
             overpaid: components["schemas"]["OverpaidItem"][];
+            /**
+             * Credit Moves
+             * @description Extra money moved out of M's payments, or into M from other months' payments. By student, then the month covered, then the payment's date.
+             */
+            credit_moves: components["schemas"]["CreditMoveItem"][];
         };
         /** DashboardSummary */
         DashboardSummary: {
@@ -303,19 +408,34 @@ export interface components {
             expected_paise: number;
             /**
              * Collected Paise
-             * @description Payments whose for_month is M.
+             * @description What pays M: payments logged for M, up to each fee, plus extra money from payments logged for other months that covers M (Σ paid_direct + covered_by_credit).
              */
             collected_paise: number;
             /**
              * Paid Ahead Paise
-             * @description For a month after the current one: what's paid for it by students enrolled then, up to each one's fee (anything above is credit). 0 for the current month and earlier ones, which use collected_paise.
+             * @description For a month after the current one: the same as collected_paise (what pays it ahead of time). 0 for the current month and earlier ones.
              */
             paid_ahead_paise: number;
             /**
              * Still Due Paise
-             * @description Sum of max(0, expected - paid).
+             * @description What's left on M, after extra money, over students active in M.
              */
             still_due_paise: number;
+            /**
+             * Logged Paise
+             * @description Every payment logged for M, as typed: the Payments page's total for M. collected = logged - sent_elsewhere - (kept as credit) + covered_by_credit.
+             */
+            logged_paise: number;
+            /**
+             * Covered By Credit Paise
+             * @description The part of collected_paise that came from payments logged for other months.
+             */
+            covered_by_credit_paise: number;
+            /**
+             * Sent Elsewhere Paise
+             * @description The part of logged_paise that paid other months (the rest above the fees is kept as credit).
+             */
+            sent_elsewhere_paise: number;
             /**
              * Not Fully Paid Count
              * @description Students unpaid or partial for M.
@@ -338,6 +458,23 @@ export interface components {
         ErrorResponse: {
             /** Detail */
             detail: string;
+        };
+        /**
+         * ExtraSent
+         * @description Money paid above a month's fee that covers another month.
+         */
+        ExtraSent: {
+            /**
+             * To Month
+             * @description The month it covers.
+             * @example 2026-10
+             */
+            to_month: string;
+            /**
+             * Amount Paise
+             * @description Amount in paise, more than 0.
+             */
+            amount_paise: number;
         };
         /** FeeChangeRead */
         FeeChangeRead: {
@@ -391,7 +528,10 @@ export interface components {
         };
         /**
          * LedgerMonth
-         * @description One row of a student's month-by-month ledger.
+         * @description One row of a student's month-by-month ledger, after extra money has been handed out
+         *     (PRD ledger rule 10). For every month:
+         *     `paid_paise = paid_direct_paise + Σ extra_sent + extra_unused_paise`, and
+         *     `paid_direct_paise + covered_by_credit_paise + remaining_paise = expected_paise`.
          */
         LedgerMonth: {
             /**
@@ -407,35 +547,68 @@ export interface components {
             expected_paise: number;
             /**
              * Paid Paise
-             * @description Amount in paise, 0 or more.
+             * @description Everything logged for this month, exactly as typed.
              */
             paid_paise: number;
             /**
+             * Paid Direct Paise
+             * @description The part of paid_paise that pays this month: at most its fee.
+             */
+            paid_direct_paise: number;
+            /**
+             * Covered By Credit Paise
+             * @description Extra money from payments logged for other months that pays this month (the sum of credit_sources).
+             */
+            covered_by_credit_paise: number;
+            /**
+             * Credit Sources
+             * @description Where covered_by_credit_paise came from, in the order it was handed out.
+             */
+            credit_sources: components["schemas"]["CreditSource"][];
+            /**
+             * Extra Sent
+             * @description Where the money paid for this month above its fee went, one entry per month covered, oldest first.
+             */
+            extra_sent: components["schemas"]["ExtraSent"][];
+            /**
+             * Extra Unused Paise
+             * @description Money paid for this month that no month needed: credit.
+             */
+            extra_unused_paise: number;
+            /**
              * Remaining Paise
-             * @description max(0, expected - paid)
+             * @description What's still left: max(0, expected - paid_direct - covered_by_credit).
              */
             remaining_paise: number;
             /**
              * Excess Paise
-             * @description max(0, paid - expected)
+             * @description max(0, paid - expected): what was paid for this month above its fee (extra_sent plus extra_unused_paise).
              */
             excess_paise: number;
             status: components["schemas"]["MonthStatus"];
             /**
              * Is Due
-             * @description True for months up to and including the current month. Payments for later months are 'paid ahead'.
+             * @description True for months up to and including the current month. What pays a later month is 'paid ahead'.
              */
             is_due: boolean;
         };
         /**
          * MonthStatus
-         * @description Status of one student for one month (PRD "Ledger rules", rule 4).
+         * @description Status of one student for one month (PRD "Ledger rules", rule 4), counting what was paid
+         *     for the month itself plus extra money from other payments that covers it (rule 10).
+         *
+         *     - `paid`: fully paid. It was paid **with credit** when `covered_by_credit_paise > 0`.
+         *     - `partial`, `unpaid`: some, or none, of the fee is covered.
+         *     - `overpaid`: some of the money paid for this month wasn't needed by any month, so it is
+         *       credit (`extra_unused_paise > 0`).
+         *     - `not_applicable`: no fee, and none of this month's money is left as credit.
          * @enum {string}
          */
         MonthStatus: "paid" | "partial" | "unpaid" | "overpaid" | "not_applicable";
         /**
          * OverpaidItem
-         * @description A student-month up to M where paid > expected.
+         * @description A student-month up to M (or later, from the current month on) holding money that no
+         *     month needed: credit (`extra_unused_paise > 0`).
          */
         OverpaidItem: {
             /** Student Id */
@@ -464,9 +637,14 @@ export interface components {
             paid_paise: number;
             /**
              * Excess Paise
-             * @description Amount in paise, more than 0.
+             * @description max(0, paid - expected), as on LedgerMonth.
              */
             excess_paise: number;
+            /**
+             * Extra Unused Paise
+             * @description The part of it no month needed: credit.
+             */
+            extra_unused_paise: number;
         };
         /** PaymentCreate */
         PaymentCreate: {
@@ -497,7 +675,11 @@ export interface components {
          * @enum {string}
          */
         PaymentMethod: "upi" | "cash" | "other";
-        /** PaymentRead */
+        /**
+         * PaymentRead
+         * @description A payment exactly as typed, plus where its money went (PRD ledger rule 10):
+         *     `amount_paise = paid_direct_paise + Σ extra_sent + extra_unused_paise`.
+         */
         PaymentRead: {
             /** Id */
             id: number;
@@ -524,6 +706,31 @@ export interface components {
             method: components["schemas"]["PaymentMethod"];
             /** Note */
             note: string | null;
+            /**
+             * Paid Direct Paise
+             * @description The part that pays for_month itself (at most what was left of its fee).
+             */
+            paid_direct_paise: number;
+            /**
+             * Needs Check
+             * @description Worth a glance, in case of a typo: it pays 4 or more months after the current one (months_ahead), or some of it is kept as credit (extra_unused_paise > 0). Paying months owed never flags.
+             */
+            needs_check: boolean;
+            /**
+             * Months Ahead
+             * @description How many months after the current one it pays (its own, and where its extra went).
+             */
+            months_ahead: number;
+            /**
+             * Extra Sent
+             * @description The rest, covering other unpaid months, oldest first.
+             */
+            extra_sent: components["schemas"]["ExtraSent"][];
+            /**
+             * Extra Unused Paise
+             * @description What no month needed: credit.
+             */
+            extra_unused_paise: number;
             /**
              * Created At
              * Format: date-time
@@ -630,21 +837,21 @@ export interface components {
              * @description Net: all payments minus everything expected up to this month. For reference only: money paid ahead or paid twice can cancel out months still owed, so headlines use `status` and `owed_paise`.
              */
             balance_paise: number;
-            /** @description `owes` if anything is owed for a due month (`owed_paise` > 0); otherwise `credit` if any month was paid more than its fee (`credit_paise` > 0); otherwise `up_to_date`. */
+            /** @description `owes` if anything is owed for a due month (`owed_paise` > 0); otherwise `credit` if some money wasn't needed by any month (`credit_paise` > 0); otherwise `up_to_date`. */
             status: components["schemas"]["BalanceStatus"];
             /**
              * Owed Paise
-             * @description Still owed: the sum of what's left on every due month (active months up to and including the current month) that is Unpaid or Partial.
+             * @description Still owed: the sum of what's left on every due month (active months up to and including the current month), after extra money has covered the oldest months.
              */
             owed_paise: number;
             /**
              * Paid Ahead Paise
-             * @description Money paid for months after the current month that they're still enrolled in, up to each month's fee (not due yet; not credit). Anything above the fee, and anything for a month after left_month, counts as credit instead.
+             * @description Money that pays months after the current month that they're still enrolled in: what was logged for them, up to each fee, plus extra money from other payments that covers them.
              */
             paid_ahead_paise: number;
             /**
              * Credit Paise
-             * @description Money paid above the fee: the sum of max(0, paid - expected) over every month with a payment, later months included (all of it where the fee is 0). Paying a later month up to its fee is paid ahead, not credit.
+             * @description Money no month needed: what's left of the payments once each has paid its own month and covered every unpaid month it could (due months, then later ones up to left_month or 24 months ahead). The sum of the months' extra_unused_paise.
              */
             credit_paise: number;
             /** @description The first fee change after the month monthly_fee_paise is for, if any (so the UI can say "No fee until December 2026, then ₹1,000"). */
@@ -736,21 +943,21 @@ export interface components {
              * @description Net: all payments minus everything expected up to this month. For reference only: money paid ahead or paid twice can cancel out months still owed, so headlines use `status` and `owed_paise`.
              */
             balance_paise: number;
-            /** @description `owes` if anything is owed for a due month (`owed_paise` > 0); otherwise `credit` if any month was paid more than its fee (`credit_paise` > 0); otherwise `up_to_date`. */
+            /** @description `owes` if anything is owed for a due month (`owed_paise` > 0); otherwise `credit` if some money wasn't needed by any month (`credit_paise` > 0); otherwise `up_to_date`. */
             status: components["schemas"]["BalanceStatus"];
             /**
              * Owed Paise
-             * @description Still owed: the sum of what's left on every due month (active months up to and including the current month) that is Unpaid or Partial.
+             * @description Still owed: the sum of what's left on every due month (active months up to and including the current month), after extra money has covered the oldest months.
              */
             owed_paise: number;
             /**
              * Paid Ahead Paise
-             * @description Money paid for months after the current month that they're still enrolled in, up to each month's fee (not due yet; not credit). Anything above the fee, and anything for a month after left_month, counts as credit instead.
+             * @description Money that pays months after the current month that they're still enrolled in: what was logged for them, up to each fee, plus extra money from other payments that covers them.
              */
             paid_ahead_paise: number;
             /**
              * Credit Paise
-             * @description Money paid above the fee: the sum of max(0, paid - expected) over every month with a payment, later months included (all of it where the fee is 0). Paying a later month up to its fee is paid ahead, not credit.
+             * @description Money no month needed: what's left of the payments once each has paid its own month and covered every unpaid month it could (due months, then later ones up to left_month or 24 months ahead). The sum of the months' extra_unused_paise.
              */
             credit_paise: number;
             /** @description The first fee change after the month monthly_fee_paise is for, if any (so the UI can say "No fee until December 2026, then ₹1,000"). */
@@ -899,9 +1106,14 @@ export interface components {
             expected_paise: number;
             /**
              * Paid Paise
-             * @description Amount in paise, 0 or more.
+             * @description Logged for M, as typed.
              */
             paid_paise: number;
+            /**
+             * Covered By Credit Paise
+             * @description Extra money from payments logged for other months that covers M.
+             */
+            covered_by_credit_paise: number;
             /**
              * Remaining Paise
              * @description Amount in paise, more than 0.
@@ -914,7 +1126,7 @@ export interface components {
             status: "unpaid" | "partial";
             /**
              * Credit Paise
-             * @description The student's money paid above the fee (see StudentRead.credit_paise), so the UI can say they have credit.
+             * @description The student's credit (see StudentRead.credit_paise). Almost always 0 here: extra money covers unpaid months first.
              */
             credit_paise: number;
         };
@@ -928,9 +1140,12 @@ export interface components {
 export type BacklogItem = components['schemas']['BacklogItem'];
 export type BacklogMonth = components['schemas']['BacklogMonth'];
 export type BalanceStatus = components['schemas']['BalanceStatus'];
+export type CreditMoveItem = components['schemas']['CreditMoveItem'];
+export type CreditSource = components['schemas']['CreditSource'];
 export type DashboardResponse = components['schemas']['DashboardResponse'];
 export type DashboardSummary = components['schemas']['DashboardSummary'];
 export type ErrorResponse = components['schemas']['ErrorResponse'];
+export type ExtraSent = components['schemas']['ExtraSent'];
 export type FeeChangeRead = components['schemas']['FeeChangeRead'];
 export type FeeKind = components['schemas']['FeeKind'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];

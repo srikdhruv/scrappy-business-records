@@ -35,18 +35,81 @@ describe('student profile', () => {
     expect(monthRow('October 2026').getByText('Paid')).toBeInTheDocument()
   })
 
-  it('points out a month that was paid too much, and opens its payment to fix it', async () => {
+  it('uses a payment for two months to pay the month missed, and says so on both', async () => {
+    // Aarav paid ₹3,000 for October (a ₹1,500 fee) and nothing for September.
     const user = userEvent.setup()
-    renderApp(`/students/${idOf('Arjun Nair')}`)
-    await screen.findByRole('heading', { level: 1, name: 'Arjun Nair' })
+    renderApp(`/students/${idOf('Aarav Gupta')}`)
+    await screen.findByRole('heading', { level: 1, name: 'Aarav Gupta' })
     const balance = within(screen.getByRole('region', { name: 'Balance' }))
-    expect(balance.getByText('₹300 paid extra')).toBeInTheDocument()
-    expect(monthRow('August 2026').getByText('Paid extra')).toBeInTheDocument()
+    expect(balance.getByText('Up to date')).toBeInTheDocument()
+
+    const september = monthRow('September 2026')
+    expect(september.getByText('Paid')).toBeInTheDocument()
+    // Nothing was logged for September, but it isn't "—": it's paid by credit.
+    expect(september.getByText('₹1,500 (credit)')).toBeInTheDocument()
+    expect(
+      september.getByText(/^₹1,500 credit from the \d+ Oct 2026 payment \(for Oct 2026\)$/),
+    ).toBeInTheDocument()
+    const october = monthRow('October 2026')
+    expect(october.getByText('Paid')).toBeInTheDocument()
+    expect(october.getByText('₹1,500 extra → Sep 2026')).toBeInTheDocument()
+    // Nothing to fix: no Edit payment on either month.
+    expect(september.queryByRole('button')).not.toBeInTheDocument()
+    expect(october.queryByRole('button')).not.toBeInTheDocument()
+
+    // The payment says where its extra went, in the list and when editing it.
+    const payments = within(screen.getByRole('heading', { name: /Payments/ }).closest('section')!)
+    expect(await payments.findByText('₹1,500 went to Sep 2026')).toBeInTheDocument()
+    await user.click(payments.getByRole('button', { name: /^Edit payment: ₹3,000/ }))
+    const dialog = await findDialog('Edit payment')
+    expect(dialog.getByText('Now: ₹1,500 went to Sep 2026.')).toBeInTheDocument()
+    expect(
+      await dialog.findByText(
+        '₹1,500 more than the October fee: it will pay September 2026 (unpaid).',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('asks to check a payment that pays many months ahead, in case of a typo', async () => {
+    // ₹15,000 for October on a ₹1,500 fee: October and nine months ahead. Up to date, but odd.
+    const user = userEvent.setup()
+    const student = mockDb.createStudent({
+      name: 'Tanu Test',
+      monthly_fee_paise: 150000,
+      joined_month: '2026-10',
+    })
+    mockDb.createPayment({
+      student_id: student.id,
+      amount_paise: 1500000,
+      paid_on: '2026-10-05',
+      for_month: '2026-10',
+      method: 'upi',
+    })
+    renderApp(`/students/${student.id}`)
+    const balance = within(await screen.findByRole('region', { name: 'Balance' }))
+    expect(balance.getByText('Up to date')).toBeInTheDocument()
+    expect(
+      await balance.findByText('Check: this ₹15,000 payment pays up to Jul 2027 — 9 months ahead'),
+    ).toBeInTheDocument()
+    await user.click(balance.getByRole('button', { name: 'Edit payment' }))
+    const dialog = await findDialog('Edit payment')
+    expect(dialog.getByLabelText('Amount')).toHaveValue('15000')
+  })
+
+  it('shows extra money no month needed as credit, and opens its payment to fix it', async () => {
+    // Dev left in February; his last payment was ₹200 more than the fee.
+    const user = userEvent.setup()
+    renderApp(`/students/${idOf('Dev Malhotra')}`)
+    await screen.findByRole('heading', { level: 1, name: 'Dev Malhotra' })
+    const balance = within(screen.getByRole('region', { name: 'Balance' }))
+    expect(balance.getByText('Credit ₹200')).toBeInTheDocument()
+    expect(balance.getByText('₹200 kept as credit')).toBeInTheDocument()
+    expect(monthRow('February 2026').getByText('Paid extra')).toBeInTheDocument()
 
     await user.click(balance.getByRole('button', { name: 'Edit payment' }))
     const dialog = await findDialog('Edit payment')
-    expect(dialog.getByLabelText('Amount')).toHaveValue('1500')
-    expect(dialog.getByLabelText(/^For month:/)).toHaveTextContent('August 2026')
+    expect(dialog.getByLabelText('Amount')).toHaveValue('2000')
+    expect(dialog.getByLabelText(/^For month:/)).toHaveTextContent('February 2026')
   })
 
   it('calls paying early "paid ahead", not credit', async () => {
@@ -85,7 +148,7 @@ describe('student profile', () => {
     expect(dialog.getByText(/₹1,500 fee, nothing else paid/)).toBeInTheDocument()
   })
 
-  it('says "owes" when a month was paid twice instead of the next one', async () => {
+  it('uses a month paid twice for the next one', async () => {
     // Joined August at ₹1,500; paid August twice and never September or October.
     const student = mockDb.createStudent({
       name: 'Nila Test',
@@ -103,13 +166,14 @@ describe('student profile', () => {
     }
     renderApp(`/students/${student.id}`)
     const balance = within(await screen.findByRole('region', { name: 'Balance' }))
-    // The net is -₹1,500, but September and October are still owed in full.
-    expect(balance.getByText(/^Owes ₹3,000/)).toBeInTheDocument()
-    expect(balance.getByText('(Sep, Oct)')).toBeInTheDocument()
-    expect(balance.getByText('Paid ₹1,500 extra in Aug 2026')).toBeInTheDocument()
+    // The second August payment pays September; October is still owed.
+    expect(balance.getByText(/^Owes ₹1,500/)).toBeInTheDocument()
+    expect(balance.getByText('(Oct)')).toBeInTheDocument()
+    expect(monthRow('September 2026').getByText('Paid')).toBeInTheDocument()
+    expect(monthRow('August 2026').getByText('₹1,500 extra → Sep 2026')).toBeInTheDocument()
   })
 
-  it('says "owes" when the joined month moved past a payment', async () => {
+  it('uses a payment from before the joined month for the first month owed', async () => {
     const student = mockDb.createStudent({
       name: 'Ojas Test',
       monthly_fee_paise: 150000,
@@ -125,12 +189,12 @@ describe('student profile', () => {
     mockDb.updateStudent(student.id, { joined_month: '2026-10' })
     renderApp(`/students/${student.id}`)
     const balance = within(await screen.findByRole('region', { name: 'Balance' }))
-    expect(balance.getByText(/^Owes ₹1,500/)).toBeInTheDocument()
+    expect(balance.getByText('Up to date')).toBeInTheDocument()
     expect(balance.queryByText(/^Credit/)).not.toBeInTheDocument()
-    expect(balance.getByText('Paid ₹1,500 extra in Sep 2026')).toBeInTheDocument()
+    expect(monthRow('October 2026').getByText(/^₹1,500 credit from the/)).toBeInTheDocument()
   })
 
-  it('treats a payment for a month after leaving as extra, not "paid ahead"', async () => {
+  it('uses a payment for a month after leaving for the month owed, never "paid ahead"', async () => {
     // June to August, then left; paid June and July, and then ₹1,500 "for November".
     const student = mockDb.createStudent({
       name: 'Pari Test',
@@ -149,11 +213,12 @@ describe('student profile', () => {
     }
     renderApp(`/students/${student.id}`)
     const balance = within(await screen.findByRole('region', { name: 'Balance' }))
-    expect(balance.getByText(/^Owes ₹1,500/)).toBeInTheDocument()
-    expect(balance.getByText('(Aug)')).toBeInTheDocument()
-    expect(balance.getByText('₹1,500 paid for Nov 2026')).toBeInTheDocument()
-    expect(balance.getByText(/after they left — was it for Aug\?/)).toBeInTheDocument()
+    expect(balance.getByText('Up to date')).toBeInTheDocument()
     expect(balance.queryByText(/Paid ahead/)).not.toBeInTheDocument()
+    expect(
+      monthRow('August 2026').getByText('₹1,500 credit from the 1 Oct 2026 payment (for Nov 2026)'),
+    ).toBeInTheDocument()
+    expect(monthRow('November 2026').getByText('₹1,500 extra → Aug 2026')).toBeInTheDocument()
     // Three months enrolled, June to August.
     expect(screen.getByText(/left after August 2026 \(3 mo\)/)).toBeInTheDocument()
   })

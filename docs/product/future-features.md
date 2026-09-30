@@ -41,16 +41,24 @@ taught by a hired instructor), and each batch has several students.
 
 ## 2b. Smarter handling of extra money
 
-In the MVP, payments are recorded exactly as typed. Credit (money in overpaid months) is shown
-next to the student ("Paid ₹X extra in July 2026"), and the owner fixes it by editing the
-payment's month.
-Options considered for later:
+**Built** (PRD ledger rule 10, "credit allocation"): extra money automatically covers the
+oldest unpaid months, then later months ahead. It's worked out every time, not stored, so
+payments stay exactly as typed, and every screen says where the money went.
+
+Still open:
 
 - **Offer to split:** when the amount is more than that month's fee, the form offers "Split
-  ₹3,000 across August and September?" and records one payment per month. This needs
-  `payment_allocations` (see §3).
-- **Automatic carry-forward:** extra money automatically covers the next unpaid months. Less
-  manual work, but what she typed and what she sees can differ.
+  ₹3,000 across August and September?" and records one payment per month. Probably not needed
+  now; it would need `payment_allocations` (see §3).
+- **Choose where it goes:** let the owner send one payment's extra to a particular month
+  instead of the oldest one owed.
+- **Say when a new payment moves another payment's extra.** Logging a payment for a month that
+  another payment's extra already paid pays that month directly, so the older extra moves on
+  (usually to a later month). The *Log payment* preview only describes the new payment's own
+  money; it could add "the ₹1,500 from the 5 Sep payment will then pay October instead".
+- **Show part-paid months inside ranges.** Notes and the Dashboard collapse months in a row into
+  a range ("Oct 2026 to Sep 2028") without saying that the last one is only partly paid; the
+  range could say so ("…, Sep 2028 in part").
 
 ## 3. Bank statement import (Excel/CSV)
 

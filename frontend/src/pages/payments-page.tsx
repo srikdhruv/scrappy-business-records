@@ -164,6 +164,7 @@ export function PaymentsPage() {
           <div className={cn('transition-opacity', payments.isPlaceholderData && 'opacity-60')}>
             <PaymentsTable
               payments={shown}
+              month={month}
               empty={
                 filtered ? (
                   <EmptyState

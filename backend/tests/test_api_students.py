@@ -83,22 +83,47 @@ def test_detail_ledger_with_payments(api: TestClient) -> None:
     pay(api, s["id"], "2026-05", 200000)
     pay(api, s["id"], "2026-08")  # paid ahead
     d = api.get(f"/api/students/{s['id']}").json()
+    # May's ₹500 extra pays the rest of April, the oldest month not fully paid.
     assert months_of(d) == {
         "2026-03": (150000, 150000, "paid"),
-        "2026-04": (150000, 100000, "partial"),
-        "2026-05": (150000, 200000, "overpaid"),
+        "2026-04": (150000, 100000, "paid"),
+        "2026-05": (150000, 200000, "paid"),
         "2026-06": (150000, 0, "unpaid"),
         "2026-07": (150000, 0, "unpaid"),
         "2026-08": (150000, 150000, "paid"),
     }
     by_month = {m["month"]: m for m in d["months"]}
-    assert by_month["2026-04"]["remaining_paise"] == 50000
+    [may_payment] = api.get("/api/payments", params={"month": "2026-05"}).json()
+    assert by_month["2026-04"] | {"credit_sources": None} == {
+        "month": "2026-04",
+        "expected_paise": 150000,
+        "paid_paise": 100000,
+        "paid_direct_paise": 100000,
+        "covered_by_credit_paise": 50000,
+        "credit_sources": None,
+        "extra_sent": [],
+        "extra_unused_paise": 0,
+        "remaining_paise": 0,
+        "excess_paise": 0,
+        "status": "paid",
+        "is_due": True,
+    }
+    assert by_month["2026-04"]["credit_sources"] == [
+        {
+            "payment_id": may_payment["id"],
+            "paid_on": "2026-05-05",
+            "for_month": "2026-05",
+            "amount_paise": 50000,
+        }
+    ]
     assert by_month["2026-05"]["excess_paise"] == 50000
+    assert by_month["2026-05"]["paid_direct_paise"] == 150000
+    assert by_month["2026-05"]["extra_sent"] == [{"to_month": "2026-04", "amount_paise": 50000}]
     assert [m["is_due"] for m in d["months"]] == [True] * 4 + [False] * 2
-    # 600000 paid - 4 x 150000 due: a net 0. But April and June are still owed (May's extra and
-    # August's early payment don't cancel them), so the headline is "owes".
+    # 600000 paid - 4 x 150000 due: a net 0. But June is still owed (August's early payment
+    # only pays August), so the headline is "owes".
     assert (d["balance_paise"], d["status"]) == (0, "owes")
-    assert (d["owed_paise"], d["credit_paise"], d["paid_ahead_paise"]) == (200000, 50000, 150000)
+    assert (d["owed_paise"], d["credit_paise"], d["paid_ahead_paise"]) == (150000, 0, 150000)
     assert (d["payment_count"], d["total_paid_paise"]) == (4, 600000)
 
 
@@ -137,10 +162,19 @@ def test_list_bad_filter_is_422(api: TestClient) -> None:
 
 
 def test_balance_status_credit(api: TestClient) -> None:
+    # Still coming: ₹500 extra pays part of July ahead, so it isn't credit.
     s = make_student(api, joined_month="2026-06")
     pay(api, s["id"], "2026-06", 200000)
     row = api.get("/api/students").json()[0]
-    assert (row["balance_paise"], row["status"]) == (50000, "credit")
+    assert (row["balance_paise"], row["status"], row["paid_ahead_paise"]) == (
+        50000,
+        "up_to_date",
+        50000,
+    )
+    # Leaving after June: no month can use the ₹500, so it's credit.
+    api.patch(f"/api/students/{s['id']}", json={"left_month": "2026-06"})
+    row = api.get("/api/students").json()[0]
+    assert (row["balance_paise"], row["status"], row["credit_paise"]) == (50000, "credit", 50000)
 
 
 # --------------------------------------------------------------------------- update
@@ -300,9 +334,11 @@ def test_moving_joined_month_later_moves_the_first_fee(api: TestClient) -> None:
         ("2026-03", 100000),
         ("2026-05", 200000),
     ]
-    # The January payment is still there; January is no longer owed, so it shows as overpaid.
-    assert months_of(d)["2026-01"] == (0, 100000, "overpaid")
-    assert months_of(d)["2026-03"] == (100000, 0, "unpaid")
+    # The January payment is still there; January is no longer owed, so all of it is extra,
+    # and it pays March, now the oldest month owed.
+    assert months_of(d)["2026-01"] == (0, 100000, "not_applicable")
+    assert months_of(d)["2026-03"] == (100000, 0, "paid")
+    assert months_of(d)["2026-04"] == (100000, 0, "unpaid")
 
 
 @pytest.mark.parametrize("joined", ["2026-05", "2026-06"])

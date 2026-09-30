@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Query, status
 
-from app.clock import TodayDep
+from app.clock import CurrentMonthDep, TodayDep
 from app.db import SessionDep
 from app.schemas import (
     ErrorResponse,
@@ -23,6 +23,7 @@ NOT_FOUND = {404: {"model": ErrorResponse, "description": "No payment with this 
 @router.get("", response_model=list[PaymentRead], operation_id="listPayments")
 def list_payments(
     session: SessionDep,
+    current: CurrentMonthDep,
     student_id: int | None = Query(None, gt=0, description="Only this student's payments."),
     month: Month | None = Query(None, description="Only payments for this month (`for_month`)."),
     q: str | None = Query(
@@ -31,9 +32,10 @@ def list_payments(
     sort: PaymentSort = Query(PaymentSort.paid_on),
     order: SortOrder = Query(SortOrder.desc),
 ) -> list[PaymentRead]:
-    """Every payment matching the filters, with the student's name."""
+    """Every payment matching the filters, with the student's name and where its money went
+    (its own month, other unpaid months, or credit)."""
     return service.list_payments(
-        session, student_id=student_id, month=month, q=q, sort=sort, order=order
+        session, current, student_id=student_id, month=month, q=q, sort=sort, order=order
     )
 
 
@@ -54,8 +56,8 @@ def create_payment(body: PaymentCreate, session: SessionDep, today: TodayDep) ->
     responses=NOT_FOUND,
     operation_id="getPayment",
 )
-def get_payment(payment_id: int, session: SessionDep) -> PaymentRead:
-    return service.get_payment(session, payment_id)
+def get_payment(payment_id: int, session: SessionDep, current: CurrentMonthDep) -> PaymentRead:
+    return service.get_payment(session, payment_id, current)
 
 
 @router.patch(

@@ -1,11 +1,13 @@
 /**
  * The Dashboard answers "who is left to pay?" for one month (PRD D1–D5): a summary, the Yet to
- * pay list with a one-click Log payment, earlier months still owed, and overpayments.
+ * pay list with a one-click Log payment, earlier months still owed, where extra money went
+ * (PRD ledger rule 10), and any extra money kept as credit.
  *
  * "This month" is the server's (`current_month` in the response), never the browser's clock.
  * A month after it isn't due yet, so it is shown calmly: nothing is "owed" or red there.
  */
 import {
+  ArrowRightIcon,
   CalendarCheckIcon,
   CheckCircle2Icon,
   ChevronLeftIcon,
@@ -20,17 +22,24 @@ import { useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 
 import { useDashboard, useStudents } from '@/api/queries'
-import type { BacklogItem, DashboardResponse, OverpaidItem, YetToPayItem } from '@/api/types'
+import type {
+  BacklogItem,
+  CreditMoveItem,
+  DashboardResponse,
+  OverpaidItem,
+  YetToPayItem,
+} from '@/api/types'
 import { PageHeader } from '@/components/layout/page-header'
 import { useLogPayment } from '@/components/log-payment'
 import { Panel } from '@/components/panel'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
-import { ExtraPaidNote, StatusPill } from '@/components/status'
+import { StatusPill } from '@/components/status'
 import { StudentAvatar } from '@/components/student-avatar'
 import { StudentFormDialog } from '@/components/student-form'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { addMonths, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
+import { addMonths, formatDate, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
+import { checkText, groupMoves, monthRanges } from '@/lib/credit'
 import { plural } from '@/lib/labels'
 import { TONE_TEXT } from '@/lib/status'
 import { cn } from '@/lib/utils'
@@ -104,8 +113,9 @@ export function DashboardPage() {
           <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
             <YetToPay data={data} />
             <div className="grid min-w-0 grid-cols-1 gap-6">
-              <Backlog items={data.backlog} overpaid={data.overpaid} month={data.month} />
-              <Overpaid items={data.overpaid} />
+              <Backlog items={data.backlog} month={data.month} />
+              {data.credit_moves.length > 0 && <CreditMoves items={data.credit_moves} />}
+              {data.overpaid.length > 0 && <Credit items={data.overpaid} />}
             </div>
           </div>
         </div>
@@ -242,6 +252,7 @@ function SummaryCards({ data }: { data: DashboardResponse }) {
           />
         </div>
         {percent}% of what’s expected
+        <CollectedNote summary={s} name={name} />
       </SummaryCard>
       {ahead ? (
         <SummaryCard
@@ -313,12 +324,6 @@ function SummaryCards({ data }: { data: DashboardResponse }) {
 
 // ---- Yet to pay ---------------------------------------------------------------------------------
 
-/** "Paid ₹1,500 extra in Feb" when the overpaid month is known, else "₹1,500 paid extra". */
-function extraMonth(overpaid: OverpaidItem[], studentId: number): string | undefined {
-  const months = overpaid.filter((o) => o.student_id === studentId)
-  return months.length === 1 ? months[0]!.month : undefined
-}
-
 function YetToPay({ data }: { data: DashboardResponse }) {
   const { openLogPayment } = useLogPayment()
   const items = data.yet_to_pay
@@ -363,7 +368,6 @@ function YetToPay({ data }: { data: DashboardResponse }) {
               key={item.student_id}
               item={item}
               ahead={ahead}
-              extraIn={extraMonth(data.overpaid, item.student_id)}
               onLog={() =>
                 openLogPayment({
                   studentId: item.student_id,
@@ -383,12 +387,10 @@ function YetToPay({ data }: { data: DashboardResponse }) {
 function YetToPayRow({
   item,
   ahead,
-  extraIn,
   onLog,
 }: {
   item: YetToPayItem
   ahead: boolean
-  extraIn?: string
   onLog: () => void
 }) {
   const partial = item.status === 'partial'
@@ -413,7 +415,6 @@ function YetToPayRow({
               {partial ? 'Partial' : 'Unpaid'}
             </StatusPill>
           )}
-          {item.credit_paise > 0 && <ExtraPaidNote paise={item.credit_paise} month={extraIn} />}
         </div>
         {item.batch_label && (
           <p className="truncate text-sm text-muted-foreground">{item.batch_label}</p>
@@ -428,7 +429,7 @@ function YetToPayRow({
         </p>
         <p className="text-sm text-muted-foreground tabular-nums">
           {partial
-            ? `${formatRupees(item.paid_paise)} of ${formatRupees(item.expected_paise)} paid`
+            ? `${formatRupees(item.paid_paise + item.covered_by_credit_paise)} of ${formatRupees(item.expected_paise)} paid`
             : `Fee ${formatRupees(item.expected_paise)}`}
         </p>
       </div>
@@ -446,15 +447,7 @@ function YetToPayRow({
 
 // ---- Backlog ------------------------------------------------------------------------------------
 
-function Backlog({
-  items,
-  overpaid,
-  month,
-}: {
-  items: BacklogItem[]
-  overpaid: OverpaidItem[]
-  month: string
-}) {
+function Backlog({ items, month }: { items: BacklogItem[]; month: string }) {
   const total = items.reduce((sum, item) => sum + item.total_owed_paise, 0)
   return (
     <Panel
@@ -503,12 +496,6 @@ function Backlog({
                       {m.status === 'partial' && ' · part paid'}
                     </span>
                   ))}
-                  {item.credit_paise > 0 && (
-                    <ExtraPaidNote
-                      paise={item.credit_paise}
-                      month={extraMonth(overpaid, item.student_id)}
-                    />
-                  )}
                 </div>
               </Link>
             </li>
@@ -519,44 +506,139 @@ function Backlog({
   )
 }
 
-// ---- Overpaid -----------------------------------------------------------------------------------
+// ---- Extra money used ---------------------------------------------------------------------------
 
-function Overpaid({ items }: { items: OverpaidItem[] }) {
+/**
+ * Extra money that moved into or out of this month (PRD ledger rule 10): a payment above its
+ * month's fee pays the oldest months still owed. Shown so a month paid "without a payment",
+ * or a payment counted for less than was typed, is never a surprise.
+ */
+function CreditMoves({ items }: { items: CreditMoveItem[] }) {
+  // One row per payment (same-day payments for the same month together), however many months
+  // it paid: a slip of ₹45,000 is one row "→ Oct 2026 to Sep 2028", not 24.
+  const groups = groupMoves(items)
   return (
-    <Panel className="min-w-0" title="Paid too much" count={items.length}>
-      {items.length === 0 ? (
-        <QuietEmpty>No one has paid more than their fee.</QuietEmpty>
-      ) : (
-        <ul className="divide-y divide-border/70 border-t border-border/70">
-          {items.map((item) => (
-            <li key={`${item.student_id}-${item.month}`}>
-              <Link
-                to={`/students/${item.student_id}`}
-                className="flex min-w-0 items-center gap-3 px-6 py-3.5 transition-colors outline-none hover:bg-muted/30 focus-visible:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
+    <Panel
+      className="min-w-0"
+      title="Extra money used"
+      count={groups.length}
+      description="Money that paid a different month than it was logged for."
+    >
+      <ul className="divide-y divide-border/70 border-t border-border/70">
+        {groups.map((g) => (
+          <li key={g.key}>
+            <Link
+              to={`/students/${g.student_id}`}
+              className="flex min-w-0 items-center gap-3 px-6 py-3.5 transition-colors outline-none hover:bg-muted/30 focus-visible:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
+            >
+              <StudentAvatar name={g.student_name} size="sm" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-bold" title={g.student_name}>
+                  {g.student_name}
+                </span>
+                <span className="block text-sm text-muted-foreground tabular-nums">
+                  {formatRupees(g.amount_paise)} extra from the {formatDate(g.paid_on)}{' '}
+                  {g.payment_ids.length > 1 ? 'payments' : 'payment'} for{' '}
+                  {formatMonthShort(g.from_month)}
+                </span>
+                {g.needs_check && (
+                  <span className="block text-sm font-semibold text-partial">
+                    {checkText({
+                      amount_paise: g.payment_amount_paise,
+                      paysUntil: g.pays_until,
+                      monthsAhead: g.months_ahead,
+                      unused_paise: g.unused_paise,
+                      several: g.payment_ids.length > 1,
+                    })}
+                  </span>
+                )}
+              </span>
+              <span
+                className={cn(
+                  'inline-flex max-w-[45%] shrink-0 items-center gap-1 text-right font-extrabold',
+                  TONE_TEXT.credit,
+                )}
               >
-                <StudentAvatar name={item.student_name} size="sm" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-bold" title={item.student_name}>
-                    {item.student_name}
-                  </span>
-                  <span className="block text-sm text-muted-foreground tabular-nums">
-                    {formatMonth(item.month)} · paid {formatRupees(item.paid_paise)}, fee{' '}
-                    {formatRupees(item.expected_paise)}
-                  </span>
+                <ArrowRightIcon className="size-4 shrink-0" aria-label="pays" />
+                {monthRanges(g.to_months)}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  )
+}
+
+/**
+ * Why Collected differs from the Payments page's total for this month (what was logged for it):
+ * extra money from other months' payments counts here, and money logged for this month that
+ * paid other months counts there.
+ */
+function CollectedNote({ summary, name }: { summary: DashboardResponse['summary']; name: string }) {
+  const kept =
+    summary.logged_paise -
+    summary.sent_elsewhere_paise -
+    (summary.collected_paise - summary.covered_by_credit_paise)
+  const lines = [
+    summary.covered_by_credit_paise > 0 &&
+      `Includes ${formatRupees(summary.covered_by_credit_paise)} of extra money from other months’ payments.`,
+    summary.sent_elsewhere_paise > 0 &&
+      `${formatRupees(summary.sent_elsewhere_paise)} logged for ${name} paid other months.`,
+    kept > 0 && `${formatRupees(kept)} logged for ${name} is kept as credit.`,
+  ].filter(Boolean)
+  if (lines.length === 0) return null
+  return (
+    <span className="mt-1.5 block text-xs text-muted-foreground">
+      {lines.map((line) => (
+        <span key={String(line)} className="block">
+          {line}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+// ---- Credit -------------------------------------------------------------------------------------
+
+/** Extra money that no month needed (everything owed is paid): kept as credit. */
+function Credit({ items }: { items: OverpaidItem[] }) {
+  return (
+    <Panel
+      className="min-w-0"
+      title="Extra kept as credit"
+      count={items.length}
+      description="Nothing is owed for it to pay. Check the payment if it was a mistake."
+    >
+      <ul className="divide-y divide-border/70 border-t border-border/70">
+        {items.map((item) => (
+          <li key={`${item.student_id}-${item.month}`}>
+            <Link
+              to={`/students/${item.student_id}`}
+              className="flex min-w-0 items-center gap-3 px-6 py-3.5 transition-colors outline-none hover:bg-muted/30 focus-visible:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
+            >
+              <StudentAvatar name={item.student_name} size="sm" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-bold" title={item.student_name}>
+                  {item.student_name}
                 </span>
-                <span
-                  className={cn(
-                    'shrink-0 font-extrabold whitespace-nowrap tabular-nums',
-                    TONE_TEXT.credit,
-                  )}
-                >
-                  +{formatRupees(item.excess_paise)}
+                <span className="block text-sm text-muted-foreground tabular-nums">
+                  {formatMonth(item.month)} · paid {formatRupees(item.paid_paise)}
+                  {item.expected_paise > 0 ? `, fee ${formatRupees(item.expected_paise)}` : ''}
                 </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+              </span>
+              <span
+                className={cn(
+                  'shrink-0 font-extrabold whitespace-nowrap tabular-nums',
+                  TONE_TEXT.credit,
+                )}
+              >
+                +{formatRupees(item.extra_unused_paise)}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
     </Panel>
   )
 }

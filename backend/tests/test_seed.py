@@ -75,9 +75,16 @@ def test_seed_mix(session: Session) -> None:
 
     # The dashboard for this month.
     board = ledger.build_dashboard(records, NOW, NOW)
-    assert [(o.student.name, o.line.excess_paise) for o in board.overpaid] == [
-        ("Vihaan Joshi", 500_00)
-    ]
+    # Vihaan paid for two months at once, logged for this month: the extra covers last month,
+    # which he skipped, so nothing is left over as credit anywhere.
+    assert board.overpaid == ()
+    assert [
+        (e.student.name, e.move.payment.for_month, e.move.to_month) for e in board.credit_moves
+    ] == [("Vihaan Joshi", NOW, add_months(NOW, -1))]
+    vihaan = next(r for r in records if r.name == "Vihaan Joshi")
+    last_month = ledger.month_line(vihaan, add_months(NOW, -1), NOW)
+    assert (last_month.paid_paise, last_month.covered_by_credit_paise) == (0, 2000_00)
+    assert last_month.status is MonthStatus.paid
     backlog = {b.student.name: len(b.lines) for b in board.backlog}
     assert backlog["Arjun Menon"] == 3
     assert backlog["Dev Malhotra"] == 2

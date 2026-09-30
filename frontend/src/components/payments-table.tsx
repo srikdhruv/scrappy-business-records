@@ -1,6 +1,7 @@
 /**
  * A list of payments, sortable by clicking a column heading (P3), with Edit and Delete on each
- * row (P4). Used on the Payments page and on each student's profile.
+ * row (P4). Used on the Payments page and on each student's profile. A payment with money above
+ * its month's fee says where that went ("₹1,500 went to Aug 2026", PRD ledger rule 10).
  */
 import {
   createColumnHelper,
@@ -30,6 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { paymentUseText } from '@/lib/credit'
 import { formatDate, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
 import { METHOD_LABELS, plural } from '@/lib/labels'
 import { cn } from '@/lib/utils'
@@ -78,12 +80,15 @@ function SortableHeader({
 export function PaymentsTable({
   payments,
   showStudent = true,
+  month,
   empty,
 }: {
   payments: PaymentRead[]
   showStudent?: boolean
   /** Shown instead of the table when there are no payments. */
   empty?: ReactNode
+  /** The month filter, if any: the total then says how much of it paid other months. */
+  month?: string
 }) {
   const { openEditPayment } = useLogPayment()
   const [sorting, setSorting] = useState<SortingState>([{ id: 'paid_on', desc: true }])
@@ -131,9 +136,21 @@ export function PaymentsTable({
         column.accessor('for_month', {
           header: 'For month',
           sortFn: (a, b) => compare(a.original.for_month, b.original.for_month),
-          cell: (info) => (
-            <span title={formatMonth(info.getValue())}>{formatMonthShort(info.getValue())}</span>
-          ),
+          cell: (info) => {
+            const went = paymentUseText(info.row.original)
+            return (
+              <>
+                <span title={formatMonth(info.getValue())}>
+                  {formatMonthShort(info.getValue())}
+                </span>
+                {went && (
+                  <span className="block max-w-56 text-xs font-bold whitespace-normal text-credit">
+                    {went}
+                  </span>
+                )}
+              </>
+            )
+          },
         }),
         column.accessor('method', {
           header: 'Method',
@@ -205,6 +222,23 @@ export function PaymentsTable({
   if (payments.length === 0 && empty) return <>{empty}</>
 
   const total = payments.reduce((sum, p) => sum + p.amount_paise, 0)
+  // For one month, the total is "as logged": say how much of it counts in other months (the
+  // Dashboard's Collected counts it there).
+  const sentElsewhere = payments.reduce(
+    (sum, p) => sum + p.extra_sent.reduce((s, e) => s + e.amount_paise, 0),
+    0,
+  )
+  const keptAsCredit = payments.reduce((sum, p) => sum + p.extra_unused_paise, 0)
+  const asLogged =
+    month && (sentElsewhere > 0 || keptAsCredit > 0)
+      ? [
+          'as logged',
+          sentElsewhere > 0 && `${formatRupees(sentElsewhere)} of it paid other months`,
+          keptAsCredit > 0 && `${formatRupees(keptAsCredit)} is kept as credit`,
+        ]
+          .filter(Boolean)
+          .join('; ')
+      : null
   const rightAligned = new Set(['amount'])
   // Below a medium window the note gives way, so Edit and Delete stay on screen.
   const wideOnly = new Set(['note'])
@@ -278,6 +312,7 @@ export function PaymentsTable({
             </TableCell>
             <TableCell colSpan={4} className="pr-6 text-base text-muted-foreground">
               total
+              {asLogged && <span className="ml-1 text-sm">({asLogged})</span>}
             </TableCell>
           </TableRow>
         </TableFooter>

@@ -54,7 +54,17 @@ def test_fee_change_read(session: Session) -> None:
 
 def test_payment_read(session: Session) -> None:
     payment = session.scalars(select(Payment).options(joinedload(Payment.student))).one()
-    read = PaymentRead.model_validate(payment)
+    # Where its money went comes from the ledger; the stored fields straight from the row.
+    row = SimpleNamespace(
+        **{c.key: getattr(payment, c.key) for c in Payment.__table__.columns},
+        student_name=payment.student_name,
+        paid_direct_paise=payment.amount_paise,
+        needs_check=False,
+        months_ahead=0,
+        extra_sent=[],
+        extra_unused_paise=0,
+    )
+    read = PaymentRead.model_validate(row)
     assert read.for_month == "2026-02"
     assert read.paid_on == dt.date(2026, 2, 5)
     assert read.student_name == "Kabir Mehta"
@@ -92,6 +102,11 @@ def test_ledger_month_from_date() -> None:
             "month": dt.date(2026, 3, 1),
             "expected_paise": 100,
             "paid_paise": 0,
+            "paid_direct_paise": 0,
+            "covered_by_credit_paise": 0,
+            "credit_sources": [],
+            "extra_sent": [{"to_month": dt.date(2026, 4, 1), "amount_paise": 1}],
+            "extra_unused_paise": 0,
             "remaining_paise": 100,
             "excess_paise": 0,
             "status": MonthStatus.unpaid,
@@ -99,6 +114,7 @@ def test_ledger_month_from_date() -> None:
         }
     )
     assert month.month == "2026-03"
+    assert month.extra_sent[0].to_month == "2026-04"
 
 
 def test_unprocessable_matches_fastapi_validation_shape() -> None:

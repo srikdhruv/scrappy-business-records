@@ -161,16 +161,17 @@ def test_search_and_sort_ignore_case_and_accents(api: TestClient) -> None:
 
 def test_student_computed_fields(api: TestClient) -> None:
     s = make_student(api, joined_month="2026-03")
-    pay(api, s["id"], "2026-03", 200000)  # 500 over
+    pay(api, s["id"], "2026-03", 200000)  # 500 over: it covers part of April
     pay(api, s["id"], "2026-07", 150000)  # paid ahead: not credit
     for row in (api.get(f"/api/students/{s['id']}").json(), api.get("/api/students").json()[0]):
         assert row["current_month"] == "2026-06"
         assert row["tenure_months"] == 3  # March to June: three months so far
-        assert row["credit_paise"] == 50000
+        assert row["credit_paise"] == 0  # March's extra was used for April
         # Balance still counts everything: 350000 paid - 4 x 150000 due.
         assert row["balance_paise"] == -250000
-        # April, May and June are owed; March's extra doesn't cancel them out.
-        assert (row["owed_paise"], row["paid_ahead_paise"]) == (450000, 150000)
+        # April (less March's ₹500), May and June are owed; paying July ahead doesn't cancel
+        # them out: a payment only pays other months with what's left over after its own.
+        assert (row["owed_paise"], row["paid_ahead_paise"]) == (400000, 150000)
         assert row["status"] == "owes"
     future = make_student(api, name="Kabir Mehta", joined_month="2026-08")
     assert future["tenure_months"] == 0
