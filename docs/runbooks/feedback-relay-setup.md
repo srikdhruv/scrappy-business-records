@@ -218,6 +218,13 @@ Open <http://127.0.0.1:8765>, click the gear button → **Send feedback**, write
 send it. The issue appears in the feedback repo within a few seconds, with the screenshot. The
 first screenshot also creates the `screenshots` branch in the feedback repo.
 
+**(c) Check strangers can't see the screenshots (once).** On the new issue, right-click the
+screenshot's **Open the screenshot** link and copy it. Paste it into a private (incognito)
+browser window, where you're not logged in to GitHub. It must **not** show the picture: you should
+get GitHub's "Page not found" (404) or its sign-in page. If a friend with a GitHub account who is
+not a member of the feedback repo can try too, even better: they must get the same. Only the
+repo's members should ever see the images.
+
 ## 12. Rotate the tokens
 
 **GitHub token** (yearly, or at once if it may have leaked):
@@ -238,15 +245,18 @@ delete the old one under **My Profile → API Tokens**.
 The relay's address is **public**: it is written in `backend/app/config.py` in this public repo,
 so anyone can find it and send it junk. Spam is possible. What bounds it:
 
-- each app install: 10 an hour and 30 a day;
-- each internet address: 20 an hour;
-- everyone together: **50 filed items a day** (UTC). After that the relay answers "try later"
-  until midnight UTC, and the app keeps its feedback and retries then.
+- each app install: 10 attempts an hour and 30 a day;
+- each internet address: 20 attempts an hour;
+- everyone together: **50 issues filed a day** (UTC), counted only when an issue is actually
+  filed; and, as a brake on abuse, 300 attempts a day. Over either, the relay answers "try later"
+  until midnight UTC.
 
 So the worst a spammer can do is **50 junk issues (and up to 50 screenshots) a day**. Real
-feedback sent that day waits until the next day; none is lost. A flood of more than 100,000
-requests in a day would also use up the Worker's free daily allowance, which again only delays
-real feedback until midnight UTC. Requests over a limit cost the database nothing but reads.
+feedback sent after that **may be delayed**: the app keeps it and retries, backing off up to a
+day between tries, so it's usually filed within a day of the cap resetting. A flood of more than
+100,000 requests in a day would also use up the Worker's free daily allowance, which likewise
+delays real feedback until after midnight UTC. Requests over a limit cost the database nothing
+but reads.
 
 In order of effort:
 
@@ -265,8 +275,8 @@ In order of effort:
    `npx wrangler d1 execute scrappy-feedback --remote --command "DELETE FROM blocked WHERE install_id = '<install-id>'"`.
    (`--remote` matters: without it Wrangler only changes a local test copy.) Don't block the real
    laptop's install ID.
-3. **Lower the limits.** Edit `INSTALL_PER_HOUR`, `INSTALL_PER_DAY`, `IP_PER_HOUR` and
-   `GLOBAL_PER_DAY` in `relay/src/ratelimit.ts`, and merge it via a PR (the workflow deploys it).
+3. **Lower the limits.** Edit `INSTALL_PER_HOUR`, `INSTALL_PER_DAY`, `IP_PER_HOUR`,
+   `GLOBAL_FILED_PER_DAY` and `GLOBAL_ATTEMPTS_PER_DAY` in `relay/src/ratelimit.ts`, and merge it via a PR (the workflow deploys it).
 4. **Last resort: move the relay to a new address.** Change `name` in `relay/wrangler.toml`
    (e.g. `scrappy-feedback-2`), deploy, set the GitHub token on it again (step 7), update
    `FEEDBACK_URL` (step 10) and release. Then delete the old Worker:
@@ -280,13 +290,14 @@ Cloudflare's free plan, reset every day at 00:00 UTC:
 |---|---|---|
 | Worker requests | 100,000 a day | 1 (plus 1 for each retry) |
 | Worker CPU time | 10 ms per request | a few ms; most of it reading a large screenshot |
-| D1 rows written | 100,000 a day | about 11: 4 counters, 2 for the "being filed" lock, 1 to remember the issue, and up to 4 later when old counters are cleared |
+| D1 rows written | 100,000 a day | about 13: 4 attempt counters, 1 filed counter, 2 for the "being filed" record, 1 to remember the issue, and up to 5 later when old counters are cleared |
 | D1 rows read | 5 million a day | a few dozen at most (clearing old counters looks through them all) |
 | D1 storage | 5 GB | about 200 bytes an item |
 
-At the 50-a-day cap that's under 600 row writes a day, far below the allowance. KV isn't used.
-GitHub allows the token 5,000 calls an hour; one item makes 2–4 calls (up to 9 the first time,
-when it creates the `screenshots` branch).
+At the 50-a-day cap that's under 700 row writes for filed items, plus at most 4 for each of the
+300 allowed attempts: far below the allowance. KV isn't used. GitHub allows the token 5,000
+calls an hour; one item makes 2–4 calls (up to 9 the first time, when it creates the
+`screenshots` branch; a retry after a timeout adds 1–3 to look for the issue first).
 
 ## Where screenshots are kept, and purging them
 
@@ -304,11 +315,16 @@ from there. The feedback repo is private, so only you (and anyone you add) can s
   ```
 
   The relay creates a fresh, empty `screenshots` branch with the next screenshot. The images in
-  older issues then stop loading (the issue text stays). GitHub may keep the deleted files on its
-  side for a while before cleaning them up.
+  older issues then stop loading (the issue text stays).
 - A sensible schedule: **every 6 months**, once you've dealt with the issues they belong to.
-- **To remove one item completely**, delete its issue (**Delete issue** at the bottom of the
-  issue's page). Its screenshot goes at the next branch purge.
+- **To remove one item**, delete its issue (**Delete issue** at the bottom of the issue's page).
+  Its screenshot goes at the next branch purge.
+- **Deleting is not the same as erasing.** After the branch or an issue is deleted, GitHub keeps
+  the unreachable files, and cached views of them, on its servers until it cleans up, and a
+  person who had the file's link may still reach it for a while. For a true purge (say, a
+  screenshot showed something that must be gone for good), delete the branch and the issues
+  first, then ask GitHub Support to remove the cached views and unreachable data, as described in
+  GitHub's guide [Removing sensitive data from a repository](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository).
 
 ## Triage
 
@@ -328,26 +344,31 @@ commit of this repo that the laptop was running, so you can read the code as it 
 
 - It checks each item, checks the feedback repo is still private, files the item as an issue
   (committing the screenshot first), and answers with the issue's address. Sending the same item
-  twice gives the same issue.
+  twice gives the same issue, even when two copies arrive at once, or an earlier try timed out
+  after GitHub had already made the issue (a retry looks for it by a hidden line at the end of
+  each issue, `<!-- feedback-id: … -->`, before making a new one).
+- The user's message is shown in a plain-text box in the issue, exactly as typed: links, `#12`
+  and `@name` in it do nothing, so nobody is notified and no other issue is touched.
 - It keeps no copy of the feedback and has no backups. The feedback lives only in the GitHub repo.
-- Its database holds only: feedback id → issue address; short-lived "being filed" locks
-  (2 minutes); request counters, cleared within a day of expiring, which use a one-way scrambled
+- Its database holds only: feedback id → issue address; "being filed" records (a 2-minute lock
+  and a count of tries, removed once filed, or after 30 days); request counters, cleared within a day of expiring, which use a one-way scrambled
   (hashed) form of the internet address, never the address itself; and any installs you block.
 - Its logs never contain the message, page, system details, server log, screenshot or internet
   address: only the first 8 characters of the feedback id, what happened, and a status number.
 
 ## Replies the relay gives the app
 
-Only three replies are final for the app (it stops sending that item): `invalid`, `too_large`
-and `blocked`. Everything else is retried later, so nothing is lost while something is down.
+Only three replies are final for the app: `invalid`, `too_large` and `blocked`. Everything else
+is retried later (backing off up to a day), so feedback waits rather than being lost while
+something is down; it may be delayed.
 
 | Reply | Meaning | What the app does |
 |---|---|---|
 | `201` / `200` `{"status":"created","issue_url":…}` | Filed (200: already filed earlier) | Marks it sent |
 | `400` `{"status":"invalid"}` | Something in it is malformed | Gives up on it |
 | `403` `{"status":"blocked"}` | That install is blocked (step 13) | Gives up on it |
-| `413` `{"status":"too_large"}` | Over 2 MiB | Gives up on it |
-| `409` `{"status":"in_progress"}` + `Retry-After` | The same item is being filed right now | Tries again later |
+| `413` `{"status":"too_large"}` | Over 2 MiB | Tries once more straight away without the picture and with only the last 50 log lines; if that's refused too, gives up (marks it failed and deletes the picture) |
+| `409` `{"status":"in_progress"}` + `Retry-After` | The same item is being filed right now (or a try just timed out) | Tries again later |
 | `429` `{"status":"rate_limited"}` + `Retry-After` | Over a limit (step 13) | Tries again later |
 | `502` `{"status":"upstream_error"}` | GitHub couldn't be reached or refused (e.g. an expired token) | Tries again later |
 | `503` `{"status":"unavailable"}` + `Retry-After` | The relay's database is down or out of quota | Tries again later |
@@ -355,6 +376,9 @@ and `blocked`. Everything else is retried later, so nothing is lost while someth
 
 One item takes at most about 40 seconds on the relay's side: each GitHub call is given up to
 10 seconds, and all calls for one item share 40 seconds in total.
+
+After 3 failed tries of one item (no answer, or a 5xx), the app drops its picture and sends it
+without one, in case the picture is what keeps it over Cloudflare's 10 ms processing limit.
 
 If feedback stays "waiting" in the app for a day, watch the relay's live log
 (`cd relay && npx wrangler tail`) while sending one:

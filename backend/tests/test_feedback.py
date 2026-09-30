@@ -331,7 +331,8 @@ def test_log_tail_keeps_the_last_200_lines_worth_sending(client: TestClient) -> 
     assert len(tail[-6]) == 501  # 500 characters and "…"
     assert tail[-3] == '  File "~/app/x.py", line 3, in f'  # paths in tracebacks stay
     assert tail[-2] == "sqlite3.IntegrityError [parameters: hidden]"
-    assert tail[-1] == "ValueError: invalid literal for int() with base 10: '…'"
+    # Raised in the app's own code (the File line above): its message is left out.
+    assert tail[-1] == "ValueError: [message left out: raised by the app]"
     assert "Ananya" not in joined and "Kabir" not in joined
 
 
@@ -343,14 +344,18 @@ def test_log_tail_keeps_the_last_200_lines_worth_sending(client: TestClient) -> 
         ("C:/Users/Ananya Rao/AppData", "~/AppData"),
         ("c:\\users\\ANANYA RAO\\x", "~\\x"),  # any letter case
         ("file:///C:/Users/Ananya%20Rao/Documents", "file:///~/Documents"),
-        ("C%3A%5CUsers%5CAnanya%20Rao%5CDocuments", "~%5CDocuments"),
+        ("C%3A%5CUsers%5CAnanya%20Rao%5CDocuments", "~\\Documents"),
         (r"C:\Users\ANANYA~1\AppData", r"C:\Users\<user>\AppData"),  # 8.3 short name
         (r"D:\Users\Kabir Mehta\x", r"D:\Users\<user>\x"),  # someone else's folder
         ("/Users/kabir/Library", "/Users/<user>/Library"),
         ("/home/kabir/.cache", "/home/<user>/.cache"),
-        ("%2FUsers%2Fkabir%2Fx", "%2FUsers%2F<user>%2Fx"),
+        ("%2FUsers%2Fkabir%2Fx", "/Users/<user>/x"),
         ("Signed in as Ananya Rao today", "Signed in as <user> today"),
         ("Users and home stay as words", "Users and home stay as words"),
+        # Escaped or URL-encoded, the name is decoded first.
+        (r'"C:\\Users\\Ananya Rao\u0301\\x"', r'"C:\\Users\\<user>\\x"'),
+        ("C%3A%5CUsers%5CAnanya%20Rao%5Cx", "~\\x"),
+        ("Signed in as Ananya\\u0020Rao", "Signed in as <user>"),
     ],
 )
 def test_redact_hides_the_user_in_every_form(
@@ -365,10 +370,73 @@ def test_redact_hides_the_user_in_every_form(
     assert diagnostics.redact(text) == expected
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # JSON and Python escapes, bytes as UTF-8, and URL-encoding of a non-English name.
+        (r"C:\\Users\\Anany\u0101\\AppData", r"~\\AppData"),
+        (r"b'C:\\Users\\Anany\xc4\x81\\AppData'", r"b'~\\AppData'"),
+        ("C:%5CUsers%5CAnany%C4%81%5CAppData", r"~\AppData"),
+        ("file:///C:/Users/Anany%C4%81/Documents", "file:///~/Documents"),
+        ("hello Anany\u0101", "hello <user>"),
+        # The home folder only as a whole folder name: not inside a longer one.
+        (r"C:\Users\Ananyāsri\x", r"C:\Users\<user>\x"),
+        # The bare name only as a whole word.
+        ("Ananyāsri and Ananyā", "Ananyāsri and <user>"),
+    ],
+)
+def test_redact_decodes_non_ascii_names(
+    text: str, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pathlib import PureWindowsPath
+
+    monkeypatch.setattr(diagnostics.Path, "home", lambda: PureWindowsPath(r"C:\Users\Ananyā"))
+    monkeypatch.setenv("USERNAME", "Ananyā")
+    monkeypatch.setenv("USER", "")
+    monkeypatch.setenv("LOGNAME", "")
+    assert diagnostics.redact(text) == expected
+
+
+def test_short_names_are_not_hidden_as_words(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pathlib import PurePosixPath
+
+    monkeypatch.setattr(diagnostics.Path, "home", lambda: PurePosixPath("/Users/raj"))
+    monkeypatch.setenv("USER", "raj")
+    monkeypatch.setenv("USERNAME", "")
+    monkeypatch.setenv("LOGNAME", "")
+    # "raj" is too short to hide as a word (Rajasthan, Raja…), but the folder still goes.
+    assert diagnostics.redact("Raja paid; see /Users/raj/x") == "Raja paid; see ~/x"
+    monkeypatch.setenv("USER", "ravi")
+    assert diagnostics.redact("ravishankar and ravi") == "ravishankar and <user>"
+
+
 def test_redact_this_laptops_home() -> None:
     home = str(Path.home())
     for form in (home, home.replace("/", "\\"), home.upper(), home.replace("/", "%2F")):
         assert diagnostics.redact(f"at {form}/x").startswith("at ~"), form
+
+
+def test_app_exception_messages_are_left_out_library_ones_kept(client: TestClient) -> None:
+    lines = [
+        _record("ERROR", "uvicorn.error", "Exception in ASGI application"),
+        "Traceback (most recent call last):",
+        '  File "/srv/app/.venv/lib/python3.12/site-packages/starlette/routing.py", line 1',
+        '  File "C:\\ScrappyRecords\\app\\app\\services\\students.py", line 42, in save',
+        "ValueError: Kabir Mehta owes 1500 for 2026-05",
+        _record("ERROR", "scrappy", "Backup failed"),
+        "Traceback (most recent call last):",
+        '  File "C:\\ScrappyRecords\\app\\app\\backup.py", line 9, in backup',
+        '  File "C:\\ScrappyRecords\\app\\python\\Lib\\sqlite3\\dbapi2.py", line 3',
+        "sqlite3.OperationalError: unable to open database file",
+        "KeyError",
+    ]
+    logs.log_file().write_text("\n".join(lines) + "\n", encoding="utf-8")
+    tail = diagnostics.log_tail().split("\n")
+    assert "ValueError: [message left out: raised by the app]" in tail
+    assert "Kabir" not in "\n".join(tail)
+    # The last frame is Python's own sqlite3: a library/system message, kept.
+    assert "sqlite3.OperationalError: unable to open database file" in tail
+    assert tail[-1] == "KeyError"
 
 
 def test_log_tail_without_a_log(client: TestClient) -> None:
@@ -701,6 +769,46 @@ def test_a_missing_picture_still_sends(client: TestClient, relay: FakeRelay) -> 
     (config.feedback_dir() / f"{body['id']}.jpg").unlink()
     assert sender_for(relay.url).run_once() == 1
     assert relay.received[0]["screenshot"] is None
+
+
+def test_browser_errors_are_redacted(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pathlib import PureWindowsPath
+
+    monkeypatch.setattr(diagnostics.Path, "home", lambda: PureWindowsPath(r"C:\Users\Kabir Mehta"))
+    monkeypatch.setenv("USERNAME", "Kabir Mehta")
+    body = feedback_body(
+        client={"errors": [{"kind": "error", "message": r"at file:///C:/Users/Kabir%20Mehta/x.js"}]}
+    )
+    client.post("/api/feedback", json=body)
+    diag = json.loads(row(body["id"]).diagnostics)
+    assert diag["client"]["errors"][0]["message"] == "at file:///~/x.js"
+
+
+def test_picture_is_dropped_after_three_failed_tries(client: TestClient, relay: FakeRelay) -> None:
+    body = feedback_body()
+    client.post("/api/feedback", json=body)
+    clock = Clock()
+    sender = sender_for(relay.url, clock)
+    relay.answers = [(503, {"status": "upstream_error"}, {})] * 3
+    for _ in range(4):
+        sender.run_once()
+        clock.now = sender.paused_until
+    pictures = [r["screenshot"] is not None for r in relay.received]
+    assert pictures == [True, True, True, False]
+    assert row(body["id"]).status == FeedbackStatus.sent
+
+
+def test_being_offline_doesnt_cost_the_picture(client: TestClient, relay: FakeRelay) -> None:
+    client.post("/api/feedback", json=feedback_body())
+    clock = Clock()
+    offline = sender_for(relay.url.rsplit(":", 1)[0] + ":9/feedback", clock)
+    for _ in range(5):
+        offline.run_once()
+        clock.now = offline.paused_until
+    assert offline.item_failures == {}
+    offline.url = lambda: relay.url
+    offline.run_once()
+    assert relay.received[0]["screenshot"] is not None
 
 
 def test_route_is_the_path_only(client: TestClient) -> None:

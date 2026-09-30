@@ -1,7 +1,7 @@
 /**
  * A picture of the screen for feedback, taken in the browser with `html-to-image` (bundled, no
  * CDN). It draws the app's own `#root` element, so the feedback dialog (rendered outside it, in
- * a portal) is never in the picture, then keeps only the part of the page in the window: what
+ * a portal) is never in the picture, and only the part in the window (`viewportFrame`): what
  * she sees. Parts that stay put while the page scrolls (the side menu, marked
  * `data-screenshot-sticky`) are drawn where they are on screen.
  *
@@ -31,26 +31,36 @@ export function dataUrlBytes(dataUrl: string): number {
   return Math.floor((base64.length * 3) / 4) - padding
 }
 
-export interface Box {
-  x: number
-  y: number
+/** Where #root sits in the window, and the picture to draw: the window's size. */
+export interface Frame {
   width: number
   height: number
+  /** How far to move #root so the part in the window lands at the picture's top left. */
+  shiftX: number
+  shiftY: number
 }
 
-/** The part of the drawn page that is in the window: what the owner sees. */
-export function visibleBox(
-  page: { width: number; height: number },
-  view: { scrollX: number; scrollY: number; width: number; height: number },
-): Box {
-  const x = Math.min(Math.max(0, view.scrollX), Math.max(0, page.width - 1))
-  const y = Math.min(Math.max(0, view.scrollY), Math.max(0, page.height - 1))
+/** Only the window is drawn (never the whole page: browsers can't draw canvases over 16,384
+ * px, and html-to-image then silently shrinks the picture), so a long list is fine. */
+export function viewportFrame(
+  root: { left: number; top: number; width: number },
+  view: { width: number; height: number },
+): Frame {
   return {
-    x,
-    y,
-    width: Math.max(1, Math.min(view.width, page.width - x)),
-    height: Math.max(1, Math.min(view.height, page.height - y)),
+    width: Math.max(1, Math.round(Math.min(root.width, view.width))),
+    height: Math.max(1, Math.round(view.height)),
+    shiftX: Math.round(root.left),
+    shiftY: Math.round(root.top),
   }
+}
+
+/** The colour behind an element: its own, or the nearest parent's that isn't see-through. */
+function backgroundBehind(el: HTMLElement | null): string {
+  for (let node = el; node; node = node.parentElement) {
+    const color = getComputedStyle(node).backgroundColor
+    if (color && color !== 'transparent' && !/rgba\(.*,\s*0\)$/.test(color)) return color
+  }
+  return '#ffffff'
 }
 
 function resized(source: HTMLCanvasElement, scale: number) {
@@ -62,44 +72,6 @@ function resized(source: HTMLCanvasElement, scale: number) {
   context.fillStyle = '#ffffff'
   context.fillRect(0, 0, canvas.width, canvas.height)
   context.drawImage(source, 0, 0, canvas.width, canvas.height)
-  return canvas
-}
-
-/** Cut the window's part out of the whole-page drawing, putting stuck parts where they are. */
-function screenOnly(full: HTMLCanvasElement, root: HTMLElement): HTMLCanvasElement | null {
-  const box = visibleBox(full, {
-    scrollX: window.scrollX,
-    scrollY: window.scrollY,
-    width: window.innerWidth,
-    height: window.innerHeight,
-  })
-  const canvas = document.createElement('canvas')
-  canvas.width = box.width
-  canvas.height = box.height
-  const context = canvas.getContext('2d')
-  if (!context) return null
-  context.drawImage(full, box.x, box.y, box.width, box.height, 0, 0, box.width, box.height)
-  const rootTop = root.getBoundingClientRect().top + window.scrollY
-  for (const el of root.querySelectorAll<HTMLElement>('[data-screenshot-sticky]')) {
-    if (getComputedStyle(el).position !== 'sticky') continue
-    const rect = el.getBoundingClientRect()
-    const parent = el.parentElement?.getBoundingClientRect()
-    if (!parent || rect.width <= 0 || rect.height <= 0) continue
-    // In the drawing nothing scrolls, so it sits at the top of its parent.
-    const sourceY = parent.top + window.scrollY - rootTop
-    const sourceX = rect.left + window.scrollX
-    context.drawImage(
-      full,
-      sourceX,
-      sourceY,
-      rect.width,
-      rect.height,
-      rect.left,
-      rect.top,
-      rect.width,
-      rect.height,
-    )
-  }
   return canvas
 }
 
@@ -140,18 +112,61 @@ export async function captureScreen({
   }
 }
 
+/**
+ * Table rows out of the window are drawn empty: copying every cell of a long list (hundreds of
+ * students) is what makes a picture slow. The row itself stays (html-to-image gives it its
+ * real height), so everything keeps its place; only its cells are left out.
+ */
+export function rowsOutOfView(root: HTMLElement, viewHeight: number): Set<Element> {
+  const out = new Set<Element>()
+  for (const row of root.querySelectorAll('tbody > tr')) {
+    const box = row.getBoundingClientRect()
+    if (box.bottom <= 0 || box.top >= viewHeight) out.add(row)
+  }
+  return out
+}
+
+// Anything marked `data-feedback-hide` stays out of the picture.
+const hidden = (el: Node) => el instanceof HTMLElement && el.dataset.feedbackHide !== undefined
+
 async function take(node: HTMLElement | null): Promise<Screenshot | null> {
   if (!node) return null
   try {
-    const background = getComputedStyle(document.body).backgroundColor || '#ffffff'
-    const full = await toCanvas(node, {
+    const rect = node.getBoundingClientRect()
+    const frame = viewportFrame(rect, { width: window.innerWidth, height: window.innerHeight })
+    const offScreen = rowsOutOfView(node, frame.height)
+    const keep = (el: Node) =>
+      !hidden(el) && !(el.parentElement !== null && offScreen.has(el.parentElement))
+    // Draw #root at its real size, moved so the window's part is at the top left of a
+    // window-sized picture: exactly what she sees.
+    const canvas = await toCanvas(node, {
       pixelRatio: 1,
-      backgroundColor: background,
-      // Anything marked `data-feedback-hide` stays out of the picture.
-      filter: (el) => !(el instanceof HTMLElement && el.dataset.feedbackHide !== undefined),
+      backgroundColor: backgroundBehind(document.body),
+      width: frame.width,
+      height: frame.height,
+      style: {
+        width: `${rect.width}px`,
+        height: `${node.scrollHeight}px`,
+        transform: `translate(${frame.shiftX - rect.left}px, ${frame.shiftY}px)`,
+        transformOrigin: 'top left',
+      },
+      filter: keep,
     })
-    const screen = screenOnly(full, node)
-    return screen ? compress(screen) : null
+    const context = canvas.getContext('2d')
+    // Parts that stay put while the page scrolls (the side menu) sit, in that drawing, where
+    // they'd be with nothing scrolled. Draw each on its own and put it where it is on screen.
+    for (const el of node.querySelectorAll<HTMLElement>('[data-screenshot-sticky]')) {
+      if (!context || getComputedStyle(el).position !== 'sticky') continue
+      const box = el.getBoundingClientRect()
+      if (box.width < 1 || box.height < 1 || box.bottom <= 0 || box.top >= frame.height) continue
+      const part = await toCanvas(el, {
+        pixelRatio: 1,
+        backgroundColor: backgroundBehind(el),
+        filter: (child) => !hidden(child),
+      })
+      context.drawImage(part, box.left - rect.left, box.top, box.width, box.height)
+    }
+    return compress(canvas)
   } catch {
     return null
   }

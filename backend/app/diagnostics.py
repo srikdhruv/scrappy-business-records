@@ -19,6 +19,8 @@ import logging
 import os
 import platform
 import re
+import unicodedata
+import urllib.parse
 import uuid
 from pathlib import Path
 
@@ -73,6 +75,17 @@ _LOG_RECORD = re.compile(
     r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d+ (?P<level>[A-Z]+)\s+\[\d+\] (?P<name>[\w.]+): "
 )
 _KEEP_LEVELS = {"WARNING", "ERROR", "CRITICAL"}
+_END = r"""(?=$|[\\/\s'"<>|:;,)\]]|%5C|%2F)"""
+r"""Where a folder name ends: so the home folder `C:\Users\Ana` never matches inside
+`C:\Users\Anand`."""
+_UNICODE_ESCAPE = re.compile(r"(?<!\\)\\(?:u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8})")
+_BYTE_ESCAPES = re.compile(r"(?<!\\)(?:\\x[0-9a-fA-F]{2})+")
+_PERCENT_RUN = re.compile(r"(?:%[0-9A-Fa-f]{2})+")
+_EXCEPTION_LINE = re.compile(
+    r"^(?P<type>(?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*"
+    r"(?:Error|Exception|Warning|Exit|Interrupt|Failure|Timeout))(?::\s?(?P<message>.*))?$"
+)
+_FILE_LINE = re.compile(r'^\s+File "(?P<path>[^"]*)"')
 
 
 def _home_pattern() -> re.Pattern[str] | None:
@@ -83,32 +96,64 @@ def _home_pattern() -> re.Pattern[str] | None:
         return None
     escaped = [re.escape(p).replace(":", "(?::|%3A)").replace(r"\ ", "(?: |%20)") for p in parts]
     lead = "" if re.match(r"^[A-Za-z]:", parts[0]) else _SEP
-    return re.compile(lead + _SEP.join(escaped), re.IGNORECASE)
+    return re.compile(lead + _SEP.join(escaped) + _END, re.IGNORECASE)
 
 
 def _names_to_hide() -> list[str]:
-    """This laptop's user name, from the home folder and the environment (at least 3
+    """This laptop's user name, from the home folder and the environment (at least 4
     characters, so a short one doesn't eat ordinary words)."""
     names = {Path.home().name}
     for var in ("USERNAME", "USER", "LOGNAME"):
         names.add(os.environ.get(var, ""))
-    return sorted((n for n in names if len(n) >= 3), key=len, reverse=True)
+    names = {unicodedata.normalize("NFC", n) for n in names}
+    return sorted((n for n in names if len(n) >= 4), key=len, reverse=True)
+
+
+def _decode_escapes(text: str) -> str:
+    """Undo the ways a name gets escaped in logs, so the checks below see it as typed:
+    `\\u0101` (JSON, Python), `\\xc4\\x81` (bytes, as UTF-8) and `%C4%81` (URLs). A run that
+    doesn't decode cleanly is left as it is."""
+
+    def unicode_escape(m: re.Match[str]) -> str:
+        code = int(m[0][2:], 16)
+        return m[0] if 0xD800 <= code <= 0xDFFF or code > 0x10FFFF else chr(code)
+
+    def byte_escapes(m: re.Match[str]) -> str:
+        data = bytes(int(h, 16) for h in re.findall(r"x([0-9a-fA-F]{2})", m[0]))
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            return m[0]
+
+    def percent_run(m: re.Match[str]) -> str:
+        try:
+            return urllib.parse.unquote(m[0], errors="strict")
+        except UnicodeDecodeError:
+            return m[0]
+
+    text = _UNICODE_ESCAPE.sub(unicode_escape, text)
+    text = _BYTE_ESCAPES.sub(byte_escapes, text)
+    text = _PERCENT_RUN.sub(percent_run, text)
+    # One spelling of accented letters (é as one character, not e + an accent).
+    return unicodedata.normalize("NFC", text)
 
 
 def redact(text: str) -> str:
     r"""Hide what could name the laptop's user or echo the owner's records:
 
-    - the home folder, in every spelling (\, \\, /, URL-encoded, any letter case), becomes `~`,
-      and any other `Users\<name>` / `/home/<name>` folder (8.3 short names too) becomes
-      `Users\<user>`;
-    - the user's name anywhere else becomes `<user>`;
+    - escapes are decoded first (`\u0101`, `\xc4\x81`, `%C4%81`), so an escaped or
+      URL-encoded name is seen as typed;
+    - the home folder, in every spelling (\, \\, /, any letter case), becomes `~`, and any
+      other `Users\<name>` / `/home/<name>` folder (8.3 short names too) becomes `Users\<user>`;
+    - the user's name as a whole word (4 characters or more) anywhere else becomes `<user>`;
     - the values SQLAlchemy prints after a database error (`[parameters: ...]`) are hidden.
     """
+    text = _decode_escapes(text)
     home = _home_pattern()
     if home is not None:
         text = home.sub("~", text)
     for name in _names_to_hide():
-        text = re.sub(re.escape(name), "<user>", text, flags=re.IGNORECASE)
+        text = re.sub(rf"(?<!\w){re.escape(name)}(?!\w)", "<user>", text, flags=re.IGNORECASE)
     text = _USER_DIR.sub(
         lambda m: (
             f"{m['lead']}{m['dir']}{m['sep']}<user>" if m["name"].lower() != "<user>" else m[0]
@@ -129,6 +174,34 @@ def _strip_values(line: str) -> str:
     if line.lstrip().startswith('File "'):
         return line
     return _QUOTED.sub(lambda m: f"{m['q']}…{m['q']}", line)
+
+
+def _is_app_file(path: str) -> bool:
+    """A traceback frame in the app's own code (not a library, not Python itself)."""
+    path = path.replace("\\", "/").lower()
+    if "site-packages" in path or "/lib/python" in path or "/python/lib/" in path:
+        return False
+    return "/app/" in path
+
+
+def _hide_app_messages(lines: list[str]) -> list[str]:
+    """An exception the app itself raised may carry a student's name or an amount, unquoted,
+    where no pattern can find it. So its message is left out: only its type, and where it
+    happened (the traceback's lines), are sent. A library's or the system's message is kept
+    (redacted, quoted values hidden)."""
+    out: list[str] = []
+    in_app = False
+    for line in lines:
+        if _LOG_RECORD.match(line):
+            in_app = False
+        frame = _FILE_LINE.match(line)
+        if frame:
+            in_app = _is_app_file(frame["path"])
+        exception = _EXCEPTION_LINE.match(line)
+        if exception and in_app and exception["message"]:
+            line = f"{exception['type']}: [message left out: raised by the app]"
+        out.append(line)
+    return out
 
 
 def _worth_sending(lines: list[str]) -> list[str]:
@@ -171,7 +244,7 @@ def log_tail(count: int = LOG_TAIL_LINES) -> str:
     lines = lines[-count:] if count > 0 else []
     trimmed = [
         line if len(line) <= LOG_LINE_MAX_CHARS else line[:LOG_LINE_MAX_CHARS] + "…"
-        for line in (_strip_values(redact(line)) for line in lines)
+        for line in (_strip_values(redact(line)) for line in _hide_app_messages(lines))
     ]
     text = "\n".join(trimmed)
     if len(text) > LOG_TAIL_MAX_CHARS:

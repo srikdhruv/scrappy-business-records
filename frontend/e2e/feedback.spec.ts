@@ -2,7 +2,7 @@
  * Settings → Send feedback, against the real server and a fake relay (e2e/fake-relay.mjs): the
  * picture is taken, the server saves the feedback and sends it on, and the dialog says so.
  */
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 
 import { createStudent, serverMonth, uniqueName } from './helpers'
 
@@ -30,7 +30,10 @@ async function openFeedback(page: import('@playwright/test').Page) {
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('menuitem', { name: 'Send feedback' }).click()
   const dialog = page.getByRole('dialog', { name: 'Send feedback' })
-  await expect(dialog.getByRole('img', { name: 'Picture of this screen' })).toBeVisible()
+  // The app gives up on the picture after 10 s; wait a little longer than that.
+  await expect(dialog.getByRole('img', { name: 'Picture of this screen' })).toBeVisible({
+    timeout: 12_000,
+  })
   return dialog
 }
 
@@ -106,4 +109,112 @@ test('offline: the dialog says Saved, and it goes later by itself', async ({ pag
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('menuitem', { name: 'About' }).click()
   await expect(page.getByText('1 message waiting to be sent.', { exact: false })).toBeVisible()
+})
+
+/** How different two pictures look (0 = the same), compared small, in the browser. */
+async function difference(page: Page, a: string, b: string): Promise<number> {
+  return page.evaluate(
+    async ([a, b]) => {
+      const load = (src: string) =>
+        new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image()
+          img.onload = () => resolve(img)
+          img.onerror = reject
+          img.src = src
+        })
+      const [first, second] = await Promise.all([load(a), load(b)])
+      const [w, h] = [160, 100]
+      const pixels = (img: HTMLImageElement) => {
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        const context = canvas.getContext('2d')!
+        context.drawImage(img, 0, 0, w, h)
+        return context.getImageData(0, 0, w, h).data
+      }
+      const [pa, pb] = [pixels(first), pixels(second)]
+      let sum = 0
+      for (let i = 0; i < pa.length; i += 4) {
+        sum += Math.abs(pa[i]! - pb[i]!) + Math.abs(pa[i + 1]! - pb[i + 1]!)
+        sum += Math.abs(pa[i + 2]! - pb[i + 2]!)
+      }
+      return sum / (w * h * 3)
+    },
+    [a, b] as const,
+  )
+}
+
+test('on a very long page, the picture is exactly the screen: top, middle and bottom', async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(240_000)
+  const month = await serverMonth(request)
+  // 450 students: the Students page is far taller than a browser can draw in one picture.
+  const ids: number[] = []
+  const names = Array.from({ length: 450 }, (_, i) => uniqueName(`Tall${i}`))
+  for (let i = 0; i < names.length; i += 30) {
+    const batch = names.slice(i, i + 30)
+    ids.push(
+      ...(await Promise.all(
+        batch.map((name) =>
+          createStudent(request, { name, monthly_fee_paise: 150000, joined_month: month }),
+        ),
+      )),
+    )
+  }
+  try {
+    await page.goto('/students')
+    await expect(page.getByRole('link', { name: names[0]! })).toBeVisible({ timeout: 30_000 })
+    const tall = await page.evaluate(() => document.documentElement.scrollHeight)
+    expect(tall).toBeGreaterThan(16_384)
+
+    const shots: Record<string, { screen: string; picture: string }> = {}
+    const took: string[] = []
+    const places = [
+      ['top', 0],
+      ['middle', Math.round(tall / 2)],
+      ['bottom', tall],
+    ] as const
+    for (const [where, y] of places) {
+      await page.evaluate((top) => window.scrollTo(0, top), y)
+      await page.waitForTimeout(400)
+      const screen = `data:image/png;base64,${(await page.screenshot()).toString('base64')}`
+      const started = Date.now()
+      const dialog = await openFeedback(page)
+      took.push(`${where} ${Date.now() - started} ms`)
+      const picture = await dialog
+        .getByRole('img', { name: 'Picture of this screen' })
+        .getAttribute('src')
+      const size = await page.evaluate(async (src) => {
+        const img = new Image()
+        img.src = src
+        await img.decode()
+        return { width: img.naturalWidth, height: img.naturalHeight }
+      }, picture!)
+      // The window's size (less a scroll bar), never a squashed whole page.
+      expect(size.height, where).toBe(900)
+      expect(size.width, where).toBeGreaterThan(1200)
+      shots[where] = { screen, picture: picture! }
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+    }
+    // Each picture looks like its own screen, and not like the others.
+    const report: string[] = []
+    for (const [where] of places) {
+      const own = await difference(page, shots[where]!.screen, shots[where]!.picture)
+      report.push(`${where}: ${own.toFixed(2)}`)
+      expect(own, `${where} vs its screen`).toBeLessThan(3)
+      for (const [other] of places.filter(([o]) => o !== where)) {
+        const wrong = await difference(page, shots[other]!.screen, shots[where]!.picture)
+        report.push(`${where} vs ${other}: ${wrong.toFixed(2)}`)
+        expect(wrong, `${where} vs the ${other} screen`).toBeGreaterThan(Math.max(4, own * 3))
+      }
+    }
+    console.log(report.join(', '), '| capture:', took.join(', '))
+  } finally {
+    for (let i = 0; i < ids.length; i += 30) {
+      await Promise.all(ids.slice(i, i + 30).map((id) => request.delete(`/api/students/${id}`)))
+    }
+  }
 })

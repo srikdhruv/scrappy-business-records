@@ -12,8 +12,8 @@
 
 import { acquireLock, lookup, recordFiled, releaseLock, StoreUnavailable } from "./db";
 import { GitHub, screenshotPath, UpstreamError } from "./github";
-import { issueBody, issueTitle } from "./markdown";
-import { reserve } from "./ratelimit";
+import { feedbackMarker, issueBody, issueTitle } from "./markdown";
+import { countFiled, reserve } from "./ratelimit";
 import { validate } from "./validate";
 
 export interface Env {
@@ -124,26 +124,45 @@ async function handleFeedback(request: Request, env: Env): Promise<Response> {
     );
   }
 
-  // One request at a time per id, so two concurrent sends can't make two issues.
-  if (!(await acquireLock(db, fb.id, Date.now()))) {
+  // One request at a time per id, so two concurrent sends can't make two issues. The same
+  // transaction re-checks `filed`, in case another request filed it since our first lookup.
+  const lock = await acquireLock(db, fb.id, Date.now());
+  if (lock.kind === "busy") {
     log(fb.id, "in_progress", 409);
     return json(409, { status: "in_progress", error: "this feedback is being filed" }, { "Retry-After": "60" });
   }
+  if (lock.kind === "filed") {
+    log(fb.id, "duplicate", 200);
+    return json(200, { status: "created", issue_url: lock.issueUrl });
+  }
 
+  // Did GitHub create the issue? Unknown once we've sent the request and not heard back.
+  let issueRequested = false;
   let issueUrl: string;
+  let found = false;
   try {
-    let screenshotUrl: string | null = null;
-    if (fb.screenshot) {
-      const path = screenshotPath(fb.id, fb.createdAt, fb.screenshot.contentType);
-      screenshotUrl = await github.commitScreenshot(fb.id, path, fb.screenshot.base64);
+    // A retry: an earlier attempt may have created the issue and then timed out. Look first.
+    const earlier = lock.attempts > 1 ? await github.findIssueByMarker(feedbackMarker(fb.id), lock.firstAttemptMs) : null;
+    if (earlier) {
+      issueUrl = earlier;
+      found = true;
+    } else {
+      let screenshotUrl: string | null = null;
+      if (fb.screenshot) {
+        const path = screenshotPath(fb.id, fb.createdAt, fb.screenshot.contentType);
+        screenshotUrl = await github.commitScreenshot(fb.id, path, fb.screenshot.base64);
+      }
+      issueRequested = true;
+      issueUrl = await github.createIssue(
+        issueTitle(fb),
+        issueBody(fb, { codeRepo: env.CODE_REPO, screenshotUrl }),
+        [fb.category, `v${fb.appVersion}`],
+      );
     }
-    issueUrl = await github.createIssue(
-      issueTitle(fb),
-      issueBody(fb, { codeRepo: env.CODE_REPO, screenshotUrl }),
-      [fb.category, `v${fb.appVersion}`],
-    );
   } catch (e) {
-    await releaseLock(db, fb.id);
+    // If the issue may exist, keep the lock until it expires: GitHub may still be creating it,
+    // and the next attempt will look for it. Otherwise let the retry in straight away.
+    if (!issueRequested) await releaseLock(db, fb.id);
     if (e instanceof UpstreamError) {
       log(fb.id, "upstream_error", 502);
       return json(502, { status: "upstream_error", error: e.message });
@@ -152,10 +171,14 @@ async function handleFeedback(request: Request, env: Env): Promise<Response> {
   }
 
   try {
-    await recordFiled(db, fb.id, issueUrl, Date.now());
+    await recordFiled(db, fb.id, issueUrl, Date.now(), [countFiled(db, Date.now())]);
   } catch {
-    // The issue exists; answer 201 anyway so the app stops sending it.
-    log(fb.id, "record_failed", 201);
+    // The issue exists; answer 2xx anyway so the app stops sending it.
+    log(fb.id, "record_failed", found ? 200 : 201);
+  }
+  if (found) {
+    log(fb.id, "found_earlier", 200);
+    return json(200, { status: "created", issue_url: issueUrl });
   }
   log(fb.id, "created", 201);
   return json(201, { status: "created", issue_url: issueUrl });

@@ -303,21 +303,23 @@ The owner's data is never lost ([ADR 0004](adr/0004-data-is-never-lost.md)):
 
 **⚙ Settings → Send feedback** ([feature guide](feature-guide.md#settings-and-feedback)):
 
-1. The browser takes a picture of what's in the window (`html-to-image`, bundled; 10 s at
-   most) and posts the message, the picture and what it knows (`POST /api/feedback`): the page's
+1. The browser takes a picture of what's in the window (`html-to-image`, bundled, drawing only
+   the window, never the whole page; 700 KB and 10 s at most) and posts the message, the picture and what it knows (`POST /api/feedback`): the page's
    path (never its query), local time, screen size, user agent and its last 20 errors.
 2. The server saves it (`feedback` table; the picture as `data/feedback/<id>.jpg`, so the daily
    backups stay small), adding the version, build ID, install ID, OS and the last 200 log lines
    worth sending: warnings, errors and their tracebacks, and the app's own notes, with the
-   user's name and home folder hidden in any spelling, and quoted values and database values
-   removed (`app/diagnostics.py`). It answers at once and wakes the sender. It never waits for
+   user's name and home folder hidden in any spelling (escapes decoded first), quoted values
+   and database values removed, and no message at all for an exception raised in the app's
+   own code (only its type and where) (`app/diagnostics.py`). It answers at once and wakes the sender. It never waits for
    the internet.
 3. The **sender** (`app/feedback_sender.py`, thread `scrappy-feedback`) posts each waiting item
    to the relay (`config.feedback_url()`, HTTPS, 90 s timeout, longer than the relay's 40 s
    budget), at startup, when woken, and once a minute. The payload is kept under 2,000,000
    bytes (the log trimmed first, then the errors, then the picture). Only the relay's own
    refusals end it: `invalid` or `blocked` mark it `failed` and delete its picture; `too_large`
-   gets one slim try at once (no picture, 50 log lines), then is final. Anything else backs
+   gets one slim try at once (no picture, 50 log lines), then is final. After 3 failed tries
+   of one item (not counting plain offline), it goes without the picture. Anything else backs
    off: 30 s doubling, with jitter and `Retry-After` respected, up to an hour while the relay
    can't be reached, up to a day while it answers with an error. A new item or a restart tries
    at once. Once sent, the item is `sent`, with the issue URL, and its picture is deleted.

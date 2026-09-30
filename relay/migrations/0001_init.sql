@@ -9,10 +9,14 @@ CREATE TABLE filed (
   filed_at INTEGER NOT NULL
 ) WITHOUT ROWID;
 
--- A short lock while one item is being filed, so two concurrent sends make one issue.
+-- Items being filed: a short lock (locked_until) so two concurrent sends make one issue, and
+-- the number of attempts, so a retry knows to look for an issue an earlier attempt may have
+-- created before it timed out. Removed once filed (or after 30 days).
 CREATE TABLE pending (
   id TEXT PRIMARY KEY,
-  expires_at INTEGER NOT NULL
+  locked_until INTEGER NOT NULL,
+  attempts INTEGER NOT NULL,
+  first_attempt_at INTEGER NOT NULL
 ) WITHOUT ROWID;
 
 -- Rate-limit counters: key = rl:<kind>:<who>:<window number>.

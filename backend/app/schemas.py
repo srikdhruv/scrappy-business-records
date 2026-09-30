@@ -1242,9 +1242,10 @@ class AboutResponse(_ReadModel):
     feedback_waiting: int = Field(ge=0, description="Feedback saved here, not sent yet.")
 
 
-SCREENSHOT_MAX_BYTES = 1_400_000
-"""The biggest picture of the screen feedback may carry (the relay takes up to 1.5 MB, and 2 MB
-in all). The dialog shrinks the picture to fit; a bigger one is a 422."""
+SCREENSHOT_MAX_BYTES = 700_000
+"""The biggest picture of the screen feedback may carry: the same as the dialog's limit, which
+keeps the relay's work per request well inside Cloudflare's free-plan CPU limit. The dialog
+shrinks the picture to fit; a bigger one is a 422."""
 _SCREENSHOT_MAX_CHARS = 4 * ((SCREENSHOT_MAX_BYTES + 2) // 3) + 64  # base64, plus a data: prefix
 _IMAGE_SIGNATURES = {b"\xff\xd8\xff": "image/jpeg", b"\x89PNG\r\n\x1a\n": "image/png"}
 

@@ -26,6 +26,7 @@ import ipaddress
 import json
 import logging
 import random
+import socket
 import ssl
 import threading
 import time
@@ -51,6 +52,10 @@ MAX_DELAY = 3600.0
 """The longest wait while the relay can't be reached (offline): an hour."""
 MAX_DELAY_ERROR = 86_400.0
 """The longest wait while the relay answers with an error: a day."""
+PICTURE_TRIES = 3
+"""After this many failed tries of one item (the relay's errors, timeouts, broken connections;
+not simply being offline), the next tries go without the picture: a big picture could be
+what's pushing the relay past its CPU limit."""
 FINAL_STATUSES = frozenset({"invalid", "blocked"})
 """The relay's answers that mean it will never take this item."""
 _MAX_ANSWER_BYTES = 64 * 1024
@@ -64,6 +69,9 @@ class SendResult:
     retry_after: float = 0.0
     reached: bool = True
     """False when the relay couldn't be reached at all (offline): a shorter backoff."""
+    offline: bool = False
+    """Simply offline (no network, the address can't be looked up, refused): not the item's
+    fault, so it doesn't count towards `PICTURE_TRIES`."""
 
 
 Poster = Callable[[str, dict[str, Any], float], SendResult]
@@ -136,8 +144,12 @@ def post_feedback(url: str, payload: dict[str, Any], timeout: float) -> SendResu
     except (OSError, http.client.HTTPException, ValueError) as e:
         # Offline, DNS, refused, timed out, TLS: try again later.
         reason = getattr(e, "reason", None) or e
+        offline = isinstance(reason, socket.gaierror | ConnectionRefusedError)
         return SendResult(
-            "retry", error=f"Couldn't reach the feedback inbox: {reason}"[:300], reached=False
+            "retry",
+            error=f"Couldn't reach the feedback inbox: {reason}"[:300],
+            reached=False,
+            offline=offline,
         )
     try:
         answer = json.loads(raw.decode("utf-8")) if raw else {}
@@ -177,6 +189,7 @@ class FeedbackSender:
         self.clock = clock
         self.jitter = jitter
         self.failures = 0  # rounds in a row that couldn't send
+        self.item_failures: dict[str, int] = {}  # per item, for PICTURE_TRIES
         self.paused_until = 0.0
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -215,7 +228,8 @@ class FeedbackSender:
                     row = service.get_feedback(session, feedback_id)
                     if row is None or row.status.value != "pending":
                         continue
-                    payload = service.relay_payload(row)
+                    with_picture = self.item_failures.get(feedback_id, 0) < PICTURE_TRIES
+                    payload = service.relay_payload(row, picture=with_picture)
                     slim = service.relay_payload(row, slim=True)
                 result = self.post(url, payload, TIMEOUT_SECONDS)
                 if result.outcome == "too_large":
@@ -230,6 +244,10 @@ class FeedbackSender:
                         service.mark_not_sent(
                             session, feedback_id, result.error, final=result.outcome == "final"
                         )
+                if result.outcome == "retry" and not result.offline:
+                    self.item_failures[feedback_id] = self.item_failures.get(feedback_id, 0) + 1
+                elif result.outcome != "retry":
+                    self.item_failures.pop(feedback_id, None)
                 if result.outcome == "sent":
                     sent += 1
                     self.failures = 0

@@ -1751,10 +1751,12 @@ in this menu later.
   way.
 - **What gets sent**: click it to see the full list, in plain words:
 
-  ![The open 'What gets sent' list: your message and its type; the picture of this screen, if the box is ticked; the date and time; the app's version and build; the page you're on, without what you searched for; the last problems the app noticed, and its last warnings and errors from the log file, with names and values taken out; your computer's system, browser and screen size; a random number for this copy of the app, which doesn't say who you are; never your records file, backups or downloads. Below: It's saved on this laptop first, and sent when the internet is on.](images/feature-guide/feedback-what-gets-sent.png)
+  ![The open 'What gets sent' list: your message and its type; the picture of this screen, if the box is ticked; the date and time; the app's version and build; the page you're on, without what you searched for; the last problems the app noticed, and its last warnings and errors from the log file, with names and values taken out, and for an error in the app itself only what kind it was and where it happened, never its message; your computer's system, browser and screen size; a random number for this copy of the app, which doesn't say who you are; never your records file, backups or downloads. Below: It's saved on this laptop first, and sent when the internet is on.](images/feature-guide/feedback-what-gets-sent.png)
 
   The page is sent without anything you searched for or filtered by (a search can be a name),
-  and the log lines have the laptop's user name and any values taken out.
+  and the log lines have the laptop's user name and any values taken out. An error in the
+  app's own code goes without its message (only what kind of error, and where), since a
+  message could quote a student.
 
 After **Send**, the window says one of:
 
@@ -1813,7 +1815,11 @@ new version is ready.
 - **Picture:** `src/lib/screenshot.ts` draws `#root` (the dialog is a portal outside it) with
   `html-to-image`, bundled, then keeps only the part in the window (`visibleBox`), redrawing
   the sticky side menu (`data-screenshot-sticky`) where it is on screen. A JPEG of at most
-  700 KB (quality, then size, lowered to fit; the server takes up to 1.4 MB). Given up after
+  700 KB (quality, then size, lowered to fit; the server's limit too). Only the window is
+  drawn (`viewportFrame`), never the whole page, and table rows out of the window are drawn
+  empty (`rowsOutOfView`), so a list of hundreds of students is fine and quick (under a second)
+  (`e2e/feedback.spec.ts` compares the picture with the real screen at the top, middle and
+  bottom of 450 students). Given up after
   10 s (`CAPTURE_TIMEOUT_MS`).
 - **Recent errors:** `src/lib/diagnostics.ts`: a ring buffer of the last 20 script errors,
   unhandled rejections and failed API calls (method, path and status only; `api/client.ts`

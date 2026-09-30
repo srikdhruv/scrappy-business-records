@@ -321,7 +321,9 @@ function FeedbackForm({ onClose }: { onClose: () => void }) {
             </li>
             <li>
               The last problems the app noticed ({errors === 0 ? 'none so far' : errors}), and its
-              last warnings and errors from the log file, with names and values taken out.
+              last warnings and errors from the log file, with names and values taken out. For an
+              error in the app itself, only what kind it was and where it happened, never its
+              message.
             </li>
             <li>Your computer’s system, browser and screen size.</li>
             <li>A random number for this copy of the app. It doesn’t say who you are.</li>

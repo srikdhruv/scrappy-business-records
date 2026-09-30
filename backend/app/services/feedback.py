@@ -57,11 +57,20 @@ def _db_revision(session: Session) -> str | None:
     return session.execute(text("SELECT version_num FROM alembic_version")).scalar()
 
 
+def _client(body: FeedbackCreate) -> dict[str, Any]:
+    """What the browser sent, with its error messages redacted like the log (an error can
+    carry a path with the laptop user's name)."""
+    client = body.client.model_dump()
+    for error in client["errors"]:
+        error["message"] = diagnostics.redact(error["message"])
+    return client
+
+
 def _diagnostics(session: Session, body: FeedbackCreate) -> dict[str, Any]:
     return {
         "install_id": diagnostics.install_id(),
         "server": diagnostics.server_environment(_db_revision(session)),
-        "client": body.client.model_dump(),
+        "client": _client(body),
         "log_tail": diagnostics.log_tail(),
     }
 
@@ -162,11 +171,15 @@ def _fit(payload: dict[str, Any], max_bytes: int) -> dict[str, Any]:
 
 
 def relay_payload(
-    row: Feedback, *, max_bytes: int = PAYLOAD_MAX_BYTES, slim: bool = False
+    row: Feedback,
+    *,
+    max_bytes: int = PAYLOAD_MAX_BYTES,
+    slim: bool = False,
+    picture: bool = True,
 ) -> dict[str, Any]:
     """The JSON the relay takes (docs/data-model.md, "Feedback"), at most `max_bytes` (below the
     relay's 2 MiB limit). `slim`: no picture and only the last lines of the log, for a second try
-    after the relay said it was too large."""
+    after the relay said it was too large. `picture=False`: the rest, without the picture."""
     try:
         diag = json.loads(row.diagnostics or "{}")
     except ValueError:
@@ -207,7 +220,7 @@ def relay_payload(
         "environment": {k: str(v)[:500] for k, v in environment.items() if v},
         "errors": list(client.get("errors") or [])[-20:],
         "log_tail": log_tail,
-        "screenshot": None if slim else _read_screenshot(row),
+        "screenshot": None if slim or not picture else _read_screenshot(row),
     }
     return _fit(payload, max_bytes)
 
