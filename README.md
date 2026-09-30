@@ -44,11 +44,11 @@ Mac: see [Install on Mac](docs/runbooks/install-mac.md).
 git clone https://github.com/srikdhruv/scrappy-business-records.git
 cd scrappy-business-records
 make setup   # installs backend (uv) and frontend (npm) dependencies
-make dev     # API on :8765 with reload + UI on :5173
+make dev     # API on :8765 with reload + UI on :5173 (open this one)
 make test    # all tests
 ```
 
-Requirements: [uv](https://docs.astral.sh/uv/), Node 20+, GNU make (macOS/Linux, or Git Bash on
+Requirements: [uv](https://docs.astral.sh/uv/), Node 24 (or 22.22+), GNU make (macOS/Linux, or Git Bash on
 Windows).
 
 | Doc | What's in it |

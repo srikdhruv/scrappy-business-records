@@ -48,9 +48,26 @@ Creating a student inserts the first row at `joined_month`.
 | `note` | TEXT NULL | |
 | `created_at`, `updated_at` | DATETIME | |
 
+### Database safeguards
+
+The database itself rejects bad rows, as a last line of defence behind the API's validation:
+
+- Every month column holds the **first of the month** (a CHECK on the day).
+- `students.left_month ≥ joined_month`, and `name` isn't blank.
+- `fee_changes.amount_paise ≥ 0`, and `(student_id, effective_month)` is unique.
+- `payments.amount_paise > 0`, and `method` is one of `upi`, `cash`, `other`.
+- Foreign keys are enforced (`PRAGMA foreign_keys=ON` on every connection), so deleting a student
+  deletes their fee changes and payments.
+
+Indexes: `students(name)`, `payments(student_id, for_month)`, `payments(for_month)` and
+`payments(paid_on)`.
+
 ## API (all under `/api`)
 
-FastAPI serves interactive docs at `/api/docs` in dev.
+FastAPI serves interactive docs at `/api/docs` and the schema at `/api/openapi.json`. The
+request and response models are in `backend/app/schemas.py`. Their names (`StudentRead`,
+`PaymentCreate`, `DashboardResponse`, …) are also the TypeScript type names in
+`frontend/src/api/schema.d.ts`.
 
 | Method & path | Purpose |
 |---|---|
@@ -67,6 +84,35 @@ FastAPI serves interactive docs at `/api/docs` in dev.
 | `GET /students/{id}/suggest-payment` | `{for_month, amount_paise}`: the oldest unpaid or partial month and its remaining amount, otherwise the current month and its fee |
 
 **Errors** use FastAPI's standard shape: 422 for validation, 404 for a missing resource.
+
+**Status codes.** `POST` answers 201 with the created object. `DELETE` answers 204 with no body.
+
+### Response shapes
+
+| Model | Fields |
+|---|---|
+| `StudentRead` (list item) | `id`, `name`, `phone`, `guardian_name`, `batch_label`, `joined_month`, `left_month`, `notes`, `is_active`, `monthly_fee_paise`, `balance_paise` (negative = owes), `status`, `created_at`, `updated_at` |
+| `StudentDetail` (`GET`/`POST`/`PATCH` of one student) | `StudentRead`, plus `fee_history[]` (`FeeChangeRead`), `months[]` (`LedgerMonth`), `payment_count` and `total_paid_paise` |
+| `LedgerMonth` | `month`, `expected_paise`, `paid_paise`, `remaining_paise` (`max(0, expected − paid)`), `excess_paise` (`max(0, paid − expected)`), `status`, `is_due` (month ≤ current month) |
+| `PaymentRead` | `id`, `student_id`, `student_name`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `created_at`, `updated_at` |
+| `DashboardResponse` | `month`, `summary` (`expected_paise`, `collected_paise`, `still_due_paise`, `not_fully_paid_count`, `active_student_count`), `yet_to_pay[]`, `backlog[]` (each with `months[]` and `total_owed_paise`) and `overpaid[]` (student-months with `excess_paise`) |
+| `SuggestedPayment` | `for_month`, `amount_paise` |
+| `HealthResponse` | `app`, `version`, `status` |
+
+**Enums.**
+- `MonthStatus`: `paid`, `partial`, `unpaid`, `overpaid`, `not_applicable`.
+- `BalanceStatus`: `up_to_date`, `owes`, `credit`.
+- `PaymentMethod`: `upi`, `cash`, `other`.
+
+**Lists.** `GET /students` and `GET /payments` return plain JSON arrays. Students are sorted by
+name. Payments default to `sort=paid_on&order=desc`.
+
+**Validation.**
+- Months must match `YYYY-MM`.
+- Payment amounts must be more than 0. Fees can be 0 or more.
+- Blank optional text becomes `null`, and unknown fields are rejected.
+- `PATCH` bodies are partial: only the fields that are sent change. Sending `left_month: null`
+  un-archives a student.
 
 ## Ledger computation
 

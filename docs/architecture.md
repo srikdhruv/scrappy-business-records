@@ -77,14 +77,22 @@ environment variable, which tests and dev mode use:
 | `SCRAPPY_BACKUP_DIR` | `Documents\ScrappyRecords Backups` | Backups |
 | `SCRAPPY_PORT` | `8765` | Server port |
 
+The paths are looked up each time they're needed, not once at import, so tests can change them.
+`SCRAPPY_BACKUP_DIR` does **not** follow `SCRAPPY_HOME`: dev mode (`make dev`, `make run`) and the
+tests set both, so they never write into a real Documents folder.
+
 ## Lifecycle
 
-**Startup.** `app.main`'s lifespan handler runs these steps in order:
+**Startup.** `app.main`'s lifespan handler (`run_startup_tasks`) runs these steps in order:
 1. Create the data, log and backup directories.
 2. Take the **daily backup**, if none exists for today.
-3. If the database is behind the latest Alembic revision, take a **pre-migration backup**, then
-   `alembic upgrade head`.
+3. If the database is behind the latest Alembic revision (`app.migrate.needs_upgrade()`), take a
+   **pre-migration backup**, then `alembic upgrade head` (`app.migrate.upgrade_to_head()`, which
+   builds the Alembic config in code and doesn't depend on the working directory).
 4. Serve requests.
+
+The server's version (in `/api/health`) comes from the installed package metadata. If that's
+missing, it's read from a `VERSION` file next to the `app` package, as in the bundle layout above.
 
 **Opening the app twice.** The launcher sees `/api/health` answering with
 `{"app": "scrappy-records"}` and only opens the browser.
