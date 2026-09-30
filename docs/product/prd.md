@@ -41,6 +41,8 @@ can open the app and see who is left to pay.
    - who is yet to pay, and how much is left;
    - backlog from earlier months;
    - underpayments, where extra money went, and any extra kept as credit.
+   - a **Monthly report** button: every student for that month in one table, to read, download
+     as Excel or print (see "Monthly report for a selected month M").
 5. **Payments page.** Every payment, sortable and filterable.
 6. **Students page.** Every student, with a status and how long they have been a student.
 
@@ -70,6 +72,7 @@ entry.
 | P5 | log a payment worth two months (or more) once | the extra pays the months still owed without me splitting it |
 | D4 | look at a different month | I can check the past |
 | D5 | log a payment straight from the dashboard | following up is one click |
+| D6 | click out from the dashboard into a report of every student for the month: their status, whether they've paid, how much, how much extra, how much under | at month end I have one list of who paid what, to keep (Excel) or print |
 
 ## Data captured
 
@@ -261,6 +264,36 @@ Underpayments show as **Partial** in the *Yet to pay* and *Backlog* sections. Fo
 On screen, *Backlog* is called **Earlier months still owed**, *Credit moves* is called **Extra
 money used** and *Overpaid* is called **Extra kept as credit** (plain words). The
 [feature guide](../feature-guide.md#dashboard) describes the screen in full.
+
+### Monthly report for a selected month M
+
+Opened from the Dashboard's **Monthly report** button (`/report?month=M`), with the same month
+switcher. One row per student **relevant to M**: enrolled in M (a ₹0 fee included), or with
+money logged for M or extra money paying M, or still owing a due month before M (as in
+*Backlog*, so students who have since left are included). Every value comes from the same
+ledger as the dashboard and the profiles (rules 1–6 and 10), so they always agree.
+
+| Column | Contents |
+|---|---|
+| Student, Class/batch, Phone | As entered |
+| Fee | Expected for M (rule 2) |
+| Paid for this month (logged) | Paid for M, as typed (rule 3) |
+| Covered by credit | Extra money from other payments that pays M, with each payment's date and the month it was logged for |
+| Extra sent elsewhere | M's money above its fee that paid other months, with those months; money no month needed is "kept as credit" |
+| Short | What's left on M |
+| Status | **Unpaid**, **Partial**, **Not due yet** (a later month not fully paid ahead), **Paid with credit**, **Paid**, **No fee** (a ₹0 fee, or before joining), **Left** (M is after their left month) |
+| Owed from earlier months | What's left on due months before M (the student's *Backlog* total), with the months |
+| Total owed now | `owed_paise` (rule 6) |
+| Credit / paid ahead | `credit_paise` and `paid_ahead_paise` (rule 6) |
+
+Rows start with whom to follow up (Unpaid, then Partial, Not due yet, Paid with credit, Paid,
+No fee, Left), then by name. On screen the owner can filter by status, search by name, and sort
+by any column; a **totals row** adds up the rows shown, which with nothing filtered is the
+dashboard summary (Fee = Expected, Short = Still due, "N of M not fully paid"). **Download
+Excel** gives the whole month as `scrappy-records-report-YYYY-MM.xlsx` (the same columns, a
+title row, ₹ number formats, frozen headings, a bold totals row). **Print** prints what's on
+screen on A4 landscape, with the title "Scrappy Records — Fees report, October 2026" and the
+date, and no menu or buttons.
 
 ## UX principles
 

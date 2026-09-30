@@ -27,6 +27,21 @@ yet**. Nothing counts as owed until the month comes.
 
 When everyone has paid, you'll see **Everyone's paid for** the month 🎉.
 
+## At month end: a list of who paid what
+
+1. On the **Dashboard**, pick the month with the arrows, then click **Monthly report** (top
+   right).
+2. Every student for that month is listed, those who haven't paid first: their fee, what they
+   paid, any extra money (and which month it paid), what's **Short**, their status, and what
+   they still owe in total. The bottom row adds it all up, and matches the Dashboard.
+3. **Search by name**, or choose a status (for example **Not fully paid**) to see fewer. Click
+   a column heading to sort by it.
+4. **Download Excel** saves the whole month as a file in your Downloads folder
+   (`scrappy-records-report-2026-09.xlsx`). **Print** prints what's on screen on A4, sideways,
+   with the title and today's date.
+
+See [the feature guide](../feature-guide.md#monthly-report) for what every column means.
+
 ## When someone pays you
 
 1. Click **+ Log payment** at the top right. It's there on every page.

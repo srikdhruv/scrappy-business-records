@@ -471,7 +471,7 @@ function Note({ children, tone }: { children: ReactNode; tone?: 'credit' }) {
   return (
     <span
       className={cn(
-        'ml-auto block max-w-48 text-xs font-semibold whitespace-normal',
+        'ml-auto block max-w-48 min-w-36 text-xs font-semibold whitespace-normal print:min-w-0',
         tone === 'credit' ? 'text-credit' : 'text-muted-foreground',
       )}
     >
@@ -482,7 +482,9 @@ function Note({ children, tone }: { children: ReactNode; tone?: 'credit' }) {
 
 /** A heading that may wrap onto two lines, so the table stays narrow. */
 function Wrap({ children }: { children: ReactNode }) {
-  return <span className="inline-block max-w-28 text-right whitespace-normal">{children}</span>
+  return (
+    <span className="inline-block w-28 text-right whitespace-normal print:w-auto">{children}</span>
+  )
 }
 
 function SortButton({

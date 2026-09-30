@@ -101,6 +101,8 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 | `POST /payments` | Create. Body: `student_id`, `amount_paise`, `paid_on`, `for_month`, `method`, `note?`. 404 if the student doesn't exist. Any `for_month` within the [limits](#limits) is accepted, even one the student isn't active in (all of it is then extra, and pays the oldest month owed). Answers with the `PaymentRead`, including where its money went |
 | `GET /payments/{id}` · `PATCH /payments/{id}` · `DELETE /payments/{id}` | `PATCH` may move a payment to another student (404 if that student doesn't exist). An edit or delete changes where that payment's extra goes at once (nothing is stored) |
 | `GET /dashboard?month=YYYY-MM` | See the PRD's "Dashboard for a selected month M" section. Returns `month`, `current_month`, `summary`, `yet_to_pay[]`, `backlog[]`, `overpaid[]` (months holding credit) and `credit_moves[]` |
+| `GET /report?month=YYYY-MM` | The monthly report: one `ReportRow` per student relevant to the month, and `totals`. See [Monthly report](#monthly-report). `month` defaults to the current month |
+| `GET /report.xlsx?month=YYYY-MM` | The same report as an Excel file (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`), as a download named `scrappy-records-report-YYYY-MM.xlsx`: a title row, the date, frozen bold headings, one row per student (money in rupees with a ₹ number format), a bold totals row; A4 landscape, one page wide, when printed from Excel. `services/report_xlsx.py` (openpyxl) |
 | `GET /students/{id}/suggest-payment` | `{for_month, amount_paise, reason}`, as in the PRD's ledger rule 9. `reason` is `owed` (the oldest *due* month that is unpaid or partial, and what's left on it), `next_unpaid` (nothing is owed yet: the first enrolled month after the current month that has a fee and isn't fully paid, and what's left on it; months with a ₹0 fee are skipped), or `all_paid` (nothing is left in the enrolled months up to 24 months ahead, the latest month a payment can be logged for; `for_month` and `amount_paise` are `null`). It never suggests a month that is already fully paid, one with a ₹0 fee, one outside the months the student is enrolled in, or one more than 24 months ahead |
 
 **Errors.**
@@ -127,6 +129,9 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 | `PaymentRead` | `id`, `student_id`, `student_name`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `paid_direct_paise` (the part that pays `for_month`), `needs_check` (worth a glance in case of a typo: it pays 4 or more months ahead, or some of it is kept as credit; `ledger.needs_check`), `months_ahead` (how many months after the current one it pays), `extra_sent[]` (`ExtraSent`: the rest, paying other months, oldest first), `extra_unused_paise` (credit), `created_at`, `updated_at`. Always `amount = paid_direct + Σ extra_sent + extra_unused` |
 | `DashboardResponse` | `month`, `summary` (`expected_paise`, `collected_paise` (what pays M: Σ `paid_direct + covered_by_credit` for M over every student), `paid_ahead_paise` (for a month after the current one, the same as `collected_paise`; 0 otherwise), `still_due_paise`, `not_fully_paid_count`, `active_student_count`, `logged_paise` (every payment logged for M, as typed: the Payments page's total for M), `covered_by_credit_paise` (the part of `collected_paise` from other months' payments), `sent_elsewhere_paise` (the part of `logged_paise` that paid other months)), `current_month`, `yet_to_pay[]` (each with `paid_paise`, `covered_by_credit_paise` and `credit_paise`), `backlog[]` (each with `months[]` (`BacklogMonth`, with `covered_by_credit_paise`), `total_owed_paise` and `credit_paise`), `overpaid[]` (`OverpaidItem`: months holding credit, with `batch_label`, `phone`, `excess_paise` and `extra_unused_paise`) and `credit_moves[]` (`CreditMoveItem`) |
 | `CreditMoveItem` | Extra money moved into or out of M: `student_id`, `student_name`, `batch_label`, `phone`, `payment_id`, `paid_on`, `from_month` (the month the payment was logged for), `to_month` (the month it pays), `amount_paise`, `payment_amount_paise` (the whole payment), `payment_pays_until` (the latest month the payment pays: `ledger.pays_until`), `payment_needs_check`, `payment_months_ahead`, `payment_extra_unused_paise` (so the check can say why). One per payment and month (the UI groups them by payment); one of the two months is M. Sorted by student name, then `to_month`, then the payment's `(paid_on, id)` |
+| `ReportResponse` | `month`, `current_month`, `today` (the server's date, printed on the report), `rows[]` (`ReportRow`, in `ReportStatus` order, then by name ignoring case and accents), `totals` (`ReportTotals`) |
+| `ReportRow` | `student_id`, `student_name`, `batch_label`, `phone`, `is_enrolled` (active in M), `status` (`ReportStatus`); for M, the student's `LedgerMonth` fields: `fee_paise` (`expected_paise`), `paid_paise` (logged for M, as typed), `paid_direct_paise`, `covered_by_credit_paise` with `credit_sources[]`, `extra_sent_paise` (Σ `extra_sent`) with `extra_sent[]`, `extra_unused_paise`, `short_paise` (`remaining_paise`); `owed_before_paise` and `owed_before_months[]` (due months before M still Unpaid or Partial: the dashboard's `backlog` entry); and, as of the current month, `owed_now_paise`, `credit_paise`, `paid_ahead_paise` (the `StudentRead` values) |
+| `ReportTotals` | `student_count` and the sums of every row's money fields, plus `collected_paise` (Σ `paid_direct + covered_by_credit`), `not_fully_paid_count` (rows with `short_paise > 0`) and `active_student_count` (rows enrolled in M with a fee above 0). `fee_paise`, `collected_paise`, `short_paise` and the two counts equal the dashboard summary's `expected_paise`, `collected_paise`, `still_due_paise`, `not_fully_paid_count` and `active_student_count` for M |
 | `SuggestedPayment` | `for_month` (nullable), `amount_paise` (nullable), `reason` |
 | `StudentReturn` (request) | `from_month`, `monthly_fee_paise` (optional) |
 | `HealthResponse` | `app`, `version`, `status` |
@@ -137,6 +142,8 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
   value: it is `paid` with `covered_by_credit_paise > 0`. `overpaid` means some of the month's
   own money is credit (`extra_unused_paise > 0`).
 - `BalanceStatus`: `up_to_date`, `owes`, `credit`.
+- `ReportStatus` (the monthly report, in its order): `unpaid`, `partial`, `not_due_yet`,
+  `paid_with_credit`, `paid`, `no_fee`, `left`. See [Monthly report](#monthly-report).
 - `SuggestionReason`: `owed`, `next_unpaid`, `all_paid`.
 - `PaymentMethod`: `upi`, `cash`, `other`.
 - `FeeKind`: `fee`, `away`.
@@ -363,3 +370,23 @@ Exposed as `PaymentRead.needs_check` / `months_ahead` and
 `CreditMoveItem.payment_needs_check` / `payment_months_ahead` /
 `payment_extra_unused_paise`, so every screen can give the reason. Extra money quietly pays
 months ahead, so an extra zero would otherwise just look paid ahead.
+
+### Monthly report
+
+`GET /report?month=M`, from `ledger.build_report`: the same `month_line` (the profile's
+`LedgerMonth` for M) as every other screen, never the dashboard's `credit_moves`, so the report
+always reconciles with the dashboard and the profiles (`tests/test_report.py`
+`assert_reconciles` checks every row and total, for many months, including on the demo data).
+
+- **Who is on it:** every student enrolled in M (`is_active(M)`, a ₹0 fee included), or with
+  money logged for M (`paid_paise > 0`), or extra money paying M
+  (`covered_by_credit_paise > 0`), or still owing a due month before M (the dashboard's
+  `backlog`, which includes students who have since left).
+- **`status`** (`ledger.report_status`): not enrolled in M → `left` if M is after
+  `left_month`, else `no_fee` (before `joined_month`); a ₹0 fee → `no_fee`; `remaining = 0` →
+  `paid_with_credit` if `covered_by_credit > 0`, else `paid` (for a later month: paid ahead);
+  otherwise a month after the current one → `not_due_yet`; otherwise `unpaid` (nothing pays
+  it) or `partial`.
+- **Order:** `ReportStatus` order (unpaid first), then name ignoring case and accents, then id.
+- **Totals:** the sums of the rows. The UI's totals row sums the rows shown (`lib/report.ts`
+  `sumRows`), the same numbers when nothing is filtered.
