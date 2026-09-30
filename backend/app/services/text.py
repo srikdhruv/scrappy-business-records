@@ -32,3 +32,72 @@ def search_fold(text: str) -> str:
 def contains(haystack: str | None, needle: str) -> bool:
     """`needle` (already folded) appears in `haystack`, ignoring case and accents."""
     return bool(haystack) and needle in fold(haystack)  # type: ignore[arg-type]
+
+
+# --------------------------------------------------------------------------- student matching
+#
+# The same rules as the Students page search and the Log payment student list
+# (frontend/src/lib/search.ts, `studentMatches`), so an uploaded spreadsheet, the Students
+# download and the search all agree on who is who. tests/test_text.py runs search.test.ts's
+# examples against these.
+
+# Apostrophes (straight, curly, backtick, acute) and hyphens.
+_NAME_PUNCTUATION = str.maketrans("", "", "'\u2019\u2018`\u00b4-")
+_PHONE_LIKE = re.compile(r"^[0-9\s()+\-./]+$")
+
+
+def fold_loose(text: str) -> str:
+    """`fold`, with apostrophes and hyphens removed too: "O\u2019Brien", "o'brien" and "obrien" are
+    the same, and "dsouza" finds "D'Souza" (search.ts `fold`)."""
+    decomposed = unicodedata.normalize("NFKD", text)
+    no_marks = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return no_marks.translate(_NAME_PUNCTUATION).lower()
+
+
+def name_key(name: str | None) -> tuple[str, ...]:
+    """A name's words, folded and sorted, so "Rao Ananya", "ananya  rao" and "Ananya Rao" are
+    the same name. Empty for a blank name."""
+    return tuple(sorted(fold_loose(name or "").split()))
+
+
+def phone_digits(text: str | None) -> str:
+    """The digits of a phone number, without India's +91 (or 0) in front of a 10-digit number
+    (search.ts `digitsOf`): "+91 98765-43210", "098765 43210" and "9876543210" are the same."""
+    digits = "".join(c for c in (text or "") if c.isascii() and c.isdigit())
+    if len(digits) == 12 and digits.startswith("91"):
+        return digits[2:]
+    if len(digits) == 11 and digits.startswith("0"):
+        return digits[1:]
+    return digits
+
+
+def looks_like_phone(text: str | None) -> bool:
+    """Only digits and what people put between them in a phone number (at least 6 digits)."""
+    t = (text or "").strip()
+    return bool(_PHONE_LIKE.match(t)) and len(phone_digits(t)) >= 6
+
+
+def student_matches(
+    query: str,
+    *,
+    name: str,
+    phone: str | None = None,
+    guardian_name: str | None = None,
+    batch_label: str | None = None,
+) -> bool:
+    """True when every word typed appears in the name, parent's name, class or phone, as on the
+    Students page. A word that is only digits (and phone punctuation) also matches the phone
+    number's digits; so does everything typed, taken together, if it's only a phone number."""
+    words = fold_loose(query).split()
+    if not words:
+        return True
+    text = fold_loose(" ".join(t for t in (name, guardian_name, batch_label, phone) if t))
+    digits = phone_digits(phone)
+
+    def in_phone(typed: str) -> bool:
+        wanted = phone_digits(typed)
+        return bool(wanted) and wanted in digits
+
+    if _PHONE_LIKE.match(query.strip()) and in_phone(query):
+        return True
+    return all(w in text or (_PHONE_LIKE.match(w) is not None and in_phone(w)) for w in words)
