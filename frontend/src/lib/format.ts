@@ -153,6 +153,15 @@ export function formatMonth(month: string): string {
   return `${MONTH_NAMES[m - 1]} ${year}`
 }
 
+/** A run of months: "June 2026", "June–August 2026" or "December 2025 – February 2026". */
+export function formatMonthSpan(from: string, to: string): string {
+  if (from === to) return formatMonth(from)
+  const { year: fromYear, month: fromMonth } = parseMonth(from)
+  return fromYear === parseMonth(to).year
+    ? `${MONTH_NAMES[fromMonth - 1]}–${formatMonth(to)}`
+    : `${formatMonth(from)} – ${formatMonth(to)}`
+}
+
 /** "2026-10" -> "Oct 2026", for tight spaces such as table cells. */
 export function formatMonthShort(month: string): string {
   const { year, month: m } = parseMonth(month)

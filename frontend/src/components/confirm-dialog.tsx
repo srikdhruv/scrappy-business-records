@@ -25,6 +25,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel,
+  pendingLabel = 'Deleting…',
   onConfirm,
 }: {
   open: boolean
@@ -32,6 +33,8 @@ export function ConfirmDialog({
   title: ReactNode
   description: ReactNode
   confirmLabel: string
+  /** What the button says while the action runs. */
+  pendingLabel?: string
   /** Runs the action. The dialog closes when it resolves, and shows a toast if it throws. */
   onConfirm: () => Promise<unknown>
 }) {
@@ -66,7 +69,7 @@ export function ConfirmDialog({
             Cancel
           </AlertDialogCancel>
           <Button variant="destructive" size="lg" onClick={confirm} disabled={pending}>
-            {pending ? 'Deleting…' : confirmLabel}
+            {pending ? pendingLabel : confirmLabel}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

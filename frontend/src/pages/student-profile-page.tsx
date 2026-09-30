@@ -15,11 +15,18 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 
 import { ApiError } from '@/api/client'
-import { useDeleteStudent, usePayments, useStudent, useUpdateStudent } from '@/api/queries'
-import type { LedgerMonth, StudentDetail } from '@/api/types'
+import {
+  useDeleteFeeChange,
+  useDeleteStudent,
+  usePayments,
+  useStudent,
+  useUpdateStudent,
+} from '@/api/queries'
+import type { FeeChangeRead, LedgerMonth, StudentDetail } from '@/api/types'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PageHeader } from '@/components/layout/page-header'
 import { useLogPayment } from '@/components/log-payment'
+import { ComeBackDialog } from '@/components/come-back-dialog'
 import { MarkLeftDialog } from '@/components/mark-left-dialog'
 import { Panel } from '@/components/panel'
 import { PaymentsTable } from '@/components/payments-table'
@@ -39,6 +46,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { errorMessage } from '@/lib/errors'
+import { feeAt, newFeeSentence } from '@/lib/fees'
 import { addMonths, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
 import { firstName, formatMonthCount, plural, tenurePhrase } from '@/lib/labels'
 import { cn } from '@/lib/utils'
@@ -129,10 +137,12 @@ function Profile({ student }: { student: StudentDetail }) {
   const [paymentsMonth, setPaymentsMonth] = useState<string | null>(null)
   const leaving = student.left_month !== null && student.is_active
 
-  const comeBack = async () => {
+  const [comeBackOpen, setComeBackOpen] = useState(false)
+  // Marked as leaving, but that month hasn't passed: they're simply staying.
+  const stay = async () => {
     try {
       await updateStudent.mutateAsync({ id: student.id, body: { left_month: null } })
-      toast.success(leaving ? `${student.name} is staying` : `${student.name} is active again`)
+      toast.success(`${student.name} is staying`)
     } catch (error) {
       toast.error(errorMessage(error))
     }
@@ -193,7 +203,7 @@ function Profile({ student }: { student: StudentDetail }) {
               <Button
                 variant="outline"
                 size="lg"
-                onClick={() => void comeBack()}
+                onClick={() => (leaving ? void stay() : setComeBackOpen(true))}
                 disabled={updateStudent.isPending}
               >
                 <UndoIcon aria-hidden />
@@ -281,6 +291,13 @@ function Profile({ student }: { student: StudentDetail }) {
 
       <StudentFormDialog open={editOpen} onOpenChange={setEditOpen} student={student} />
       {leftOpen && <MarkLeftDialog student={student} open={leftOpen} onOpenChange={setLeftOpen} />}
+      {comeBackOpen && student.left_month && (
+        <ComeBackDialog
+          student={{ ...student, left_month: student.left_month }}
+          open={comeBackOpen}
+          onOpenChange={setComeBackOpen}
+        />
+      )}
       <ConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
@@ -488,22 +505,12 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function DetailsCard({ student }: { student: StudentDetail }) {
-  const fees = student.fee_history
   return (
     <Panel title="Details">
       <dl className="grid gap-x-8 gap-y-4 px-6 pb-6 sm:grid-cols-2">
         <Detail label="Monthly fee">
           <span className="font-bold tabular-nums">{formatRupees(student.monthly_fee_paise)}</span>
-          {fees.length > 1 && (
-            <span className="mt-1 block text-sm text-muted-foreground">
-              {fees
-                .map(
-                  (f) =>
-                    `${formatRupees(f.amount_paise)} from ${formatMonthShort(f.effective_month)}`,
-                )
-                .join(' · ')}
-            </span>
-          )}
+          {student.fee_history.length > 1 && <FeeHistory student={student} />}
         </Detail>
         <Detail label="Joined">
           {formatMonth(student.joined_month)}
@@ -535,6 +542,85 @@ function DetailsCard({ student }: { student: StudentDetail }) {
         </Detail>
       </dl>
     </Panel>
+  )
+}
+
+/**
+ * Every fee and the month it starts (PRD ledger rule 7). A fee change that hasn't started yet
+ * can be removed here; the fee before it then carries on.
+ */
+function FeeHistory({ student }: { student: StudentDetail }) {
+  const fees = student.fee_history
+  const now = student.current_month
+  const [toRemove, setToRemove] = useState<FeeChangeRead | null>(null)
+  const remove = useDeleteFeeChange()
+  const rest = toRemove ? fees.filter((f) => f.id !== toRemove.id) : fees
+  return (
+    <div className="mt-2">
+      <p className="text-sm font-bold text-muted-foreground" id="fee-history">
+        Fee history
+      </p>
+      <ul aria-labelledby="fee-history" className="mt-1 grid gap-1 text-sm">
+        {fees.map((f, i) => {
+          const scheduled = i > 0 && f.effective_month > now
+          return (
+            <li key={f.id} className="flex min-h-8 flex-wrap items-center gap-x-2">
+              <span className={cn('tabular-nums', f.amount_paise === 0 && 'text-muted-foreground')}>
+                <span className="font-semibold">
+                  {f.amount_paise === 0 ? 'No fee' : formatRupees(f.amount_paise)}
+                </span>{' '}
+                from {formatMonthShort(f.effective_month)}
+              </span>
+              {scheduled && (
+                <>
+                  <span className="text-muted-foreground">· not started yet</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-owed hover:bg-owed-soft hover:text-owed"
+                    onClick={() => setToRemove(f)}
+                    aria-label={`Remove the fee change from ${formatMonth(f.effective_month)}`}
+                  >
+                    Remove
+                  </Button>
+                </>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+      <ConfirmDialog
+        open={toRemove !== null}
+        onOpenChange={(open) => !open && setToRemove(null)}
+        title={
+          toRemove &&
+          `Remove the ${toRemove.amount_paise === 0 ? 'no-fee' : formatRupees(toRemove.amount_paise)} change from ${formatMonth(toRemove.effective_month)}?`
+        }
+        confirmLabel="Remove fee change"
+        pendingLabel="Removing…"
+        description={
+          toRemove && (
+            <p>
+              After this:{' '}
+              {newFeeSentence(
+                rest,
+                toRemove.effective_month,
+                feeAt(rest, toRemove.effective_month),
+                now,
+              )}{' '}
+              Nothing else changes.
+            </p>
+          )
+        }
+        onConfirm={async () => {
+          if (!toRemove) return
+          await remove.mutateAsync({ studentId: student.id, feeChangeId: toRemove.id })
+          toast.success('Fee change removed', {
+            description: `${student.name}, ${formatMonth(toRemove.effective_month)}`,
+          })
+        }}
+      />
+    </div>
   )
 }
 

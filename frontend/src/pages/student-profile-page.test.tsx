@@ -185,12 +185,17 @@ describe('student profile', () => {
     // Asking "from which month?", defaulting to this month.
     const from = dialog.getByLabelText(/^New fee applies from:/)
     expect(from).toHaveTextContent('October 2026')
-    expect(dialog.getByText(/Earlier months keep the old fee of/)).toHaveTextContent('₹1,500')
+    expect(dialog.getByText(/they’ll owe/)).toHaveTextContent(
+      'From October 2026 they’ll owe ₹1,800 a month. Months before October 2026 don’t change.',
+    )
 
     // Pick September instead.
     await user.click(from)
     await user.click(await screen.findByRole('button', { name: 'September 2026' }))
     expect(from).toHaveTextContent('September 2026')
+    expect(dialog.getByText(/they’ll owe/)).toHaveTextContent(
+      'From September 2026 they’ll owe ₹1,800 a month. Months before September 2026 don’t change, but the months since then do.',
+    )
     await user.click(dialog.getByRole('button', { name: 'Save changes' }))
 
     expect(await screen.findByText('Changes saved')).toBeInTheDocument()
@@ -203,6 +208,148 @@ describe('student profile', () => {
         expect.objectContaining({ effective_month: '2026-09', amount_paise: 180000 }),
       ]),
     )
+  })
+
+  describe('with a fee change already scheduled', () => {
+    // Ananya: ₹1,500 now, and ₹1,800 set to start in December 2026 (this month is October).
+    function schedule() {
+      const id = idOf('Ananya Rao')
+      mockDb.updateStudent(id, { monthly_fee_paise: 180000, fee_effective_month: '2026-12' })
+      return id
+    }
+
+    async function editFee(user: ReturnType<typeof userEvent.setup>, value: string) {
+      await user.click(screen.getByRole('button', { name: 'Edit' }))
+      const dialog = await findDialog('Edit Ananya Rao')
+      const fee = dialog.getByLabelText('Monthly fee')
+      await user.clear(fee)
+      await user.type(fee, value)
+      return dialog
+    }
+
+    it('says the new fee lasts only until the scheduled one starts', async () => {
+      const user = userEvent.setup()
+      renderApp(`/students/${schedule()}`)
+      await screen.findByRole('heading', { level: 1, name: 'Ananya Rao' })
+      const dialog = await editFee(user, '2100')
+      expect(dialog.getByText(/they’ll owe/)).toHaveTextContent(
+        'From October 2026 they’ll owe ₹2,100 a month, until December 2026, when ₹1,800 (already scheduled) starts.',
+      )
+      expect(dialog.queryByText(/Earlier months keep the old fee/)).not.toBeInTheDocument()
+    })
+
+    it('can set the fee back to today’s from the scheduled month', async () => {
+      const user = userEvent.setup()
+      const id = schedule()
+      renderApp(`/students/${id}`)
+      await screen.findByRole('heading', { level: 1, name: 'Ananya Rao' })
+      // Today's fee typed again: "applies from" still shows, so a later month can be chosen.
+      const dialog = await editFee(user, '1500')
+      const from = dialog.getByLabelText(/^New fee applies from:/)
+      expect(
+        dialog.getByText('That’s already their fee in October 2026, so nothing changes.'),
+      ).toBeInTheDocument()
+      await user.click(from)
+      await user.click(await screen.findByRole('button', { name: 'December 2026' }))
+      expect(dialog.getByText(/they’ll owe/)).toHaveTextContent(
+        'From December 2026 they’ll owe ₹1,500 a month. It replaces the ₹1,800 already set for December 2026.',
+      )
+      await user.click(dialog.getByRole('button', { name: 'Save changes' }))
+      expect(await screen.findByText('Changes saved')).toBeInTheDocument()
+      expect(
+        mockDb.fees.find((f) => f.student_id === id && f.effective_month === '2026-12'),
+      ).toMatchObject({ amount_paise: 150000 })
+    })
+
+    it('lists the fee history and removes a scheduled change after confirming', async () => {
+      const user = userEvent.setup()
+      const id = schedule()
+      renderApp(`/students/${id}`)
+      await screen.findByRole('heading', { level: 1, name: 'Ananya Rao' })
+      const history = within(screen.getByRole('list', { name: 'Fee history' }))
+      const items = history.getAllByRole('listitem')
+      expect(items.map((li) => li.textContent)).toEqual([
+        expect.stringMatching(/^₹1,500 from \w{3} 2025$/),
+        '₹1,800 from Dec 2026· not started yetRemove',
+      ])
+      // The first (joining) fee can't be removed.
+      expect(within(items[0]!).queryByRole('button')).not.toBeInTheDocument()
+
+      await user.click(
+        history.getByRole('button', { name: 'Remove the fee change from December 2026' }),
+      )
+      const confirm = within(await screen.findByRole('alertdialog'))
+      expect(confirm.getByText(/After this/)).toHaveTextContent(
+        'After this: From December 2026 they’ll owe ₹1,500 a month. Nothing else changes.',
+      )
+      await user.click(confirm.getByRole('button', { name: 'Remove fee change' }))
+      expect(await screen.findByText('Fee change removed')).toBeInTheDocument()
+      expect(mockDb.fees.filter((f) => f.student_id === id)).toHaveLength(1)
+      await waitFor(() =>
+        expect(screen.queryByRole('list', { name: 'Fee history' })).not.toBeInTheDocument(),
+      )
+    })
+  })
+
+  describe('Mark as coming again', () => {
+    // Advait left after July 2026 and paid everything up to then; this month is October.
+    it('asks which month they’re back from, and the months away are never owed', async () => {
+      const user = userEvent.setup()
+      const id = idOf('Advait Sinha')
+      renderApp(`/students/${id}`)
+      await screen.findByRole('heading', { level: 1, name: 'Advait Sinha' })
+      await user.click(screen.getByRole('button', { name: 'Mark as coming again' }))
+      const dialog = await findDialog('Mark Advait Sinha as coming again?')
+      const month = dialog.getByLabelText(/^Which month are they back from\?:/)
+      expect(month).toHaveTextContent('October 2026') // this month, by default
+      expect(dialog.getByText(/nothing is owed for the months away/)).toHaveTextContent(
+        'August–September 2026: no fee, so nothing is owed for the months away.',
+      )
+      expect(dialog.getByText(/again\.$/)).toHaveTextContent(
+        'From October 2026 they’ll owe ₹1,500 a month again.',
+      )
+      // Months before the one after they left can't be picked.
+      await user.click(month)
+      expect(await screen.findByRole('button', { name: 'July 2026' })).toBeDisabled()
+      await user.keyboard('{Escape}')
+
+      await user.click(dialog.getByRole('button', { name: 'Mark as coming again' }))
+      expect(await screen.findByText('Advait Sinha is coming again')).toBeInTheDocument()
+      await waitFor(() => expect(monthRow('August 2026').getByText('No fee')).toBeInTheDocument())
+      expect(monthRow('September 2026').getByText('No fee')).toBeInTheDocument()
+      expect(monthRow('October 2026').getByText('Unpaid')).toBeInTheDocument()
+      expect(screen.getByRole('region', { name: 'Balance' })).toHaveTextContent(
+        'Owes ₹1,500(Oct)1 month not fully paid.',
+      )
+      expect(mockDb.students.find((s) => s.id === id)!.left_month).toBeNull()
+    })
+
+    it('lets someone who left come back straight after, as if they never left', async () => {
+      const user = userEvent.setup()
+      const id = idOf('Advait Sinha')
+      renderApp(`/students/${id}`)
+      await screen.findByRole('heading', { level: 1, name: 'Advait Sinha' })
+      await user.click(screen.getByRole('button', { name: 'Mark as coming again' }))
+      const dialog = await findDialog('Mark Advait Sinha as coming again?')
+      await user.click(dialog.getByLabelText(/^Which month are they back from\?:/))
+      await user.click(await screen.findByRole('button', { name: 'August 2026' }))
+      expect(dialog.getByText(/as if they never left/)).toHaveTextContent(
+        'Every month from August 2026 they’ll owe ₹1,500 a month, as if they never left.',
+      )
+      expect(dialog.queryByText(/no fee/)).not.toBeInTheDocument()
+    })
+
+    it('doesn’t offer "Still coming" in Edit once they have left', async () => {
+      const user = userEvent.setup()
+      renderApp(`/students/${idOf('Advait Sinha')}`)
+      await screen.findByRole('heading', { level: 1, name: 'Advait Sinha' })
+      await user.click(screen.getByRole('button', { name: 'Edit' }))
+      const dialog = await findDialog('Edit Advait Sinha')
+      expect(dialog.getByText(/use Mark as coming again on their profile/)).toBeInTheDocument()
+      await user.click(dialog.getByLabelText(/^Left in month:/))
+      await screen.findByRole('button', { name: 'July 2026' })
+      expect(screen.queryByRole('button', { name: 'Still coming' })).not.toBeInTheDocument()
+    })
   })
 
   it('marks a student as left', async () => {

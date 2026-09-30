@@ -167,6 +167,38 @@ export function useUpdateStudent() {
   })
 }
 
+/** A student who left is coming again from `fromMonth`; the months away get no fee. */
+export function useReturnStudent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, fromMonth }: { id: number; fromMonth: string }) =>
+      unwrap(
+        await api.POST('/api/students/{student_id}/return', {
+          params: { path: { student_id: id } },
+          body: { from_month: fromMonth },
+        }),
+      ),
+    onSuccess: (student) => {
+      queryClient.setQueryData(queryKeys.students.detail(student.id), student)
+      return invalidateRecords(queryClient)
+    },
+  })
+}
+
+/** Remove a fee change that hasn't started yet (never the first fee). */
+export function useDeleteFeeChange() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ studentId, feeChangeId }: { studentId: number; feeChangeId: number }) =>
+      unwrap(
+        await api.DELETE('/api/students/{student_id}/fee-changes/{fee_change_id}', {
+          params: { path: { student_id: studentId, fee_change_id: feeChangeId } },
+        }),
+      ),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
 export function useDeleteStudent() {
   const queryClient = useQueryClient()
   return useMutation({

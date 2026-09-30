@@ -19,6 +19,7 @@ export type {
   StudentDetail,
   StudentListFilter,
   StudentRead,
+  StudentReturn,
   StudentUpdate,
   SuggestedPayment,
   SuggestionReason,

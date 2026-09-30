@@ -178,8 +178,8 @@ export { MONTHS_AHEAD }
  * Prefill for Log payment (PRD ledger rule 9), exactly as `suggest_payment` in
  * backend/app/services/ledger.py:
  * 1. `owed`: the oldest due month that is Unpaid or Partial, with what's left on it.
- * 2. `next_unpaid`: otherwise the first enrolled month after the current one that isn't paid
- *    (Unpaid, Partial, or a 0 fee with nothing paid); the amount is null for a 0 fee.
+ * 2. `next_unpaid`: otherwise the first enrolled month after the current one with a fee that
+ *    isn't fully paid (Unpaid or Partial). Months with a 0 fee are skipped.
  * 3. `all_paid`: nothing left up to the latest month a payment can be logged for.
  */
 export function suggestPayment(book: StudentBook, now: string): SuggestedPayment {
@@ -201,22 +201,14 @@ export function suggestPayment(book: StudentBook, now: string): SuggestedPayment
   }
   const next = addMonths(now, 1)
   const start = next > joined_month ? next : joined_month
-  let end: string
-  if (left_month !== null) {
-    end = left_month
-  } else {
-    let lastPaid = start
-    for (const m of paid.keys()) if (m > lastPaid) lastPaid = m
-    const after = addMonths(lastPaid, 1)
-    end = after > start ? after : start
-  }
-  const latest = addMonths(now, MONTHS_AHEAD)
-  if (end > latest) end = latest
+  let end = addMonths(now, MONTHS_AHEAD)
+  if (left_month !== null && left_month < end) end = left_month
   if (start <= end) {
     for (const month of monthRange(start, end)) {
       const l = line(month)
-      if (l.status === 'unpaid' || l.status === 'partial' || l.status === 'not_applicable') {
-        return { for_month: month, amount_paise: l.remaining || null, reason: 'next_unpaid' }
+      // A fee is due and isn't fully paid; a 0-fee month never is.
+      if (l.status === 'unpaid' || l.status === 'partial') {
+        return { for_month: month, amount_paise: l.remaining, reason: 'next_unpaid' }
       }
     }
   }

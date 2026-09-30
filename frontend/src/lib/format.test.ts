@@ -4,6 +4,7 @@ import {
   formatDate,
   formatMonth,
   formatMonthShort,
+  formatMonthSpan,
   formatRupees,
   MAX_AMOUNT_PAISE,
   monthsBetween,
@@ -142,6 +143,12 @@ describe('dates and months', () => {
     expect(formatMonth('2027-01')).toBe('January 2027')
     expect(formatMonthShort('2026-10')).toBe('Oct 2026')
     expect(() => formatMonth('2026-13')).toThrow()
+  })
+
+  it('formats a run of months', () => {
+    expect(formatMonthSpan('2026-06', '2026-06')).toBe('June 2026')
+    expect(formatMonthSpan('2026-06', '2026-08')).toBe('June–August 2026')
+    expect(formatMonthSpan('2025-12', '2026-02')).toBe('December 2025 – February 2026')
   })
 
   it('uses the local clock for now', () => {
