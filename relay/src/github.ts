@@ -10,6 +10,8 @@ export const BUDGET_MS = 40_000;
 /** The repo's privacy is re-checked at most this often per Worker instance. */
 const REPO_CHECK_TTL_MS = 10 * 60_000;
 export const SCREENSHOT_BRANCH = "screenshots";
+/** Pages of 100 recent issues searched for an earlier attempt's issue. */
+const MARKER_SEARCH_PAGES = 3;
 
 /** GitHub could not be reached or refused us; the app should retry later (502). */
 export class UpstreamError extends Error {}
@@ -21,8 +23,8 @@ export interface GitHubEnv {
 
 interface GitHubResponse {
   status: number;
-  // GitHub's JSON; only a few fields are read, each checked before use.
-  json: Record<string, any> | null;
+  // GitHub's JSON (an object or a list); only a few fields are read, each checked before use.
+  json: any;
 }
 
 // Per-instance memory (not KV/D1, so it costs no writes). Reset between tests.
@@ -81,9 +83,9 @@ export class GitHub {
     } catch {
       throw new UpstreamError("could not reach GitHub");
     }
-    let json: Record<string, any> | null = null;
+    let json: any = null;
     try {
-      json = (await res.json()) as Record<string, any>;
+      json = await res.json();
     } catch {
       // An empty or non-JSON body; callers decide from the status alone.
     }
@@ -172,6 +174,30 @@ export class GitHub {
       if (link) return link;
     }
     throw new UpstreamError(`GitHub said ${put.status} for the screenshot`);
+  }
+
+  /**
+   * On a retry: find an issue an earlier attempt created (it may have timed out after GitHub
+   * made it) by the hidden `<!-- feedback-id: … -->` marker. Lists recent issues rather than
+   * using search, whose index lags behind. `sinceMs`: when the first attempt started.
+   */
+  async findIssueByMarker(marker: string, sinceMs: number): Promise<string | null> {
+    const since = new Date(sinceMs - 10 * 60_000).toISOString();
+    for (let page = 1; page <= MARKER_SEARCH_PAGES; page++) {
+      const res = await this.call(
+        "GET",
+        this.repoPath(`/issues?state=all&sort=created&direction=desc&per_page=100&page=${page}&since=${since}`),
+      );
+      if (res.status !== 200 || !Array.isArray(res.json)) throw new UpstreamError(`GitHub said ${res.status} for the issue list`);
+      for (const issue of res.json) {
+        if (!issue?.pull_request && typeof issue?.body === "string" && issue.body.trimEnd().endsWith(marker)) {
+          const link = httpsUrl(issue.html_url);
+          if (link) return link;
+        }
+      }
+      if (res.json.length < 100) return null;
+    }
+    return null;
   }
 
   /** Open the issue; returns its URL. On 422 (e.g. a label GitHub won't take) retry once without labels. */

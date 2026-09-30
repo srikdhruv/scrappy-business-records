@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
 import { resetCaches } from "../src/github";
-import { GLOBAL_PER_DAY, INSTALL_PER_DAY, INSTALL_PER_HOUR, IP_PER_HOUR } from "../src/ratelimit";
+import { GLOBAL_ATTEMPTS_PER_DAY, GLOBAL_FILED_PER_DAY, INSTALL_PER_DAY, INSTALL_PER_HOUR, IP_PER_HOUR } from "../src/ratelimit";
 import {
   CODE_REPO,
   FEEDBACK_REPO,
@@ -13,6 +13,7 @@ import {
   post,
   sampleFeedback,
   send,
+  statefulGitHub,
   writes,
 } from "./helpers";
 
@@ -84,7 +85,7 @@ describe("happy path", () => {
     expect(issue!.body.labels).toEqual(["problem", "v0.1.0"]);
 
     const body: string = issue!.body.body;
-    expect(body).toContain("The dashboard shows ₹0 for Ananya Rao\nsecond line");
+    expect(body.startsWith("```text\nThe dashboard shows ₹0 for Ananya Rao\nsecond line\n```\n")).toBe(true);
     expect(body).toContain("| Created (UTC) | 2026-09-30T10:15:00Z |");
     expect(body).toContain("| Local time | 2026-09-30T15:45:00+05:30 |");
     expect(body).toContain("| App version | 0.1.0 |");
@@ -132,8 +133,9 @@ describe("happy path", () => {
     const env = makeEnv();
     mockGitHub();
     await send(env, post(sampleFeedback()));
-    // 4 counter upserts (1 batch), 1 lock, then filed + lock release + sweep (1 batch).
-    expect(env.db.writeStatements()).toHaveLength(8);
+    // 4 counter upserts (1 batch), 1 lock (+ a read of filed), then filed + attempt record +
+    // sweep + the filed counter (1 batch).
+    expect(env.db.writeStatements()).toHaveLength(9);
   });
 });
 
@@ -166,12 +168,14 @@ describe("dedup", () => {
   });
 });
 
-describe("concurrent sends", () => {
+describe("concurrent sends and retries", () => {
+  const lockRow = (until: number, attempts = 1) =>
+    `INSERT INTO pending (id, locked_until, attempts, first_attempt_at) VALUES ('${ID}', ${until}, ${attempts}, ${until - 120})`;
+
   it("answers 409 in_progress while another request holds the lock", async () => {
     const env = makeEnv();
     const calls = mockGitHub();
-    const now = Math.floor(Date.now() / 1000);
-    env.db.sqlite.exec(`INSERT INTO pending (id, expires_at) VALUES ('${ID}', ${now + 100})`);
+    env.db.sqlite.exec(lockRow(Math.floor(Date.now() / 1000) + 100));
     const res = await send(env, post(sampleFeedback()));
     expect(res.status).toBe(409);
     expect(res.body.status).toBe("in_progress");
@@ -179,21 +183,98 @@ describe("concurrent sends", () => {
     expect(writes(calls)).toHaveLength(0);
   });
 
+  it("two requests for the same id at once make exactly one issue", async () => {
+    const env = makeEnv();
+    const { issues } = statefulGitHub(() => new Promise((r) => setTimeout(r, 20)));
+    const [a, b] = await Promise.all([send(env, post(sampleFeedback())), send(env, post(sampleFeedback()))]);
+    expect([a.status, b.status].sort()).toEqual([201, 409]);
+    expect(issues).toHaveLength(1);
+    const retry = await send(env, post(sampleFeedback()));
+    expect(retry.status).toBe(200);
+    expect(retry.body.issue_url).toBe(issues[0]!.html_url);
+    expect(issues).toHaveLength(1);
+  });
+
+  it("returns the filed URL if another request filed it just before we took the lock", async () => {
+    const env = makeEnv();
+    const calls = mockGitHub();
+    const other = `https://github.com/${FEEDBACK_REPO}/issues/7`;
+    env.db.onSql = (sql) => {
+      if (sql.includes("INSERT INTO pending")) {
+        env.db.onSql = null;
+        env.db.sqlite.exec(`INSERT INTO filed (id, issue_url, filed_at) VALUES ('${ID}', '${other}', 0)`);
+      }
+    };
+    const res = await send(env, post(sampleFeedback()));
+    expect(res.status).toBe(200);
+    expect(res.body.issue_url).toBe(other);
+    expect(writes(calls)).toHaveLength(0);
+    expect(env.db.query("SELECT * FROM pending")).toEqual([]);
+  });
+
+  it("a timeout after GitHub created the issue, then a retry: no second issue, same URL", async () => {
+    const env = makeEnv();
+    let first = true;
+    const { issues, calls } = statefulGitHub(() => {
+      if (first) {
+        first = false;
+        throw new TypeError("connection reset"); // GitHub made it; we never heard back
+      }
+    });
+    const res = await send(env, post(sampleFeedback()));
+    expect(res.status).toBe(502);
+    expect(issues).toHaveLength(1);
+
+    // The lock is kept (the issue may exist), so an immediate retry waits.
+    expect((await send(env, post(sampleFeedback()))).status).toBe(409);
+
+    vi.setSystemTime(new Date("2026-09-30T10:22:01Z")); // lock expired
+    const retry = await send(env, post(sampleFeedback()));
+    expect(retry.status).toBe(200);
+    expect(retry.body).toEqual({ status: "created", issue_url: issues[0]!.html_url });
+    expect(issues).toHaveLength(1);
+    const list = calls.find((c) => c.method === "GET" && c.url.startsWith(`${API}/issues?`));
+    expect(list!.url).toContain("state=all");
+    expect(list!.url).toContain("since=2026-09-30T10:10:00.000Z"); // first attempt minus 10 min
+    expect(env.db.query("SELECT issue_url FROM filed")).toEqual([{ issue_url: issues[0]!.html_url }]);
+    expect((await send(env, post(sampleFeedback()))).status).toBe(200);
+  });
+
+  it("the first attempt doesn't list issues; a retry that finds none files normally", async () => {
+    const env = makeEnv();
+    let calls = mockGitHub((call) => (call.method === "PUT" ? jsonResponse(500, {}) : defaultGitHub(call)));
+    expect((await send(env, post(sampleFeedback()))).status).toBe(502);
+    expect(calls.some((c) => c.url.startsWith(`${API}/issues?`))).toBe(false);
+    // Failed before the issue was requested, so the lock is released at once.
+    vi.restoreAllMocks();
+    calls = mockGitHub();
+    const res = await send(env, post(sampleFeedback()));
+    expect(res.status).toBe(201);
+    expect(calls.some((c) => c.url.startsWith(`${API}/issues?`))).toBe(true);
+    expect(calls.filter((c) => c.method === "POST" && c.url === `${API}/issues`)).toHaveLength(1);
+  });
+
+  it("ignores issues whose marker is for another id, or only quoted in the text", async () => {
+    const env = makeEnv();
+    env.db.sqlite.exec(lockRow(Math.floor(Date.now() / 1000) - 1, 1));
+    const calls = mockGitHub((call) => {
+      if (call.method === "GET" && call.url.startsWith(`${API}/issues?`)) {
+        return jsonResponse(200, [
+          { html_url: "https://github.com/x/y/issues/3", body: `quoting <!-- feedback-id: ${ID} --> here\n\n<!-- feedback-id: other -->\n` },
+        ]);
+      }
+      return defaultGitHub(call);
+    });
+    const res = await send(env, post(sampleFeedback({ screenshot: null })));
+    expect(res.status).toBe(201);
+    expect(res.body.issue_url).toBe(ISSUE_URL);
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
+  });
+
   it("takes over an expired lock", async () => {
     const env = makeEnv();
     mockGitHub();
-    const now = Math.floor(Date.now() / 1000);
-    env.db.sqlite.exec(`INSERT INTO pending (id, expires_at) VALUES ('${ID}', ${now - 1})`);
-    expect((await send(env, post(sampleFeedback()))).status).toBe(201);
-  });
-
-  it("releases the lock when GitHub fails, so the retry can go ahead", async () => {
-    const env = makeEnv();
-    mockGitHub((call) => (call.url.endsWith("/issues") ? jsonResponse(503, {}) : defaultGitHub(call)));
-    expect((await send(env, post(sampleFeedback()))).status).toBe(502);
-    expect(env.db.query("SELECT * FROM pending")).toEqual([]);
-    vi.restoreAllMocks();
-    mockGitHub();
+    env.db.sqlite.exec(lockRow(Math.floor(Date.now() / 1000) - 1));
     expect((await send(env, post(sampleFeedback()))).status).toBe(201);
   });
 });
@@ -313,10 +394,10 @@ describe("rate limiting", () => {
     expect(keys.join(" ")).not.toContain("203.0.113.7");
   });
 
-  it("caps everyone together at GLOBAL_PER_DAY a UTC day, until midnight", async () => {
+  it("caps filed issues for everyone at GLOBAL_FILED_PER_DAY a UTC day, until midnight", async () => {
     const env = makeEnv();
     mockGitHub();
-    for (let n = 0; n < GLOBAL_PER_DAY; n++) {
+    for (let n = 0; n < GLOBAL_FILED_PER_DAY; n++) {
       const ip = `198.51.100.${n}`;
       const res = await send(env, post(sampleFeedback({ id: freshId(n), install_id: freshId(n), screenshot: null }), { "CF-Connecting-IP": ip }));
       expect(res.status).toBe(201);
@@ -334,6 +415,28 @@ describe("rate limiting", () => {
       post(sampleFeedback({ id: freshId(778), install_id: freshId(778), screenshot: null }), { "CF-Connecting-IP": "192.0.2.1" }),
     );
     expect(nextDay.status).toBe(201);
+  });
+
+  it("failed attempts don't count towards the filed cap, only the attempt cap", async () => {
+    const env = makeEnv();
+    mockGitHub((call) => (call.method === "POST" ? jsonResponse(500, {}) : defaultGitHub(call)));
+    for (let n = 0; n < 3; n++) {
+      expect((await send(env, post(sampleFeedback({ id: freshId(n), screenshot: null })))).status).toBe(502);
+    }
+    const counts = Object.fromEntries(env.db.query("SELECT key, count FROM counters").map((r) => [String(r.key).split(":")[1], r.count]));
+    expect(counts.g).toBe(3);
+    expect(counts.gf).toBeUndefined();
+  });
+
+  it("caps attempts for everyone at GLOBAL_ATTEMPTS_PER_DAY", async () => {
+    const env = makeEnv();
+    const calls = mockGitHub();
+    const day = Math.floor(Date.now() / 86_400_000);
+    env.db.sqlite.exec(`INSERT INTO counters (key, count, expires_at) VALUES ('rl:g:all:${day}', ${GLOBAL_ATTEMPTS_PER_DAY}, ${(day + 1) * 86_400})`);
+    const res = await send(env, post(sampleFeedback()));
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe(String(13 * 3600 + 40 * 60));
+    expect(calls).toHaveLength(0);
   });
 
   it("over-limit requests cost no D1 writes", async () => {
@@ -540,22 +643,32 @@ describe("issue body safety", () => {
     return writes(calls)[0]!.body.body;
   }
 
-  it("neutralises @-mentions in the message", async () => {
+  it("puts the whole message in a code block, exactly as typed", async () => {
+    const message = "see https://example.com and www.example.com, #12, owner/repo#3, GH-4\n![x](a.png) [y](b) <!-- hi";
+    const body = await bodyFor(message);
+    expect(body.startsWith("```text\n" + message + "\n```\n")).toBe(true);
+  });
+
+  it("uses a longer fence than any backticks in the message, so ``` can't break out", async () => {
+    const body = await bodyFor("before\n```\nunclosed and ```` longer");
+    expect(body.startsWith("`````text\nbefore\n```\nunclosed and ```` longer\n`````\n")).toBe(true);
+  });
+
+  it("neutralises @-mentions even inside the code block", async () => {
     const body = await bodyFor("Please tell @kabir-mehta and @org/team");
     expect(body).not.toMatch(/@[A-Za-z]/);
-    expect(body).toContain("@​kabir-mehta");
+    expect(body).toContain("@\u200bkabir-mehta");
   });
 
-  it("shows images and links in the message as plain text", async () => {
-    const body = await bodyFor("look ![x](https://example.com/a.png) and [click](https://example.com) \\[sneaky]");
-    expect(body).toContain("look \\!\\[x\\](https://example.com/a.png) and \\[click\\](https://example.com) \\\\\\[sneaky\\]");
-    expect(body).not.toMatch(/(^|[^\\])!\[x/);
-  });
-
-  it("keeps an HTML comment in the message from hiding the rest of the issue", async () => {
-    const body = await bodyFor("oops <!-- unclosed");
-    expect(body).toContain("oops &lt;\\!-- unclosed");
-    expect(body.match(/<!--/g)).toHaveLength(1); // only the feedback-id marker
+  it("neutralises references and mentions in the title and the details table", async () => {
+    const calls = mockGitHub();
+    await send(
+      makeEnv(),
+      post(sampleFeedback({ message: "Fix #12 and GH-3 for @ananya", route: "/students#4", screenshot: null })),
+    );
+    const { title, body } = writes(calls)[0]!.body;
+    expect(title).toBe("[Problem] Fix #\u200b12 and GH\u200b-3 for @\u200bananya");
+    expect(body).toContain("| Route | /students\\#\u200b4 |");
   });
 
   it("fences the log tail with more backticks than it contains", async () => {

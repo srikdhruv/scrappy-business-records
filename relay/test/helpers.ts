@@ -43,6 +43,8 @@ export class FakeD1 {
   readonly sqlite = new DatabaseSync(":memory:");
   /** SQL matching this throws, to simulate D1 being down or over its daily limit. */
   failOn: RegExp | null = null;
+  /** Called before each statement runs (to simulate another request acting in between). */
+  onSql: ((sql: string) => void) | null = null;
   /** Every statement run, in order. */
   statements: string[] = [];
 
@@ -52,6 +54,7 @@ export class FakeD1 {
 
   check(sql: string): void {
     this.statements.push(sql);
+    this.onSql?.(sql);
     if (this.failOn?.test(sql)) throw new Error("D1_ERROR: simulated failure");
   }
 
@@ -126,8 +129,26 @@ export const defaultGitHub: Handler = (call) => {
   if (call.method === "POST" && call.url === `${API}/issues`) {
     return jsonResponse(201, { number: 12, html_url: `https://github.com/${FEEDBACK_REPO}/issues/12` });
   }
+  if (call.method === "GET" && call.url.startsWith(`${API}/issues?`)) return jsonResponse(200, []);
   return jsonResponse(404, { message: "Not Found" });
 };
+
+/** A GitHub that remembers the issues it creates (numbered from 1) and lists them newest first.
+ * `onCreate` may throw after the issue is stored, to simulate a timeout after GitHub made it. */
+export function statefulGitHub(onCreate?: (n: number) => void | Promise<void>) {
+  const issues: { number: number; html_url: string; body: string }[] = [];
+  const calls = mockGitHub(async (call) => {
+    if (call.method === "POST" && call.url === `${API}/issues`) {
+      const issue = { number: issues.length + 1, html_url: `https://github.com/${FEEDBACK_REPO}/issues/${issues.length + 1}`, body: call.body.body };
+      issues.push(issue);
+      await onCreate?.(issue.number);
+      return jsonResponse(201, issue);
+    }
+    if (call.method === "GET" && call.url.startsWith(`${API}/issues?`)) return jsonResponse(200, [...issues].reverse());
+    return defaultGitHub(call);
+  });
+  return { issues, calls };
+}
 
 /** Replace globalThis.fetch with `handler`; returns the list of calls made. */
 export function mockGitHub(handler: Handler = defaultGitHub): GitHubCall[] {

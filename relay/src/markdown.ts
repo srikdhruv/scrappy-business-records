@@ -7,23 +7,38 @@ export const MAX_BODY_CHARS = 60_000;
 const TITLE_CHARS = 80;
 const SHA = /^[0-9a-f]{7,40}$/i;
 
+const ZWSP = "\u200b";
+
 /** Put a zero-width space after every @ so "@someone" never pings anyone. */
 export function neutraliseMentions(text: string): string {
-  return text.replace(/@/g, "@​");
+  return text.replace(/@/g, `@${ZWSP}`);
 }
 
-/** The message as Markdown: mentions neutralised; no raw HTML (an unclosed "<!--" would
- * otherwise hide the rest of the issue); no images or links (`!`, `[`, `]` escaped, and `\`
- * so a typed backslash can't undo that). Other formatting and line breaks are kept. */
+/** Break issue references (#12, owner/repo#3, GH-12) with a zero-width space so GitHub neither
+ * links them nor adds a "mentioned this" note to the other issue. */
+export function neutraliseRefs(text: string): string {
+  return text.replace(/#(?=\d)/g, `#${ZWSP}`).replace(/\bGH-(?=\d)/gi, (m) => `${m.slice(0, 2)}${ZWSP}-`);
+}
+
+/** The user's message, shown exactly as typed inside a code block: nothing in it renders as
+ * Markdown or HTML, and URLs, #12-style references and @-mentions do nothing. The fence is
+ * longer than any backtick run in the message, so it can't be closed from inside. */
 export function messageMarkdown(text: string): string {
-  const escaped = text.replace(/[\\![\]]/g, (c) => `\\${c}`);
-  return neutraliseMentions(escaped.replace(/&/g, "&amp;").replace(/</g, "&lt;"));
+  const safe = neutraliseMentions(text);
+  const fence = fenceFor(safe);
+  return `${fence}text\n${safe}\n${fence}`;
 }
 
-/** Text safe inside one table cell or list item: one line, Markdown punctuation escaped. */
+/** Text safe inside one table cell or list item: one line, Markdown punctuation escaped,
+ * mentions and issue references neutralised. */
 export function inline(text: string): string {
   const oneLine = text.replace(/\r?\n|\r/g, " ");
-  return neutraliseMentions(oneLine.replace(/[\\`*_[\]<>|#~!]/g, (c) => `\\${c}`));
+  return neutraliseRefs(neutraliseMentions(oneLine.replace(/[\\`*_[\]<>|#~!]/g, (c) => `\\${c}`)));
+}
+
+/** The hidden line that ties an issue to its feedback id (used to find it again on a retry). */
+export function feedbackMarker(id: string): string {
+  return `<!-- feedback-id: ${id} -->`;
 }
 
 /** A backtick fence longer than any backtick run inside the text. */
@@ -37,7 +52,9 @@ export function issueTitle(fb: Feedback): string {
   const firstLine = (fb.message.split(/\r?\n|\r/)[0] ?? "").trim();
   const chars = Array.from(firstLine);
   const short = chars.length > TITLE_CHARS ? `${chars.slice(0, TITLE_CHARS - 1).join("").trimEnd()}…` : firstLine;
-  return `[${label}] ${short}`;
+  // Titles are plain text, but neutralise mentions and references anyway: cheap, and safe
+  // wherever GitHub or an email client does render them.
+  return `[${label}] ${neutraliseRefs(neutraliseMentions(short))}`;
 }
 
 export interface BodyLinks {
@@ -81,7 +98,7 @@ export function issueBody(fb: Feedback, links: BodyLinks): string {
     parts.push("### Screenshot", `![Screenshot](${links.screenshotUrl}?raw=true)\n\n[Open the screenshot](${links.screenshotUrl})`);
   }
 
-  const marker = `<!-- feedback-id: ${fb.id} -->`;
+  const marker = feedbackMarker(fb.id);
 
   if (fb.logTail.trim()) {
     const fixed = [...parts, marker].join("\n\n").length;
