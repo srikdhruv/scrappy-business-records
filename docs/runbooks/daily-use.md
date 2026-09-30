@@ -31,16 +31,19 @@ When everyone has paid, you'll see **Everyone's paid for** the month 🎉.
 
 1. On the **Dashboard**, pick the month with the arrows, then click **Monthly report** (top
    right).
-2. Every student for that month is listed, those who haven't paid first: their fee, what they
-   paid, any extra money (and which month it paid), what's **Short**, their status, and what
-   they still owe in total. The bottom row adds it all up, and matches the Dashboard.
-3. **Search by name**, or choose a status (for example **Not fully paid**) to see fewer. Click
-   a column heading to sort by it.
-4. **Download Excel** saves the whole month as a file in your Downloads folder
-   (`scrappy-records-report-2026-09.xlsx`). **Print** prints what's on screen on A4, sideways,
-   with the title and today's date.
+2. Every student for that month is listed, those who haven't paid first: their status, fee,
+   what they paid, what's **Short**, and the **Total owed now**, then the details (extra money
+   and which month it paid, earlier months owed, credit). The bottom row adds it all up, and
+   the **Collected** line under it matches the Dashboard.
+3. To see whom to chase, choose **Owes anything** in the list next to the search box: everyone
+   who owes money, this month or earlier. (**Short this month** is only this month.) Search by
+   name, or click a column heading to sort.
+4. **Download Excel** saves what's on screen as a file in your Downloads folder
+   (`scrappy-records-report-2026-09.xlsx`). **Print** prints it on A4, sideways, with the title
+   and today's date.
 
-See [the feature guide](../feature-guide.md#monthly-report) for what every column means.
+The report goes by the month a payment is *for*, not the day it was paid. See
+[the feature guide](../feature-guide.md#monthly-report) for what every column means.
 
 ## When someone pays you
 

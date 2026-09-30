@@ -5,9 +5,11 @@ import { TEST_NOW } from '@/test/render'
 
 import {
   filterRows,
-  formatMonthList,
+  formatMonthRuns,
   isStatusFilter,
   reportDownloadUrl,
+  statusDetail,
+  statusLabel,
   reportTitle,
   sortRows,
   statusFilterLabel,
@@ -18,6 +20,8 @@ function row(fields: Partial<ReportRow> & Pick<ReportRow, 'student_id' | 'studen
   return {
     batch_label: null,
     phone: null,
+    joined_month: '2026-01',
+    left_month: null,
     is_enrolled: true,
     fee_paise: 150000,
     paid_paise: 0,
@@ -29,6 +33,8 @@ function row(fields: Partial<ReportRow> & Pick<ReportRow, 'student_id' | 'studen
     extra_unused_paise: 0,
     short_paise: 150000,
     status: 'unpaid',
+    no_fee_reason: null,
+    checks: [],
     owed_before_paise: 0,
     owed_before_months: [],
     owed_now_paise: 150000,
@@ -71,10 +77,19 @@ const zoya = row({
 const rows = [kabir, diya, ananya, zoya]
 
 describe('report filters', () => {
-  it('filters by status, and "Not fully paid" means something is short', () => {
+  it('filters by status: "Owes anything" is any money owed now, "Short this month" is this month', () => {
     expect(filterRows(rows, 'all', '')).toEqual(rows)
     expect(filterRows(rows, 'unpaid', '')).toEqual([kabir])
-    expect(filterRows(rows, 'owing', '')).toEqual([kabir, diya])
+    expect(filterRows(rows, 'short', '')).toEqual([kabir, diya])
+    // Paid this month, but owes an earlier one: on the chase list, not short this month.
+    const owesEarlier = {
+      ...ananya,
+      student_id: 5,
+      owed_before_paise: 90000,
+      owed_now_paise: 90000,
+    }
+    expect(filterRows([...rows, owesEarlier], 'owes', '')).toEqual([kabir, diya, owesEarlier])
+    expect(filterRows([...rows, owesEarlier], 'short', '')).toEqual([kabir, diya])
     expect(filterRows(rows, 'paid_with_credit', '')).toEqual([])
   })
 
@@ -88,11 +103,14 @@ describe('report filters', () => {
 
   it('reads the status filter from the address', () => {
     expect(isStatusFilter('unpaid')).toBe(true)
-    expect(isStatusFilter('owing')).toBe(true)
+    expect(isStatusFilter('owes')).toBe(true)
+    expect(isStatusFilter('owing')).toBe(false)
     expect(isStatusFilter('nonsense')).toBe(false)
     expect(isStatusFilter(null)).toBe(false)
     expect(statusFilterLabel('all')).toBe('Everyone')
-    expect(statusFilterLabel('paid_with_credit')).toBe('Paid with credit')
+    expect(statusFilterLabel('paid_with_credit')).toBe('Paid (from extra)')
+    expect(statusFilterLabel('owes')).toBe('Owes anything')
+    expect(statusFilterLabel('short')).toBe('Short this month')
   })
 })
 
@@ -154,6 +172,15 @@ describe('report totals', () => {
           board.backlog.reduce((sum, b) => sum + b.total_owed_paise, 0),
         )
       }
+      // This month's report has everyone the Students list shows owing, with credit or ahead.
+      const students = mockDb.listStudents('all')
+      const current = mockDb.report('2026-10').totals
+      const sum = (pick: (s: (typeof students)[number]) => number) =>
+        students.reduce((total, s) => total + pick(s), 0)
+      expect(current.owed_now_paise).toBe(sum((s) => s.owed_paise))
+      expect(current.credit_paise).toBe(sum((s) => s.credit_paise))
+      expect(current.paid_ahead_paise).toBe(sum((s) => s.paid_ahead_paise))
+      expect(current.credit_paise).toBeGreaterThan(0)
     } finally {
       vi.useRealTimers()
     }
@@ -162,12 +189,43 @@ describe('report totals', () => {
 
 it('names the download and the printed page', () => {
   expect(reportDownloadUrl('2026-10')).toBe('/api/report.xlsx?month=2026-10')
+  // The download follows what's on screen.
+  expect(
+    reportDownloadUrl('2026-10', {
+      filter: 'owes',
+      search: ' rao ',
+      sort: { key: 'owed_now', desc: true },
+    }),
+  ).toBe('/api/report.xlsx?month=2026-10&status=owes&q=rao&sort=owed_now&order=desc')
+  expect(reportDownloadUrl('2026-10', { filter: 'all', search: '', sort: null })).toBe(
+    '/api/report.xlsx?month=2026-10',
+  )
   expect(reportTitle('2026-10')).toBe('Scrappy Records — Fees report, October 2026')
 })
 
-it('lists months in short, with the year once per year', () => {
-  expect(formatMonthList(['2026-06', '2026-07', '2026-08'])).toBe('Jun, Jul, Aug 2026')
-  expect(formatMonthList(['2025-12', '2026-01'])).toBe('Dec 2025, Jan 2026')
-  expect(formatMonthList(['2026-04'])).toBe('Apr 2026')
-  expect(formatMonthList([])).toBe('')
+it('keeps many months owed short: runs of months', () => {
+  expect(formatMonthRuns(['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06'])).toBe(
+    'Jan–Jun 2026 (6 months)',
+  )
+  expect(formatMonthRuns(['2025-12', '2026-01', '2026-02', '2026-04'])).toBe(
+    'Dec 2025–Feb 2026 (3 months), Apr 2026',
+  )
+  expect(formatMonthRuns(['2026-04'])).toBe('Apr 2026')
+  expect(formatMonthRuns([])).toBe('')
+})
+
+it('says when they left and why there is no fee', () => {
+  const left = { status: 'left', left_month: '2026-05', no_fee_reason: null } as const
+  expect(statusLabel(left)).toBe('Left after May 2026')
+  expect(statusDetail(left)).toBe('after May 2026')
+  const away = { status: 'no_fee', left_month: null, no_fee_reason: 'away' } as const
+  expect(statusLabel(away)).toBe('Away (no fee)')
+  const before = { status: 'no_fee', left_month: null, no_fee_reason: 'not_joined' } as const
+  expect(statusLabel(before)).toBe('Not joined yet')
+  const free = { status: 'no_fee', left_month: null, no_fee_reason: 'zero_fee' } as const
+  expect(statusLabel(free)).toBe('No fee')
+  expect(statusDetail(free)).toBeNull()
+  expect(statusLabel({ status: 'paid_with_credit', left_month: null, no_fee_reason: null })).toBe(
+    'Paid (from extra)',
+  )
 })

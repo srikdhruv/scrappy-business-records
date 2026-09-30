@@ -1,9 +1,10 @@
 /**
  * The monthly report (`/report?month=YYYY-MM`, opened from the Dashboard): every student for one
- * month, with their fee, what they paid, extra money that paid it or went elsewhere, what's
- * short, their status and what they owe. Filter by status, search by name, sort by a column;
- * the totals row adds up the rows shown. Download Excel gives the whole month as a file, and
- * Print gives a clean A4 landscape page (see the `@media print` rules in index.css).
+ * month. The answers come first (status, fee, paid, short, total owed now), then the details
+ * (extra money in and out, earlier months, credit), then class and phone. Filter by status,
+ * search by name, sort by a column; the totals row and the Collected line add up the rows shown.
+ * Download Excel gives the same rows as a file, and Print gives a clean A4 landscape page (see
+ * the `@media print` rules in index.css).
  *
  * Every number comes from the server (`GET /api/report`), which works it out from the same
  * ledger as the Dashboard and the profiles, so they always agree.
@@ -46,19 +47,20 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { creditFromText, creditSourceText } from '@/lib/credit'
+import { checkText, creditFromText, creditSourceText } from '@/lib/credit'
 import { formatDate, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
 import { plural } from '@/lib/labels'
 import {
   REPORT_STATUS,
   STATUS_FILTERS,
   filterRows,
-  formatMonthList,
+  formatMonthRuns,
   isStatusFilter,
   matchesStatus,
   reportDownloadUrl,
   reportTitle,
   sortRows,
+  statusDetail,
   statusFilterLabel,
   sumRows,
   type ReportSort,
@@ -108,6 +110,7 @@ export function ReportPage() {
   const totals = useMemo(() => sumRows(rows), [rows])
   const filtered = filter !== 'all' || search.trim() !== ''
   const everyone = data?.rows.length ?? 0
+  const ahead = data ? data.month > data.current_month : false
 
   return (
     <>
@@ -151,7 +154,7 @@ export function ReportPage() {
             data && (
               <>
                 <Button variant="outline" asChild className="bg-card">
-                  <a href={reportDownloadUrl(data.month)} download>
+                  <a href={reportDownloadUrl(data.month, { filter, search, sort })} download>
                     <FileDownIcon className="text-primary-strong" aria-hidden />
                     Download Excel
                   </a>
@@ -209,7 +212,8 @@ export function ReportPage() {
                 <SelectContent>
                   {STATUS_FILTERS.map((f) => {
                     const count = data.rows.filter((r) => matchesStatus(r, f)).length
-                    if (count === 0 && f !== 'all' && f !== filter) return null
+                    const always = f === 'all' || f === 'owes' || f === 'short'
+                    if (count === 0 && !always && f !== filter) return null
                     return (
                       <SelectItem key={f} value={f}>
                         {statusFilterLabel(f)} ({count})
@@ -234,8 +238,8 @@ export function ReportPage() {
             )}
             {filtered && (
               <p className="w-full text-sm text-muted-foreground" aria-live="polite">
-                Showing {rows.length} of {plural(everyone, 'student')}. The totals add up the
-                students shown; Download Excel has all {everyone}.
+                Showing {rows.length} of {plural(everyone, 'student')}. The totals, Print and
+                Download Excel have just these.
               </p>
             )}
           </div>
@@ -249,18 +253,61 @@ export function ReportPage() {
               Try another search, or clear the filters.
             </EmptyState>
           ) : (
-            <ReportTable
-              rows={rows}
-              totals={totals}
-              filtered={filtered}
-              ahead={data.month > data.current_month}
-              sort={sort}
-              onSort={setSort}
-            />
+            <>
+              <ReportTable
+                rows={rows}
+                totals={totals}
+                filtered={filtered}
+                ahead={ahead}
+                sort={sort}
+                onSort={setSort}
+              />
+              <Collected totals={totals} month={data.month} ahead={ahead} filtered={filtered} />
+            </>
           )}
         </Panel>
       )}
     </>
+  )
+}
+
+/**
+ * The Dashboard's headline for the rows shown: what pays the month. It's what was paid for the
+ * month, less the extra that went to other months or was kept as credit, plus what other
+ * payments' extra paid.
+ */
+function Collected({
+  totals: t,
+  month,
+  ahead,
+  filtered,
+}: {
+  totals: ReportTotals
+  month: string
+  ahead: boolean
+  filtered: boolean
+}) {
+  const parts = [
+    `${formatRupees(t.paid_paise)} paid for this month`,
+    t.extra_sent_paise > 0 && `less ${formatRupees(t.extra_sent_paise)} sent to other months`,
+    t.extra_unused_paise > 0 && `less ${formatRupees(t.extra_unused_paise)} kept as credit`,
+    t.covered_by_credit_paise > 0 &&
+      `plus ${formatRupees(t.covered_by_credit_paise)} from other payments’ extra`,
+  ].filter(Boolean)
+  return (
+    <div className="space-y-1 border-t border-border/70 px-6 py-4 text-sm text-muted-foreground print:px-0 print:py-2">
+      <p>
+        <strong className="text-foreground">
+          {ahead ? 'Paid ahead' : 'Collected'} for {formatMonth(month)}
+          {filtered ? ' (the students shown)' : ''}: {formatRupees(t.collected_paise)}
+        </strong>
+        {parts.length > 1 && ` = ${parts.join(', ')}`}
+        {!filtered && ', as on the Dashboard'}.
+      </p>
+      <p>
+        Payments count for the month they’re <em>for</em>, not the day they were paid.
+      </p>
+    </div>
   )
 }
 
@@ -283,7 +330,7 @@ function ReportTable({
 }) {
   const header = (key: ReportSortKey, label: ReactNode, align: 'left' | 'right' = 'right') => {
     const sorted = sort?.key === key ? (sort.desc ? 'desc' : 'asc') : false
-    // Names and classes start A to Z; amounts start with the largest.
+    // Names and classes start A to Z, statuses unpaid first; amounts start with the largest.
     const firstDesc = key !== 'student' && key !== 'batch' && key !== 'status'
     const toggle = () => {
       if (!sorted) onSort({ key, desc: firstDesc })
@@ -294,43 +341,32 @@ function ReportTable({
   }
   const ariaSort = (key: ReportSortKey) =>
     sort?.key === key ? (sort.desc ? 'descending' : 'ascending') : undefined
+  const head = (key: ReportSortKey, label: ReactNode, className?: string) => (
+    <TableHead className={cn('text-right', className)} aria-sort={ariaSort(key)}>
+      {header(key, label)}
+    </TableHead>
+  )
 
   return (
     <Table className="text-sm print:text-[9pt]">
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead className={cn(STICKY, 'min-w-44 pl-6')} aria-sort={ariaSort('student')}>
+          <TableHead className={cn(STICKY, 'min-w-36 pl-6')} aria-sort={ariaSort('student')}>
             {header('student', 'Student', 'left')}
           </TableHead>
+          <TableHead aria-sort={ariaSort('status')}>{header('status', 'Status', 'left')}</TableHead>
+          {head('fee', 'Fee')}
+          {head('paid', <Wrap>Paid for this month</Wrap>)}
+          {head('short', 'Short')}
+          {head('owed_now', <Wrap>Total owed now</Wrap>)}
+          {head('covered', <Wrap wide>Paid from another payment’s extra</Wrap>)}
+          {head('extra', <Wrap wide>Extra sent elsewhere</Wrap>)}
+          {head('owed_before', <Wrap wide>Owed from earlier months</Wrap>)}
+          {head('credit', <Wrap wide>Kept as credit / paid ahead</Wrap>)}
           <TableHead aria-sort={ariaSort('batch')}>
             {header('batch', 'Class/batch', 'left')}
           </TableHead>
-          <TableHead>Phone</TableHead>
-          <TableHead className="text-right" aria-sort={ariaSort('fee')}>
-            {header('fee', 'Fee')}
-          </TableHead>
-          <TableHead className="text-right" aria-sort={ariaSort('paid')}>
-            {header('paid', <Wrap>Paid for this month (logged)</Wrap>)}
-          </TableHead>
-          <TableHead className="text-right" aria-sort={ariaSort('covered')}>
-            {header('covered', <Wrap>Covered by credit</Wrap>)}
-          </TableHead>
-          <TableHead className="text-right" aria-sort={ariaSort('extra')}>
-            {header('extra', <Wrap>Extra sent elsewhere</Wrap>)}
-          </TableHead>
-          <TableHead className="text-right" aria-sort={ariaSort('short')}>
-            {header('short', 'Short')}
-          </TableHead>
-          <TableHead aria-sort={ariaSort('status')}>{header('status', 'Status', 'left')}</TableHead>
-          <TableHead className="text-right" aria-sort={ariaSort('owed_before')}>
-            {header('owed_before', <Wrap>Owed from earlier months</Wrap>)}
-          </TableHead>
-          <TableHead className="text-right" aria-sort={ariaSort('owed_now')}>
-            {header('owed_now', <Wrap>Total owed now</Wrap>)}
-          </TableHead>
-          <TableHead className="pr-6 text-right" aria-sort={ariaSort('credit')}>
-            {header('credit', <Wrap>Credit / paid ahead</Wrap>)}
-          </TableHead>
+          <TableHead className="pr-6">Phone</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -345,28 +381,24 @@ function ReportTable({
               ? `Total of the ${rows.length} shown`
               : `Total · ${plural(rows.length, 'student')}`}
           </TableCell>
-          <TableCell />
-          <TableCell />
+          <TableCell className="font-semibold whitespace-normal">
+            {totals.active_student_count > 0 &&
+              `${totals.not_fully_paid_count} of ${totals.active_student_count} ${ahead ? 'not paid ahead' : 'not fully paid'}`}
+          </TableCell>
           <MoneyCell paise={totals.fee_paise} />
           <MoneyCell paise={totals.paid_paise} />
+          <MoneyCell paise={totals.short_paise} />
+          <MoneyCell paise={totals.owed_now_paise} />
           <MoneyCell paise={totals.covered_by_credit_paise} />
           <MoneyCell paise={totals.extra_sent_paise}>
             {totals.extra_unused_paise > 0 && (
               <Note tone="credit">{formatRupees(totals.extra_unused_paise)} kept as credit</Note>
             )}
           </MoneyCell>
-          <MoneyCell paise={totals.short_paise} />
-          <TableCell className="font-semibold whitespace-normal">
-            {totals.active_student_count > 0 &&
-              `${totals.not_fully_paid_count} of ${totals.active_student_count} ${ahead ? 'not paid ahead' : 'not fully paid'}`}
-          </TableCell>
           <MoneyCell paise={totals.owed_before_paise} />
-          <MoneyCell paise={totals.owed_now_paise} />
-          <CreditCell
-            className="pr-6"
-            credit={totals.credit_paise}
-            ahead={totals.paid_ahead_paise}
-          />
+          <CreditCell credit={totals.credit_paise} ahead={totals.paid_ahead_paise} />
+          <TableCell />
+          <TableCell className="pr-6" />
         </TableRow>
       </TableFooter>
     </Table>
@@ -376,20 +408,46 @@ function ReportTable({
 function Row({ row: r }: { row: ReportRow }) {
   const { label, tone } = REPORT_STATUS[r.status]
   const owing = r.status === 'unpaid' || r.status === 'partial'
+  const detail = statusDetail(r)
   return (
     <TableRow className="group break-inside-avoid [&>td]:align-top">
       <TableCell className={cn(STICKY, 'pl-6 whitespace-normal group-hover:bg-muted')}>
         <Link
           to={`/students/${r.student_id}`}
-          className="inline-block max-w-56 rounded font-bold wrap-break-word outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="inline-block max-w-40 rounded font-bold wrap-break-word outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
         >
           {r.student_name}
         </Link>
       </TableCell>
-      <TableCell className="text-muted-foreground">{r.batch_label}</TableCell>
-      <TableCell className="print-nowrap text-muted-foreground tabular-nums">{r.phone}</TableCell>
+      <TableCell>
+        <StatusPill tone={tone} className="h-6 px-2.5 text-xs">
+          {label}
+        </StatusPill>
+        {detail && (
+          <span className="mt-0.5 block text-xs font-semibold text-muted-foreground">{detail}</span>
+        )}
+      </TableCell>
       <MoneyCell paise={r.fee_paise} />
-      <MoneyCell paise={r.paid_paise} />
+      <MoneyCell paise={r.paid_paise}>
+        {r.checks.map((c) => (
+          <Note key={c.payment_id} tone="check">
+            {checkText({
+              amount_paise: c.amount_paise,
+              paysUntil: c.pays_until,
+              monthsAhead: c.months_ahead,
+              unused_paise: c.extra_unused_paise,
+            })}
+          </Note>
+        ))}
+      </MoneyCell>
+      <MoneyCell
+        paise={r.short_paise}
+        className={cn(owing && 'font-bold', owing && TONE_TEXT[tone])}
+      />
+      <MoneyCell
+        paise={r.owed_now_paise}
+        className={cn(r.owed_now_paise > 0 && 'font-bold text-owed')}
+      />
       <MoneyCell paise={r.covered_by_credit_paise}>
         {r.credit_sources.map((s) => (
           <Note key={`${s.payment_id}`} tone="credit">
@@ -408,23 +466,16 @@ function Row({ row: r }: { row: ReportRow }) {
           <Note tone="credit">{formatRupees(r.extra_unused_paise)} kept as credit</Note>
         )}
       </MoneyCell>
-      <MoneyCell
-        paise={r.short_paise}
-        className={cn(owing && 'font-bold', owing && TONE_TEXT[tone])}
-      />
-      <TableCell>
-        <StatusPill tone={tone} className="h-6 px-2.5 text-xs">
-          {label}
-        </StatusPill>
-      </TableCell>
       <MoneyCell paise={r.owed_before_paise} className={cn(r.owed_before_paise > 0 && 'text-owed')}>
-        {r.owed_before_months.length > 0 && <Note>{formatMonthList(r.owed_before_months)}</Note>}
+        {r.owed_before_months.length > 0 && <Note>{formatMonthRuns(r.owed_before_months)}</Note>}
       </MoneyCell>
-      <MoneyCell
-        paise={r.owed_now_paise}
-        className={cn(r.owed_now_paise > 0 && 'font-bold text-owed')}
-      />
-      <CreditCell className="pr-6" credit={r.credit_paise} ahead={r.paid_ahead_paise} />
+      <CreditCell credit={r.credit_paise} ahead={r.paid_ahead_paise} />
+      <TableCell className="min-w-52 whitespace-normal text-muted-foreground">
+        {r.batch_label}
+      </TableCell>
+      <TableCell className="print-nowrap pr-6 text-muted-foreground tabular-nums">
+        {r.phone}
+      </TableCell>
     </TableRow>
   )
 }
@@ -449,30 +500,26 @@ function MoneyCell({
   )
 }
 
-function CreditCell({
-  credit,
-  ahead,
-  className,
-}: {
-  credit: number
-  ahead: number
-  className?: string
-}) {
+function CreditCell({ credit, ahead }: { credit: number; ahead: number }) {
   return (
-    <TableCell className={cn('text-right align-top tabular-nums', className)}>
+    <TableCell className="text-right align-top tabular-nums">
       {credit === 0 && ahead === 0 && <span className="text-muted-foreground/70">—</span>}
-      {credit > 0 && <span className="block text-credit">{formatRupees(credit)} credit</span>}
+      {credit > 0 && (
+        <span className="block text-credit">{formatRupees(credit)} kept as credit</span>
+      )}
       {ahead > 0 && <span className="block text-credit">{formatRupees(ahead)} paid ahead</span>}
     </TableCell>
   )
 }
 
-function Note({ children, tone }: { children: ReactNode; tone?: 'credit' }) {
+function Note({ children, tone }: { children: ReactNode; tone?: 'credit' | 'check' }) {
   return (
     <span
       className={cn(
         'ml-auto block max-w-48 min-w-36 text-xs font-semibold whitespace-normal print:min-w-0',
-        tone === 'credit' ? 'text-credit' : 'text-muted-foreground',
+        tone === 'credit' && 'text-credit',
+        tone === 'check' && 'text-partial',
+        !tone && 'text-muted-foreground',
       )}
     >
       {children}
@@ -480,10 +527,17 @@ function Note({ children, tone }: { children: ReactNode; tone?: 'credit' }) {
   )
 }
 
-/** A heading that may wrap onto two lines, so the table stays narrow. */
-function Wrap({ children }: { children: ReactNode }) {
+/** A heading that may wrap onto two or three lines, so the table stays narrow. */
+function Wrap({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
-    <span className="inline-block w-28 text-right whitespace-normal print:w-auto">{children}</span>
+    <span
+      className={cn(
+        'inline-block text-right whitespace-normal print:w-auto',
+        wide ? 'w-28' : 'w-16',
+      )}
+    >
+      {children}
+    </span>
   )
 }
 

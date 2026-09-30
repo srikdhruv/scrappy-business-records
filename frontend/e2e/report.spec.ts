@@ -63,7 +63,7 @@ test('open the report from the dashboard, filter it and search it', async ({ pag
   // Last month: paid with the extra money, and it says where from.
   await page.getByRole('button', { name: `Previous month, ${formatMonth(last)}` }).click()
   await expect(page).toHaveURL(new RegExp(`month=${last}`))
-  await expect(reportRow(page, twice).getByText('Paid with credit')).toBeVisible()
+  await expect(reportRow(page, twice).getByText('Paid (from extra)')).toBeVisible()
   await expect(reportRow(page, twice)).toContainText(/from the .* payment \(for /)
   await page.getByRole('button', { name: `Back to ${formatMonth(now)}` }).click()
 
@@ -106,18 +106,43 @@ test('download the report as Excel: the same rows and totals', async ({ page, re
   const sheet = readXlsx(file)
   const report = (await (await request.get(`/api/report?month=${now}`)).json()) as ReportJson
   expect(sheet[0]![0]).toBe(`Scrappy Records — Fees report, ${formatMonth(now)}`)
-  expect(String(sheet[1]![0])).toMatch(/^As of \d+ \w{3} \d{4}$/)
-  expect(sheet[3]!.slice(0, 4)).toEqual(['Student', 'Class/batch', 'Phone', 'Fee ₹'])
-  const rows = sheet.slice(4, -1)
+  expect(String(sheet[1]![0])).toMatch(/^As of \d+ \w{3} \d{4}\. Payments count for the month/)
+  expect(sheet[3]!.slice(0, 6)).toEqual([
+    'Student',
+    'Status',
+    'Fee ₹',
+    'Paid for this month ₹',
+    'Short ₹',
+    'Total owed now ₹',
+  ])
+  const n = report.rows.length
+  const rows = sheet.slice(4, 4 + n)
   expect(rows.map((r) => r[0])).toEqual(report.rows.map((r) => r.student_name))
   const mine = rows.find((r) => r[0] === name)!
-  expect(mine.slice(2, 6)).toEqual(['98765 43210', 1800, 1000, 0])
-  expect(mine[9]).toBe(800) // short
-  expect(mine[10]).toBe('Partial')
-  const totals = sheet.at(-1)!
-  expect(totals[0]).toBe(`Total (${report.rows.length} students)`)
-  expect(totals[3]).toBe(report.totals.fee_paise! / 100)
-  expect(totals[9]).toBe(report.totals.short_paise! / 100)
+  expect(mine.slice(1, 6)).toEqual(['Partial', 1800, 1000, 800, 800])
+  expect(mine.at(-1)).toBe('98765 43210')
+  const totals = sheet[4 + n]!
+  expect(totals[0]).toBe(`Total (${n} students)`)
+  expect(totals[2]).toBe(`=SUBTOTAL(109,C5:C${4 + n})`) // adds up what Excel's filter shows
+  expect(String(sheet[5 + n]![0])).toMatch(/^Collected for /)
+
+  // With a filter and a search on screen, the file has just those rows, and says so.
+  await page.getByRole('combobox', { name: 'Status' }).click()
+  await page.getByRole('option', { name: /^Owes anything \(\d+\)$/ }).click()
+  await page.getByRole('searchbox', { name: /Search the report/ }).fill(name)
+  await expect(page.getByRole('cell', { name: 'Total of the 1 shown' })).toBeVisible()
+  const [filtered] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('link', { name: 'Download Excel' }).click(),
+  ])
+  const filteredFile = test.info().outputPath(`filtered-${filtered.suggestedFilename()}`)
+  await filtered.saveAs(filteredFile)
+  const filteredSheet = readXlsx(filteredFile)
+  expect(filteredSheet[0]![0]).toBe(
+    `Scrappy Records — Fees report, ${formatMonth(now)} · Owes anything · matching "${name}"`,
+  )
+  expect(filteredSheet[4]![0]).toBe(name)
+  expect(filteredSheet[5]![0]).toBe('Total (1 student)')
 })
 
 test('the print layout: no menus or buttons, a title and the date, fits A4 landscape', async ({
@@ -188,5 +213,25 @@ test('a wide table scrolls inside itself, with the names kept in view', async ({
     await container.evaluate((el) => (el.scrollLeft = el.scrollWidth))
     await expect.poll(async () => (await cell.boundingBox())!.x).toBe(before)
     await expect(cell).toBeVisible()
+  }
+})
+
+test('the answers are in view at 800 px without scrolling: status and total owed', async ({
+  page,
+  request,
+}) => {
+  const now = await serverMonth(request)
+  const name = uniqueName('Veer')
+  await createStudent(request, { name, monthly_fee_paise: 150000, joined_month: now })
+  await page.setViewportSize({ width: 800, height: 900 })
+  await page.goto(`/report?month=${now}`)
+  const row = reportRow(page, name)
+  await expect(row.getByText('Unpaid', { exact: true })).toBeVisible()
+  const container = page.locator('.report-sheet [data-slot="table-container"]')
+  const box = (await container.boundingBox())!
+  for (const heading of ['Status', 'Fee', 'Paid for this month', 'Short', 'Total owed now']) {
+    const header = page.getByRole('columnheader', { name: heading, exact: true })
+    const edge = (await header.boundingBox())!
+    expect(edge.x + edge.width, heading).toBeLessThanOrEqual(box.x + box.width + 1)
   }
 })

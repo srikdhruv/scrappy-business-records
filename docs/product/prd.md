@@ -72,7 +72,7 @@ entry.
 | P5 | log a payment worth two months (or more) once | the extra pays the months still owed without me splitting it |
 | D4 | look at a different month | I can check the past |
 | D5 | log a payment straight from the dashboard | following up is one click |
-| D6 | click out from the dashboard into a report of every student for the month: their status, whether they've paid, how much, how much extra, how much under | at month end I have one list of who paid what, to keep (Excel) or print |
+| D6 | click out from the dashboard into a report of every student for the month: their status, whether they've paid, how much, how much extra, how much under | at month end I have one list of who paid what, and whom to chase, to keep (Excel) or print |
 
 ## Data captured
 
@@ -268,32 +268,47 @@ money used** and *Overpaid* is called **Extra kept as credit** (plain words). Th
 ### Monthly report for a selected month M
 
 Opened from the Dashboard's **Monthly report** button (`/report?month=M`), with the same month
-switcher. One row per student **relevant to M**: enrolled in M (a ₹0 fee included), or with
-money logged for M or extra money paying M, or still owing a due month before M (as in
-*Backlog*, so students who have since left are included). Every value comes from the same
-ledger as the dashboard and the profiles (rules 1–6 and 10), so they always agree.
+switcher. It goes by the month a payment is *for* (rule 3), not the day it was paid. One row per
+student **relevant to M**: enrolled in M (a ₹0 fee included); or with money logged for M, or
+extra money from another payment paying M; or still owing a due month before M (as in
+*Backlog*, so students who have since left are included); or with money kept as credit in M or
+earlier (as in *Overpaid*); or, for the current month and later ones, with any credit or money
+paid ahead. So the current month's report has everyone the students list shows as owing, with
+credit or paid ahead. Every value comes from the same ledger as the dashboard and the profiles
+(rules 1–6 and 10), so they always agree.
+
+The answers come first, then the details:
 
 | Column | Contents |
 |---|---|
-| Student, Class/batch, Phone | As entered |
+| Student | As entered; stays in view when the table scrolls sideways |
+| Status | **Unpaid**, **Partial**, **Not due yet** (a later month not fully paid ahead), **Paid (from extra)** (fully paid, partly by another payment's extra), **Paid**, **No fee** (a ₹0 fee; "Away" or "Not joined yet" under it when that's why), **Left** (M is after their left month; "after May 2026" under it) |
 | Fee | Expected for M (rule 2) |
-| Paid for this month (logged) | Paid for M, as typed (rule 3) |
-| Covered by credit | Extra money from other payments that pays M, with each payment's date and the month it was logged for |
-| Extra sent elsewhere | M's money above its fee that paid other months, with those months; money no month needed is "kept as credit" |
+| Paid for this month | Paid for M, as typed (rule 3), with the dashboard's "Check: this payment…" note on a payment that may be a typo |
 | Short | What's left on M |
-| Status | **Unpaid**, **Partial**, **Not due yet** (a later month not fully paid ahead), **Paid with credit**, **Paid**, **No fee** (a ₹0 fee, or before joining), **Left** (M is after their left month) |
-| Owed from earlier months | What's left on due months before M (the student's *Backlog* total), with the months |
 | Total owed now | `owed_paise` (rule 6) |
-| Credit / paid ahead | `credit_paise` and `paid_ahead_paise` (rule 6) |
+| Paid from another payment's extra | Extra money from other payments that pays M, with each payment's date and the month it was logged for |
+| Extra sent elsewhere | M's money above its fee that paid other months, with those months; money no month needed is "kept as credit" |
+| Owed from earlier months | What's left on due months before M (the student's *Backlog* total), with the months as runs ("Jan–Jun 2026 (6 months)") |
+| Kept as credit / paid ahead | `credit_paise` and `paid_ahead_paise` (rule 6) |
+| Class/batch, Phone | As entered |
 
-Rows start with whom to follow up (Unpaid, then Partial, Not due yet, Paid with credit, Paid,
-No fee, Left), then by name. On screen the owner can filter by status, search by name, and sort
-by any column; a **totals row** adds up the rows shown, which with nothing filtered is the
-dashboard summary (Fee = Expected, Short = Still due, "N of M not fully paid"). **Download
-Excel** gives the whole month as `scrappy-records-report-YYYY-MM.xlsx` (the same columns, a
-title row, ₹ number formats, frozen headings, a bold totals row). **Print** prints what's on
-screen on A4 landscape, with the title "Scrappy Records — Fees report, October 2026" and the
-date, and no menu or buttons.
+Rows start with whom to follow up (Unpaid, then Partial, Not due yet, Paid (from extra), Paid,
+No fee, Left), then by name. On screen the owner can choose a status list (**Owes anything**:
+Total owed now above ₹0, the list to chase; **Short this month**; or one status), search by
+name, and sort by any column. A **totals row** adds up the rows shown, and a **Collected** line
+under it (paid for this month − extra sent elsewhere − extra kept as credit + paid from other
+payments' extra); with nothing filtered they are the dashboard summary (Fee = Expected, Short =
+Still due, "N of M not fully paid", Collected = Collected). **Download Excel** gives the rows on
+screen (the same status list, search and sort, named in the title row) as
+`scrappy-records-report-YYYY-MM.xlsx`: the same columns, ₹ amounts with Indian commas, frozen
+headings, a bold totals row that adds up what Excel's own filter shows, and the Collected line.
+**Print** prints what's on screen on A4 landscape, with the title "Scrappy Records — Fees
+report, October 2026" and the date, and no menu or buttons.
+
+*Later, with the Excel import:* its payments not yet matched to a student should appear as a
+line on the report ("₹X of payments not yet matched to a student"), so the month's money is all
+accounted for.
 
 ## UX principles
 

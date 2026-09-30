@@ -55,15 +55,32 @@ describe('monthly report', () => {
     expect(kabir.getByText('Unpaid')).toBeInTheDocument()
     expect(kabir.getByText('Sep 2026')).toBeInTheDocument()
     expect(kabir.getByText('₹3,000')).toBeInTheDocument() // owed now: Sep and Oct
-    // Dev left long ago but has credit: not on this month's report.
-    expect(screen.queryByRole('link', { name: 'Dev Malhotra' })).not.toBeInTheDocument()
+    // Dev left long ago but has ₹200 kept as credit: this month's report lists him, so its
+    // credit total is the Students list's.
+    const dev = rowOf('Dev Malhotra')
+    expect(dev.getByText('Left')).toBeInTheDocument()
+    expect(dev.getByText(/^after /)).toBeInTheDocument()
+    expect(dev.getByText('₹200 kept as credit')).toBeInTheDocument()
+    // The answers come first: Student, Status, Fee, Paid, Short, Total owed now.
+    const headings = screen
+      .getAllByRole('columnheader')
+      .map((h) => (h.querySelector('button') ?? h).textContent) // the printed copy aside
+    expect(headings.slice(0, 6)).toEqual([
+      'Student',
+      'Status',
+      'Fee',
+      'Paid for this month',
+      'Short',
+      'Total owed now',
+    ])
+    expect(headings.slice(-2)).toEqual(['Class/batch', 'Phone'])
   })
 
   it('shows September paid with credit, with where the credit came from', async () => {
     renderApp('/report?month=2026-09')
     await screen.findByRole('table')
     const aarav = rowOf('Aarav Gupta')
-    expect(aarav.getByText('Paid with credit')).toBeInTheDocument()
+    expect(aarav.getByText('Paid (from extra)')).toBeInTheDocument()
     expect(aarav.getByText(/from the \d+ Oct 2026 payment \(for Oct 2026\)/)).toBeInTheDocument()
   })
 
@@ -95,7 +112,11 @@ describe('monthly report', () => {
     const unpaid = mockDb.report('2026-10').rows.filter((r) => r.status === 'unpaid')
     await waitFor(async () => expect(await rowsShown()).toEqual(unpaid.map((r) => r.student_name)))
     expect(within(totalsRow()).getByText(`Total of the ${unpaid.length} shown`)).toBeInTheDocument()
-    expect(screen.getByText(/Download Excel has all \d+/)).toBeInTheDocument()
+    expect(screen.getByText(/Print and\s+Download Excel have just these/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Download Excel' })).toHaveAttribute(
+      'href',
+      '/api/report.xlsx?month=2026-10&status=unpaid',
+    )
 
     await user.type(screen.getByRole('searchbox', { name: /Search the report/ }), 'kabir')
     expect(await rowsShown()).toEqual(['Kabir Mehta'])
@@ -103,6 +124,34 @@ describe('monthly report', () => {
     await user.click(screen.getByRole('button', { name: 'Clear filters' }))
     expect(await rowsShown()).toHaveLength(mockDb.report('2026-10').rows.length)
     expect(router.state.location.search).toBe('?month=2026-10')
+  })
+
+  it('"Owes anything" is the chase list: anyone owing any month, not just this one', async () => {
+    const user = userEvent.setup()
+    renderApp('/report?month=2026-10')
+    await screen.findByRole('table')
+    await user.click(screen.getByRole('combobox', { name: 'Status' }))
+    await user.click(await screen.findByRole('option', { name: /^Owes anything \(\d+\)$/ }))
+    const owing = mockDb.report('2026-10').rows.filter((r) => r.owed_now_paise > 0)
+    await waitFor(async () => expect(await rowsShown()).toEqual(owing.map((r) => r.student_name)))
+    // Someone short only on earlier months is on it; "Short this month" is narrower.
+    expect(owing.some((r) => r.short_paise === 0)).toBe(true)
+    await user.click(screen.getByRole('combobox', { name: 'Status' }))
+    await user.click(await screen.findByRole('option', { name: /^Short this month \(\d+\)$/ }))
+    const short = mockDb.report('2026-10').rows.filter((r) => r.short_paise > 0)
+    await waitFor(async () => expect(await rowsShown()).toEqual(short.map((r) => r.student_name)))
+  })
+
+  it('says what was collected, as on the dashboard, and that payments count by their month', async () => {
+    renderApp('/report?month=2026-10')
+    await screen.findByRole('table')
+    const summary = mockDb.dashboard('2026-10').summary
+    const fmt = (p: number) => `₹${(p / 100).toLocaleString('en-IN')}`
+    expect(
+      screen.getByText(`Collected for October 2026: ${fmt(summary.collected_paise)}`),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/, as on the Dashboard\./)).toBeInTheDocument()
+    expect(screen.getByText(/Payments count for the month they’re/)).toBeInTheDocument()
   })
 
   it('sorts when a column heading is clicked', async () => {

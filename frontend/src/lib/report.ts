@@ -1,10 +1,17 @@
 /**
  * The monthly report's words, filters, sorting and totals (the Report page). The rows and their
  * numbers come from the server (`GET /api/report`); nothing here changes a number, it only
- * picks, orders and adds up rows.
+ * picks, orders and adds up rows. The Excel download does the same on the server
+ * (`backend/app/services/report.py` `shown`), so the file has the rows on screen.
  */
-import type { ReportRow, ReportStatus, ReportTotals } from '@/api/types'
-import { formatMonth, formatMonthShort } from '@/lib/format'
+import type {
+  ReportFilter,
+  ReportRow,
+  ReportSort as SortKey,
+  ReportStatus,
+  ReportTotals,
+} from '@/api/types'
+import { addMonths, formatMonth, formatMonthShort } from '@/lib/format'
 import { fold, studentMatches } from '@/lib/search'
 import type { Tone } from '@/lib/status'
 
@@ -24,16 +31,39 @@ export const REPORT_STATUS: Record<ReportStatus, { label: string; tone: Tone }> 
   unpaid: { label: 'Unpaid', tone: 'owed' },
   partial: { label: 'Partial', tone: 'partial' },
   not_due_yet: { label: 'Not due yet', tone: 'muted' },
-  paid_with_credit: { label: 'Paid with credit', tone: 'paid' },
+  paid_with_credit: { label: 'Paid (from extra)', tone: 'paid' },
   paid: { label: 'Paid', tone: 'paid' },
   no_fee: { label: 'No fee', tone: 'muted' },
   left: { label: 'Left', tone: 'muted' },
 }
 
-/** `owing`: everyone with something left to pay for the month (Unpaid, Partial, Not due yet). */
-export type StatusFilter = 'all' | 'owing' | ReportStatus
+/** A row's status in words: "Left after May 2026", "Away (no fee)", "Not joined yet". */
+export function statusLabel(
+  row: Pick<ReportRow, 'status' | 'left_month' | 'no_fee_reason'>,
+): string {
+  if (row.status === 'left' && row.left_month) return `Left after ${formatMonth(row.left_month)}`
+  if (row.status === 'no_fee' && row.no_fee_reason === 'not_joined') return 'Not joined yet'
+  if (row.status === 'no_fee' && row.no_fee_reason === 'away') return 'Away (no fee)'
+  return REPORT_STATUS[row.status].label
+}
 
-export const STATUS_FILTERS: readonly StatusFilter[] = ['all', 'owing', ...REPORT_STATUSES]
+/** The small line under a status pill: "after May 2026", "Away", "Not joined yet". */
+export function statusDetail(
+  row: Pick<ReportRow, 'status' | 'left_month' | 'no_fee_reason'>,
+): string | null {
+  if (row.status === 'left' && row.left_month) return `after ${formatMonth(row.left_month)}`
+  if (row.status === 'no_fee' && row.no_fee_reason === 'not_joined') return 'Not joined yet'
+  if (row.status === 'no_fee' && row.no_fee_reason === 'away') return 'Away'
+  return null
+}
+
+/**
+ * The status list: `owes` is anyone owing anything now (Total owed now above ₹0), the list to
+ * chase; `short` is anyone with something left to pay for this month.
+ */
+export type StatusFilter = ReportFilter
+
+export const STATUS_FILTERS: readonly StatusFilter[] = ['all', 'owes', 'short', ...REPORT_STATUSES]
 
 export function isStatusFilter(value: string | null): value is StatusFilter {
   return value !== null && (STATUS_FILTERS as readonly string[]).includes(value)
@@ -41,13 +71,15 @@ export function isStatusFilter(value: string | null): value is StatusFilter {
 
 export function statusFilterLabel(filter: StatusFilter): string {
   if (filter === 'all') return 'Everyone'
-  if (filter === 'owing') return 'Not fully paid'
+  if (filter === 'owes') return 'Owes anything'
+  if (filter === 'short') return 'Short this month'
   return REPORT_STATUS[filter].label
 }
 
 export function matchesStatus(row: ReportRow, filter: StatusFilter): boolean {
   if (filter === 'all') return true
-  if (filter === 'owing') return row.short_paise > 0
+  if (filter === 'owes') return row.owed_now_paise > 0
+  if (filter === 'short') return row.short_paise > 0
   return row.status === filter
 }
 
@@ -60,18 +92,7 @@ export function filterRows(rows: ReportRow[], filter: StatusFilter, search: stri
   )
 }
 
-export type ReportSortKey =
-  | 'student'
-  | 'batch'
-  | 'fee'
-  | 'paid'
-  | 'covered'
-  | 'extra'
-  | 'short'
-  | 'status'
-  | 'owed_before'
-  | 'owed_now'
-  | 'credit'
+export type ReportSortKey = SortKey
 
 export interface ReportSort {
   key: ReportSortKey
@@ -136,9 +157,19 @@ export function sumRows(rows: ReportRow[]): ReportTotals {
   }
 }
 
-/** The Excel download for a month: every student, whatever is filtered on screen. */
-export function reportDownloadUrl(month: string): string {
-  return `/api/report.xlsx?month=${encodeURIComponent(month)}`
+/** The Excel download: the rows on screen (the status list, the search and the sort). */
+export function reportDownloadUrl(
+  month: string,
+  shown: { filter?: StatusFilter; search?: string; sort?: ReportSort | null } = {},
+): string {
+  const query = new URLSearchParams({ month })
+  if (shown.filter && shown.filter !== 'all') query.set('status', shown.filter)
+  if (shown.search?.trim()) query.set('q', shown.search.trim())
+  if (shown.sort) {
+    query.set('sort', shown.sort.key)
+    query.set('order', shown.sort.desc ? 'desc' : 'asc')
+  }
+  return `/api/report.xlsx?${query.toString()}`
 }
 
 /** "Scrappy Records — Fees report, October 2026": the printed page's (and the file's) title. */
@@ -146,13 +177,27 @@ export function reportTitle(month: string): string {
   return `Scrappy Records — Fees report, ${formatMonth(month)}`
 }
 
-/** Months in short, the year once per run of the same year: "Jun, Jul, Aug 2026",
- * "Dec 2025, Jan 2026". */
-export function formatMonthList(months: string[]): string {
-  return months
-    .map((m, i) => {
-      const sameYearNext = months[i + 1]?.slice(0, 4) === m.slice(0, 4)
-      return sameYearNext ? formatMonthShort(m).split(' ')[0] : formatMonthShort(m)
+/**
+ * Months owed, a run of months at a time, so a long list stays short (also in Excel):
+ * "Apr 2026", "Jan–Jun 2026 (6 months)", "Dec 2025–Feb 2026 (3 months), Apr 2026".
+ */
+export function formatMonthRuns(months: readonly string[]): string {
+  const runs: string[][] = []
+  for (const m of months) {
+    const last = runs.at(-1)
+    if (last && addMonths(last.at(-1)!, 1) === m) last.push(m)
+    else runs.push([m])
+  }
+  return runs
+    .map((run) => {
+      const first = run[0]!
+      const last = run.at(-1)!
+      if (run.length === 1) return formatMonthShort(first)
+      const start =
+        first.slice(0, 4) === last.slice(0, 4)
+          ? formatMonthShort(first).split(' ')[0]
+          : formatMonthShort(first)
+      return `${start}–${formatMonthShort(last)} (${run.length} months)`
     })
     .join(', ')
 }

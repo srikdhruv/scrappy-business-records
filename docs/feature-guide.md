@@ -327,38 +327,48 @@ download it as an Excel file, or print it, for example at the end of the month.
 Open it from the Dashboard with **Monthly report** (top right). It opens for the month the
 Dashboard was showing.
 
-![The Monthly report for September 2026: a link back to the Dashboard, the month between two arrows, 'Every student this month: what they paid, and what's still owed.', Download Excel and Print buttons, a search box, an 'Everyone (24)' list, and a table starting with Anika Kulkarni, Arjun Menon, Ira Banerjee, Riya Kapoor and Siddharth Rao, each Unpaid, then Pooja Gowda (Partial) and the students who have paid.](images/feature-guide/report.png)
+![The Monthly report for September 2026: a link back to the Dashboard, the month between two arrows, 'Every student this month: what they paid, and what's still owed.', Download Excel and Print buttons, a search box, an 'Everyone (24)' list, and a table with the columns Student, Status, Fee, Paid for this month, Short, Total owed now, Paid from another payment's extra, Extra sent elsewhere and Owed from earlier months. It starts with Anika Kulkarni, Arjun Menon, Ira Banerjee, Riya Kapoor and Siddharth Rao, each Unpaid, then Pooja Gowda (Partial) and the students who have paid.](images/feature-guide/report.png)
 
 **The month switcher** works like the Dashboard's: the arrows go a month back or forward, and
 **Back to** *this month* comes back. The line under the month says whether it is this month, an
 earlier one, or one that isn't due yet. **← Dashboard · Monthly report** at the top goes back
 to the Dashboard, on the same month.
 
+**It goes by the month a payment is *for*,** not the day it was paid: ₹1,500 paid on 2 October
+*for* September counts in September's report. The page says so under the table.
+
 **Who is on it.** Every student who:
 - is enrolled that month (joined by then, and hadn't left), including anyone with no fee that
   month (a month off, a free place, the months away);
-- or had money logged for that month, or extra money that paid it;
+- or had money logged for that month, or money from another payment that paid it;
 - or still owes for an earlier month, even if they have since left (the same people as the
-  Dashboard's *Earlier months still owed*).
+  Dashboard's *Earlier months still owed*);
+- or has money kept as credit from that month or an earlier one (the Dashboard's *Extra kept
+  as credit*);
+- and, on this month's report (and later ones), anyone with money kept as credit or paid
+  ahead, even if they left long ago.
+
+So this month's report lists everyone the Students page shows as owing, with credit, or paid
+ahead, and its totals of those match the Students page.
 
 It starts with whom to follow up: **Unpaid** first, then **Partial**, **Not due yet**, **Paid
-with credit**, **Paid**, **No fee** and **Left**, and A to Z within each.
+(from extra)**, **Paid**, **No fee** and **Left**, and A to Z within each.
 
-**The columns**
+**The columns**, the answers first:
 
 | Column | What it means |
 |---|---|
 | **Student** | Their name. Click it to open their profile. It stays on the left while you scroll the table sideways |
-| **Class/batch**, **Phone** | As entered for the student |
-| **Fee** | Their fee for that month. **—** when there is none (not enrolled then, or a ₹0 fee) |
-| **Paid for this month (logged)** | Everything logged *for* that month, exactly as typed, even if it's more than the fee |
-| **Covered by credit** | Money paid above the fee in *another* month that paid this one (see [extra money](#extra-money-pays-the-months-still-owed)), with which payment it came from: *"from the 2 Sep 2026 payment (for Sep 2026)"* |
-| **Extra sent elsewhere** | The part of this month's money above its fee that paid other months, with where it went: *"→ Aug 2026"*. Money no month needed says *"₹500 kept as credit"* under it |
-| **Short** | What's still left to pay for that month. Red for Unpaid, amber for Partial |
 | **Status** | One word for that month (see below) |
-| **Owed from earlier months** | What they still owe for months *before* this one, with those months under it (*"Jun, Jul, Aug 2026"*) |
+| **Fee** | Their fee for that month. **—** when there is none (not enrolled then, or a ₹0 fee) |
+| **Paid for this month** | Everything logged *for* that month, exactly as typed, even if it's more than the fee. A payment that looks like a slip of the finger gets the Dashboard's amber note under it: *"Check: this ₹15,000 payment pays up to Jun 2027 — 9 months ahead"* |
+| **Short** | What's still left to pay for that month. Red for Unpaid, amber for Partial |
 | **Total owed now** | Everything they owe today, all months together: the same as *Owes* on the Students page |
-| **Credit / paid ahead** | Money kept as credit (*"₹500 credit"*), and money that pays months after this one (*"₹1,500 paid ahead"*), as on their profile |
+| **Paid from another payment's extra** | Money paid above the fee in *another* month that paid this one (see [extra money](#extra-money-pays-the-months-still-owed)), with which payment it came from: *"from the 2 Sep 2026 payment (for Sep 2026)"* |
+| **Extra sent elsewhere** | The part of this month's money above its fee that paid other months, with where it went: *"→ Aug 2026"*. Money no month needed says *"₹500 kept as credit"* under it |
+| **Owed from earlier months** | What they still owe for months *before* this one, with those months under it. A run of months is kept short: *"Jan–Jun 2026 (6 months)"* |
+| **Kept as credit / paid ahead** | Money no month needs (*"₹500 kept as credit"*), and money that pays months after this one (*"₹1,500 paid ahead"*), as on their profile |
+| **Class/batch**, **Phone** | As entered for the student |
 
 A **—** always means nothing (₹0).
 
@@ -369,42 +379,50 @@ A **—** always means nothing (₹0).
 | **Unpaid** (red) | The month has come, a fee is due, and nothing pays it |
 | **Partial** (amber) | Some, but not all, of the fee is paid |
 | **Not due yet** (grey) | A month that hasn't started yet, not fully paid ahead |
-| **Paid with credit** (green) | The fee is fully paid, some of it by extra money from another month's payment |
+| **Paid (from extra)** (green) | The fee is fully paid, some of it by money paid above the fee in another month |
 | **Paid** (green) | The fee is fully paid by money logged for that month. For a month that hasn't started, that means paid ahead |
-| **No fee** (grey) | The fee that month is ₹0 (a month off, a free place, the months away), or they hadn't joined yet |
-| **Left** (grey) | They had already left by that month. They're listed because they still owe for an earlier month, or money was paid for this month after they left |
+| **No fee** (grey) | The fee that month is ₹0. The line under it says why when it can: **Away** (the months away before they came back), or **Not joined yet** (the month is before they joined). Otherwise it's a month off or a free place |
+| **Left** (grey) | They had already left by that month; the line under it says when (*"after May 2026"*). They're listed because they still owe, have credit, or money was paid for this month after they left |
 
 In the demo data, Vihaan paid ₹4,000 for September against a ₹2,000 fee, and nothing for August.
-September's row shows **Paid**, ₹4,000 logged and ₹2,000 *→ Aug 2026*. August's report shows
+September's row shows **Paid**, ₹4,000 paid and ₹2,000 *→ Aug 2026*. August's report shows
 where that came from:
 
-![The August 2026 report searched for 'Vihaan': 'Showing 1 of 22 students.' Vihaan Joshi's row, scrolled sideways so his name stays on the left, shows Covered by credit ₹2,000 'from the 2 Sep 2026 payment (for Sep 2026)', Short —, and a green 'Paid with credit' label. The totals row reads 'Total of the 1 shown'.](images/feature-guide/report-credit.png)
+![The August 2026 report searched for 'Vihaan': 'Showing 1 of 22 students. The totals, Print and Download Excel have just these.' Vihaan Joshi's row: Paid (from extra), Fee ₹2,000, Paid for this month —, Short —, Total owed now —, Paid from another payment's extra ₹2,000 'from the 2 Sep 2026 payment (for Sep 2026)'. The totals row reads 'Total of the 1 shown'.](images/feature-guide/report-credit.png)
 
-**The totals row** at the bottom adds up the students shown: the fee, what was paid, credit,
-extra, what's short, what's owed, and *"6 of 24 not fully paid"*. With nobody filtered out it
-matches the Dashboard for that month: in September 2026, Fee ₹42,200 is the Dashboard's
-**Expected**, Short ₹8,450 is **Still due**, and *6 of 24* is **Not fully paid**. The
-Dashboard's **Collected** (₹33,750) is what was logged (₹35,750), less what went to other months
-(₹2,000), plus what came from other months (—).
+**The totals row** at the bottom adds up the students shown: the fee, what was paid, what's
+short, what's owed, the extra money, and *"6 of 24 not fully paid"*. Under it, **Collected**
+is the Dashboard's headline for the same students: *"Collected for September 2026: ₹33,750 =
+₹35,750 paid for this month, less ₹2,000 sent to other months, as on the Dashboard."* In words:
+**Collected = paid for this month − extra sent elsewhere − extra kept as credit + paid from
+other payments' extra**. With nobody filtered out it matches the Dashboard: Fee ₹42,200 is
+**Expected**, Short ₹8,450 is **Still due**, *6 of 24* is **Not fully paid**, and Collected is
+**Collected**. For a month that hasn't started, it says **Paid ahead** instead.
 
-**A wide table.** The table has more columns than fit on a laptop screen. Scroll it sideways
-(with the trackpad, Shift and the mouse wheel, or the scroll bar under it); the names stay on
-the left. Only the table scrolls, never the page.
+**A wide table.** On a laptop screen the answers (Status to Total owed now) are always in view;
+the details are to the right. Scroll the table sideways (with the trackpad, Shift and the mouse
+wheel, or the scroll bar under it); the names stay on the left. Only the table scrolls, never
+the page.
 
 ### What you can do
 
-**Find someone, or a group**
-1. Type in **Search by name**: a name, a class or a phone number, as in the Students page.
-2. Or choose from the list next to it: **Everyone**, **Not fully paid** (Unpaid, Partial and
-   Not due yet), or one status. The number next to each is how many students have it.
-3. The line under them says *"Showing 6 of 24 students"*, and the totals row adds up only
-   those (*"Total of the 6 shown"*). Click **Clear filters** to see everyone again.
+**Find whom to chase, or a group**
+1. Choose from the list next to the search box:
+   - **Owes anything**: everyone who owes money today, for this month or any earlier one
+     (*Total owed now* above ₹0). **This is the list to chase.**
+   - **Short this month**: only those with something left to pay for *this* month (Unpaid,
+     Partial and Not due yet).
+   - **Everyone**, or one status. The number next to each is how many students have it.
+2. Or type in **Search by name**: a name, a class or a phone number, as in the Students page.
+3. The line under them says *"Showing 8 of 24 students"*, and the totals row and Collected add
+   up only those (*"Total of the 8 shown"*). Print and Download Excel then have just those
+   too. Click **Clear filters** to see everyone again.
 
-![The report filtered to 'Not fully paid (6)': 'Showing 6 of 24 students. The totals add up the students shown; Download Excel has all 24.' Six students, from Anika Kulkarni to Pooja Gowda, and 'Total of the 6 shown' with Fee ₹9,200, Paid ₹750 and Short ₹8,450.](images/feature-guide/report-filtered.png)
+![The report filtered to 'Owes anything': everyone who owes this month or an earlier one, including Dev Malhotra and Kavya Pillai, who paid September but still owe earlier months. 'Total of the 8 shown' at the bottom, then 'Collected for September 2026 (the students shown)'.](images/feature-guide/report-filtered.png)
 
 **Sort by a column**
-1. Click a column heading (Student, Fee, Short, Status, …). Amounts start with the largest;
-   names and classes start A to Z.
+1. Click a column heading (Student, Status, Fee, Short, Total owed now, …). Amounts start with
+   the largest; names and classes start A to Z; Status starts with Unpaid.
 2. Click it again for the other way round, and a third time to go back to the usual order.
 
 **Download it as an Excel file**
@@ -412,25 +430,29 @@ the left. Only the table scrolls, never the page.
 2. Your browser saves *scrappy-records-report-2026-09.xlsx* (the month is in the name) in your
    Downloads folder. Open it in Excel or Google Sheets.
 
-The file has **every student for the month**, whatever is filtered on screen, in the same order
-and with the same columns. Its first row is the title (*"Scrappy Records — Fees report,
-September 2026"*), the second the date. The headings stay in view as you scroll, amounts are
-real numbers in ₹ (so you can add them up), and the last row is the bold total. *Credit came
-from*, *Extra went to* and *Earlier months owed* are the notes from the screen, in their own
-columns; **Credit** and **Paid ahead** are two columns.
+The file has **the students on screen**, in the same order and with the same columns: if you
+chose a status, searched or sorted, so does the file, and its title says so (*"Scrappy Records
+— Fees report, September 2026 · Owes anything · sorted by Total owed now, largest first"*). The
+second row is the date. The headings stay in view as you scroll, and have Excel's filter
+buttons. Amounts are real numbers (so you can add them up), shown in ₹ with Indian commas like
+the app (*₹1,50,000*). The bold **Total** row adds up the rows Excel is showing (it follows
+Excel's own filter too), and the line under it is **Collected**, worked out the same way as on
+screen. The notes from the screen have their own columns: *Came from*, *Went to*, *Earlier
+months owed* and *Check*; *Extra kept as credit* (this month's money no month needed), *Kept as
+credit, all months* and *Paid ahead* are each a column.
 
 **Print it**
 1. Click **Print** (top right). Your browser's print window opens.
 2. Choose your printer (or *Save as PDF*) and click **Print**.
 
 The printed page is **A4, sideways (landscape)**. It has only the report: the title
-*"Scrappy Records — Fees report, September 2026"*, *"Printed on 15 Sep 2026"*, the table and
-its totals. The menu, buttons and search box aren't printed, a row is never split between two
-pages, and the headings repeat at the top of each page. If you filtered or searched, it prints
-only those students, and says so under the title (*"Showing 6 of 24 students: Not fully
-paid"*).
+*"Scrappy Records — Fees report, September 2026"*, *"Printed on 15 Sep 2026"*, the table, its
+totals and the Collected line. The menu, buttons and search box aren't printed, a row is never
+split between two pages, and the headings repeat at the top of each page. If you chose a status
+or searched, it prints only those students, and says so under the title (*"Showing 8 of 24
+students: Owes anything"*).
 
-![The printed report: 'Scrappy Records — Fees report, September 2026', 'Printed on 15 Sep 2026', and the whole table on white, from Anika Kulkarni (Unpaid) to Zara Khan (Paid), ending with 'Total · 24 students', ₹42,200, ₹35,750, ₹2,000, ₹8,450, '6 of 24 not fully paid', ₹10,200, ₹18,650 and ₹1,500 paid ahead.](images/feature-guide/report-print.png)
+![The printed report: 'Scrappy Records — Fees report, September 2026', 'Printed on 15 Sep 2026', and the whole table on white, from Anika Kulkarni (Unpaid) to Zara Khan (Paid), ending with 'Total · 24 students', '6 of 24 not fully paid', ₹42,200, ₹35,750, ₹8,450, ₹18,650, and the Collected line.](images/feature-guide/report-print.png)
 
 **Open a student's profile**
 1. Click their name.
@@ -443,37 +465,43 @@ paid"*).
 - Every number is worked out the same way as on the Dashboard and the profiles, so they always
   agree. Looking back at an earlier month shows it **as it stands today**: a month paid late
   shows as paid.
-- **Total owed now**, **Credit** and **Paid ahead** are about today, whichever month you're
-  looking at. The other columns are about the month at the top.
-- The Excel file always has everyone for the month; the printout has what's on screen.
+- **Total owed now** and **Kept as credit / paid ahead** are about today, whichever month
+  you're looking at. The other columns are about the month at the top.
+- The screen, the printout and the Excel file always show the same students.
 - The report doesn't change anything: it only shows what you've logged.
 
 <details><summary>For developers</summary>
 
 - **Route:** `/report?month=YYYY-MM` (the Dashboard's link always sets `month`; without one, the
-  server's current month), `&status=` for the status list (`all` isn't written). The search
-  and the sort live in the page only.
+  server's current month), `&status=` for the status list (`owes`, `short` or a
+  `ReportStatus`; `all` isn't written). The search and the sort live in the page only.
 - **Components:** `frontend/src/pages/report-page.tsx` (`ReportPage`, `ReportTable`, `Row`,
-  `MoneyCell`, `CreditCell`, `SortButton`), `components/month-switcher.tsx`, `lib/report.ts`
-  (statuses and their words, `filterRows`, `sortRows`, `sumRows` for the totals row,
-  `formatMonthList`, `reportDownloadUrl`, `reportTitle`), `lib/credit.ts`
-  (`creditFromText`, `creditSourceText`).
+  `Collected`, `MoneyCell`, `CreditCell`, `SortButton`), `components/month-switcher.tsx`,
+  `lib/report.ts` (statuses and their words, `statusDetail`, `filterRows`, `sortRows`, `sumRows`
+  for the totals row, `formatMonthRuns`, `reportDownloadUrl`, `reportTitle`), `lib/credit.ts`
+  (`creditFromText`, `creditSourceText`, `checkText`).
 - **Print:** `window.print()`. The `@media print` rules at the end of `src/index.css` (`@page`
   A4 landscape, 10 mm margins; `.report-sheet` table with `break-inside: avoid` rows, a
   repeated `thead`, and no sideways scrolling) plus `print:hidden` / `print:block` classes on
   the shell, the page header and the report's controls.
-- **API:** `GET /api/report?month=` (`getReport`) → `ReportResponse` (`rows[]` of `ReportRow`,
-  `totals` (`ReportTotals`), `today`); `GET /api/report.xlsx?month=` (`downloadReport`), a
-  download named `scrappy-records-report-YYYY-MM.xlsx`.
+- **API:** `GET /api/report?month=` (`getReport`) → `ReportResponse` (`rows[]` of `ReportRow`
+  with `checks[]`, `no_fee_reason`, `left_month`; `totals` (`ReportTotals`); `today`);
+  `GET /api/report.xlsx?month=&status=&q=&sort=&order=` (`downloadReport`), a download named
+  `scrappy-records-report-YYYY-MM.xlsx` with the rows the page shows
+  (`services/report.shown`, the same filter, search and sort as `lib/report.ts`).
 - **Backend:** `routers/report.py` → `services/report.get_report` →
-  `services/ledger.build_report` (`report_status`), from each month's `month_line` (the
-  profile's `LedgerMonth` fields); the Excel file is `services/report_xlsx.py` (openpyxl).
+  `services/ledger.build_report` (`report_status`, `needs_check`), from each month's
+  `month_line` (the profile's `LedgerMonth` fields); the Excel file is `services/report_xlsx.py`
+  (openpyxl; totals are `SUBTOTAL(109, …)`; money uses the Indian-grouping formats `RUPEES` and
+  `RUPEES_PAISE`, explained in that file).
 - **PRD:** "Monthly report" and ledger rules 1–6 and 10.
 - **Tests:** `backend/tests/test_report.py` (`assert_reconciles`: every row and total against
-  the dashboard, the profiles and the students list, for 15 months, on each scenario and on the
-  demo data; the Excel content and totals); `frontend/src/lib/report.test.ts`,
+  the dashboard, the profiles and the students list (owed, credit and paid ahead for the
+  current month), for 15 months, on each scenario and on the demo data; the Excel content,
+  totals, filters, words and number formats); `frontend/src/lib/report.test.ts`,
   `pages/report-page.test.tsx`; `frontend/e2e/report.spec.ts` (from the dashboard, filter,
-  search, the Excel download read back, the print layout, the wide table).
+  search, the Excel download read back (filtered too), the print layout, the wide table, and
+  the answers in view at 800 px).
 
 </details>
 
@@ -1377,10 +1405,12 @@ The same word always has the same colour, everywhere in the app.
 | Word | Colour | Where you'll see it | Exactly when |
 |---|---|---|---|
 | **Paid** | Green, with a tick (no tick on the Monthly report) | Profile, *Month by month*; Monthly report *Status* | This month or an earlier one, and the whole fee is paid: by payments for it, by extra money from another payment (a teal note says which), or both. On the Monthly report, **Paid** means paid by money logged for that month, and it's also used for a later month paid ahead in full |
-| **Paid with credit** | Green | Monthly report *Status* | The whole fee is paid, and some of it came from money paid above the fee in another month (the *Covered by credit* column says which payment) |
+| **Paid (from extra)** | Green | Monthly report *Status* | The whole fee is paid, and some of it came from money paid above the fee in another month (the *Paid from another payment's extra* column says which payment) |
 | **Partial** | Amber | Dashboard *Yet to pay*; *Earlier months still owed* (as "· part paid"); profile; Monthly report | This month or an earlier one, and some but not all of the fee is paid |
 | **Unpaid** | Muted red | Dashboard *Yet to pay*; *Earlier months still owed* (a red month label); profile; Monthly report | This month or an earlier one, a fee was due, and nothing pays it |
 | **Short** | Red (Unpaid) or amber (Partial) amount | Monthly report column | What's still left to pay for that month |
+| **Owes anything** / **Short this month** | — (a list choice) | Monthly report | *Owes anything*: owes money today for any month, the list to chase. *Short this month*: something left to pay for the month at the top |
+| **Kept as credit** | Teal | Monthly report, profile, Dashboard | Money paid that no month needs (every month owed is already paid). Only this is called credit on the Monthly report; money that paid another month is "extra" |
 | **Total owed now** | Muted red amount | Monthly report column | Everything they owe today, all months together: the same as **Owes ₹X** |
 | **… credit from the … payment (for …)** | Teal note | Profile *Month by month*; the Log payment form | Extra money from another month's payment that pays this month: "₹2,000 credit from the 2 Sep 2026 payment (for Sep 2026)" |
 | **… extra → …** | Teal note | Profile *Month by month* | Where this month's money above its fee went: "₹2,000 extra → Aug 2026" |
@@ -1395,9 +1425,9 @@ The same word always has the same colour, everywhere in the app.
 | **Credit ₹X** | Teal | Students page; profile Balance headline | Nothing is owed, and ₹X was paid that no month needs: every month they owe, up to when they leave (or two years ahead), is already paid. Usually someone who left and paid a little extra |
 | **Up to date** | Green, with a tick | Students page; profile Balance headline | Nothing owed and nothing extra |
 | **Not due yet** | Grey | Profile *Month by month*; Dashboard for a later month (labels and the third box); Monthly report for a later month | A month that hasn't started, not paid yet (on the Monthly report: not fully paid ahead yet). Nothing is owed until it comes |
-| **No fee** | Grey | Profile *Month by month* and *Fee history*; Monthly report | A month whose fee is ₹0, with nothing paid: a free place, a month off, or the months away before they came back. Never owed. On the Monthly report, also a month before they joined |
+| **No fee** | Grey | Profile *Month by month* and *Fee history*; Monthly report | A month whose fee is ₹0, with nothing paid: a free place, a month off, or the months away before they came back. Never owed. On the Monthly report, the line under it can say **Away** or **Not joined yet** |
 | **Active** | — (a tab) | Students page | Still coming: no leaving month, or it's this month or later |
-| **Left** | Grey | Students page tab; "Left May 2026" under *Member for*; "Left after May 2026" on the profile; the **Left** group when choosing a student; Monthly report *Status* | Their last month has passed. They owe nothing after it, and their history is kept. On the Monthly report: they had left by that month, and are listed because they still owe for an earlier month or money was paid for it |
+| **Left** | Grey | Students page tab; "Left May 2026" under *Member for*; "Left after May 2026" on the profile; the **Left** group when choosing a student; Monthly report *Status* | Their last month has passed. They owe nothing after it, and their history is kept. On the Monthly report ("Left", with "after May 2026" under it): they had left by that month, and are listed because they still owe, have credit, or money was paid for that month |
 | **—** | Grey | Monthly report, and the Dashboard's last box for a month with nobody in it | Nothing: ₹0, or no number to show |
 | **Leaving after …** | Grey | Profile label; under *Member for* | They've been marked as leaving, and that last month hasn't passed yet. They still show as Active |
 | **New this month** | — (plain text) | Students page *Member for*; profile *Joined* ("new this month") | They joined this month |
@@ -1553,11 +1583,14 @@ still owed, by student.
    extra, what's short and what they owe in total.
 3. To keep a copy, click **Download Excel** (a file in your Downloads folder, named with the
    month) or **Print** (A4, sideways).
-4. Only want to chase people? Choose **Not fully paid** in the list next to the search box,
-   then **Print**: it prints just those students.
+4. Want a list of whom to chase? Choose **Owes anything** in the list next to the search box:
+   everyone who owes money, for this month or an earlier one. Then **Print** or **Download
+   Excel**: both have just those students. (**Short this month** is narrower: only what's
+   left for this month.)
 
-The total at the bottom matches the Dashboard: *Fee* is **Expected**, *Short* is **Still due**.
-See [Monthly report](#monthly-report).
+The total at the bottom matches the Dashboard: *Fee* is **Expected**, *Short* is **Still
+due**, and the **Collected** line under it is **Collected**. See
+[Monthly report](#monthly-report).
 
 ### Seeing a student's full history
 
