@@ -633,11 +633,17 @@ export class MockDb {
 
   report(month?: string | null) {
     checkMonth('month', month)
-    return report(
-      this.students.map((s) => this.book(s)),
-      month ?? this.now(),
-      this.now(),
-      today(),
-    )
+    const shown = month ?? this.now()
+    const waiting = this.unassigned.filter((u) => u.for_month === shown)
+    return {
+      ...report(
+        this.students.map((s) => this.book(s)),
+        shown,
+        this.now(),
+        today(),
+      ),
+      unassigned_count: waiting.length,
+      unassigned_paise: waiting.reduce((sum, u) => sum + u.amount_paise, 0),
+    }
   }
 }

@@ -122,6 +122,35 @@ describe('unassigned payments', () => {
   })
 })
 
+describe('the monthly report', () => {
+  withMockApi((): Fixture => ({
+    ...demoFixture(TEST_NOW),
+    unassigned: [
+      stray(9001),
+      stray(9002, { amount_paise: 300000 }),
+      stray(9003, { for_month: '2026-09' }),
+    ],
+  }))
+
+  it('says how much of the month is waiting for a student, with a way to it', async () => {
+    const user = userEvent.setup()
+    const { router } = renderApp('/report?month=2026-10')
+    const line = await screen.findByTestId('report-unassigned')
+    expect(line).toHaveTextContent(
+      'Also ₹4,500 of payments not yet matched to a student (2 payments for October 2026 from an upload): not counted above.',
+    )
+    await user.click(within(line).getByRole('link', { name: 'Give them to a student' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/payments'))
+    expect(router.state.location.hash).toBe('#unassigned-payments')
+  })
+
+  it('says nothing for a month with none waiting', async () => {
+    renderApp('/report?month=2026-08')
+    await screen.findByRole('table')
+    expect(screen.queryByTestId('report-unassigned')).not.toBeInTheDocument()
+  })
+})
+
 describe('with none waiting', () => {
   withMockApi()
 

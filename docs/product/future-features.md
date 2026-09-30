@@ -154,6 +154,10 @@ The owner hires instructors to take some batches and pays them.
 - A **signed `.exe` installer** (MSIX or Inno Setup) with auto-update, replacing the PowerShell
   one-liner.
 - A dark mode, and a printable monthly summary.
+- **One Excel writer.** The downloads (`services/exports.py`) and the monthly report's Excel
+  file (`services/report_xlsx.py`) each set up their own headings, ₹ formats and column widths
+  with openpyxl. They could share one small helper (and the report's Indian-grouping ₹ format).
+  Not urgent: both are tested, and they look alike on purpose.
 
 ## 10. In-app feedback (open problem, revisit after v0.1)
 

@@ -1307,6 +1307,18 @@ export interface components {
              */
             rows: components["schemas"]["ReportRow"][];
             totals: components["schemas"]["ReportTotals"];
+            /**
+             * Unassigned Count
+             * @description Unassigned payments (from an upload, no student yet) for M. They belong to no student, so no row or total counts them: the report says so in a line.
+             * @default 0
+             */
+            unassigned_count: number;
+            /**
+             * Unassigned Paise
+             * @description What those unassigned payments add up to.
+             * @default 0
+             */
+            unassigned_paise: number;
         };
         /**
          * ReportRow

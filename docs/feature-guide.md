@@ -410,6 +410,14 @@ other payments' extra**. With nobody filtered out it matches the Dashboard: Fee 
 **Expected**, Short ₹8,450 is **Still due**, *6 of 24* is **Not fully paid**, and Collected is
 **Collected**. For a month that hasn't started, it says **Paid ahead** instead.
 
+**Payments waiting for a student.** If an uploaded file had payments for this month that no
+student could be matched to ([Unassigned payments](#unassigned-payments)), a line under
+Collected says so: *"Also ₹4,500 of payments not yet matched to a student (2 payments for
+September 2026 from an upload): not counted above."*, with **Give them to a student**. It's
+printed too, and in the Excel file it's a note under the totals.
+
+![Under the report's Collected line: 'Also ₹3,000 of payments not yet matched to a student (2 payments for September 2026 from an upload): not counted above. Give them to a student'.](images/feature-guide/report-unassigned.png)
+
 **A wide table.** On a laptop screen the answers (Status to Total owed now) are always in view;
 the details are to the right. Scroll the table sideways (with the trackpad, Shift and the mouse
 wheel, or the scroll bar under it); the names stay on the left. Only the table scrolls, never
@@ -1661,6 +1669,8 @@ If they really paid twice, log the second one with **+ Log payment**, then delet
   (extra money in one pays the oldest month still owed).
 - **Download everything** includes them (the *Unassigned payments* sheet), so they come back
   after moving to a new laptop.
+- **The monthly report** says how much for its month is still waiting, in a line under
+  *Collected* (and in its printout and Excel file).
 - Uploading the same file again doesn't add them twice.
 - They only come from uploads. A payment typed in with **+ Log payment** always has a student.
 

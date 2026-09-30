@@ -932,6 +932,15 @@ class ReportResponse(_ReadModel):
         "ReportStatus order), then by name."
     )
     totals: ReportTotals
+    unassigned_count: int = Field(
+        default=0,
+        ge=0,
+        description="Unassigned payments (from an upload, no student yet) for M. They belong to "
+        "no student, so no row or total counts them: the report says so in a line.",
+    )
+    unassigned_paise: NonNegativePaise = Field(
+        default=0, description="What those unassigned payments add up to."
+    )
 
 
 # --------------------------------------------------------------------------- unassigned payments

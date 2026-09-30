@@ -391,6 +391,8 @@ await open(excel, '/payments')
 await shot('unassigned-payments', page.locator('#unassigned-payments'))
 await open(excel, '/')
 await shot('dashboard-unassigned-banner', [header(), page.getByText(/waiting to be assigned/)])
+await open(excel, `/report?month=${now}`)
+await shot('report-unassigned', page.getByTestId('report-unassigned'))
 excel.stop()
 
 // ---- On the copy: changes, then the server goes away ----------------------------------------
