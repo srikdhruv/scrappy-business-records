@@ -11,14 +11,14 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-downloads/
-eggs/
+/downloads/
+/eggs/
 .eggs/
-lib/
-lib64/
-parts/
+/lib/
+/lib64/
+/parts/
 sdist/
-var/
+/var/
 wheels/
 share/python-wheels/
 *.egg-info/
@@ -62,7 +62,7 @@ db.sqlite3
 db.sqlite3-journal
 
 # Flask stuff:
-instance/
+/instance/
 .webassets-cache
 
 # Scrapy stuff:
@@ -73,7 +73,7 @@ docs/_build/
 
 # PyBuilder
 .pybuilder/
-target/
+/target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -151,7 +151,7 @@ activemq-data/
 .env
 .envrc
 .venv
-env/
+/env/
 venv/
 ENV/
 env.bak/
@@ -216,3 +216,38 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------------------------
+# Scrappy Records
+#   Note: Python's `lib/`, `var/`, `env/`... patterns above are anchored to the repo root so
+#   they don't hide frontend source folders such as frontend/src/lib/.
+# ---------------------------------------------------------------------------------------------
+
+# Dev data (make dev / make seed) — never commit, may hold realistic-looking records
+.devdata/
+
+# Built UI (vite build output, served by the backend)
+backend/app/static/
+
+# Frontend
+frontend/node_modules/
+node_modules/
+frontend/.vite/
+*.tsbuildinfo
+
+# Bundles and packaging output
+dist/
+bundle/
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/playwright/.cache/
+
+# Screenshots taken for PRs (hosted on the `screenshots` branch, never on main)
+shots/
+
+# OS / editor
+.DS_Store
+.idea/
