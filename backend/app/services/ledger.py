@@ -902,18 +902,14 @@ def build_report(
     backlog_end = min(add_months(month, -1), current_month)
     rows: list[ReportRow] = []
     for s in students:
-        alloc = s.allocation(current_month)
         line = month_line(s, month, current_month)
         owing = tuple(
             ml
             for m in due_months(s, backlog_end)
             if (ml := month_line(s, m, current_month)).is_owing
         )
-        touched = (
-            line.paid_paise > 0
-            or line.covered_by_credit_paise > 0
-            or any(mv.payment.for_month == month for mv in alloc.moves)
-        )
+        # Money logged for M (whatever it paid) or extra money paying M.
+        touched = line.paid_paise > 0 or line.covered_by_credit_paise > 0
         enrolled = s.is_active(month)
         if not (enrolled or touched or owing):
             continue

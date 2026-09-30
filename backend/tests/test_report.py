@@ -34,6 +34,15 @@ def rows_by_name(body: Json) -> dict[str, Json]:
     return {r["student_name"]: r for r in body["rows"]}
 
 
+def _relevant(student: Json, detail: Json, month: str, owes_earlier: bool) -> bool:
+    enrolled = student["joined_month"] <= month and (
+        student["left_month"] is None or month <= student["left_month"]
+    )
+    line = next((m for m in detail["months"] if m["month"] == month), None)
+    money = line is not None and (line["paid_paise"] > 0 or line["covered_by_credit_paise"] > 0)
+    return enrolled or money or owes_earlier
+
+
 def assert_reconciles(api: TestClient, months: list[str] = MONTHS) -> None:
     """Every number on the report is the dashboard's or the profile's, for every month."""
     students = {s["id"]: s for s in api.get("/api/students", params={"status": "all"}).json()}
@@ -81,14 +90,21 @@ def assert_reconciles(api: TestClient, months: list[str] = MONTHS) -> None:
             assert row["owed_before_paise"] == b["total_owed_paise"], month
             assert row["owed_before_months"] == [m["month"] for m in b["months"]], month
 
-        # Extra money used: into M, and out of M's payments.
-        moves = board["credit_moves"]
+        # Extra money into M, and out of the money logged for M, seen from the other months'
+        # side on the profiles (built from the per-month ledger fields, never credit_moves).
+        lines = [line for d in details.values() for line in d["months"]]
         assert t["covered_by_credit_paise"] == sum(
-            m["amount_paise"] for m in moves if m["to_month"] == month
-        )
+            e["amount_paise"]
+            for line in lines
+            for e in line["extra_sent"]
+            if e["to_month"] == month
+        ), month
         assert t["extra_sent_paise"] == sum(
-            m["amount_paise"] for m in moves if m["from_month"] == month
-        )
+            c["amount_paise"]
+            for line in lines
+            for c in line["credit_sources"]
+            if c["for_month"] == month
+        ), month
 
         # Every row is the profile's month and the students list's standing.
         for r in rows:
@@ -122,13 +138,11 @@ def assert_reconciles(api: TestClient, months: list[str] = MONTHS) -> None:
                 == r["fee_paise"]
             )
 
-        # Everyone the dashboard mentions for M is on the report.
-        mentioned = (
-            {y["student_id"] for y in board["yet_to_pay"]}
-            | set(backlog)
-            | {m["student_id"] for m in moves}
-        )
-        assert mentioned <= {r["student_id"] for r in rows}, month
+        # Exactly the students relevant to M: enrolled in M, money logged for or paying M, or
+        # still owing an earlier month.
+        assert {r["student_id"] for r in rows} == {
+            i for i in students if _relevant(students[i], details[i], month, i in backlog)
+        }, month
 
 
 # --------------------------------------------------------------------------- the real case
