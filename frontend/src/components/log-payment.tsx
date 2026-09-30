@@ -19,6 +19,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type FormEvent,
@@ -66,6 +67,11 @@ export interface LogPaymentPrefill {
   studentId?: number
   forMonth?: string
   amountPaise?: number
+  /**
+   * The id of an element to focus after a save, e.g. the dashboard's "Yet to pay" heading:
+   * the button that opened the form may be gone by then (the row disappears once paid).
+   */
+  focusAfterSave?: string
 }
 
 interface LogPaymentContextValue {
@@ -74,7 +80,7 @@ interface LogPaymentContextValue {
 }
 
 type DialogState =
-  | { open: false; key: number }
+  | { open: false; key: number; focusId?: string }
   | { open: true; key: number; mode: 'create'; prefill: LogPaymentPrefill }
   | { open: true; key: number; mode: 'edit'; payment: PaymentRead }
 
@@ -100,7 +106,19 @@ export function LogPaymentProvider({ children }: { children: ReactNode }) {
   const openEditPayment = useCallback((payment: PaymentRead) => {
     setState((s) => ({ open: true, key: s.key + 1, mode: 'edit', payment }))
   }, [])
-  const close = useCallback(() => setState((s) => ({ open: false, key: s.key })), [])
+  const close = useCallback(
+    (focusId?: string) => setState((s) => ({ open: false, key: s.key, focusId })),
+    [],
+  )
+
+  // After a save, the button that opened the form may be gone (a paid row leaves "Yet to pay"),
+  // so focus moves to the place the caller named instead of getting lost.
+  const focusId = state.open ? undefined : state.focusId
+  useEffect(() => {
+    if (!focusId) return
+    const timer = setTimeout(() => document.getElementById(focusId)?.focus())
+    return () => clearTimeout(timer)
+  }, [focusId, state.key])
 
   const value = useMemo(
     () => ({ openLogPayment, openEditPayment }),
@@ -117,7 +135,9 @@ export function LogPaymentProvider({ children }: { children: ReactNode }) {
               mode={state.mode}
               prefill={state.mode === 'create' ? state.prefill : undefined}
               payment={state.mode === 'edit' ? state.payment : undefined}
-              onDone={close}
+              onDone={(didSave) =>
+                close(didSave && state.mode === 'create' ? state.prefill.focusAfterSave : undefined)
+              }
               onUndo={undo}
             />
           </DialogContent>
@@ -209,7 +229,7 @@ function PaymentForm({
   mode: 'create' | 'edit'
   prefill?: LogPaymentPrefill
   payment?: PaymentRead
-  onDone: () => void
+  onDone: (saved?: boolean) => void
   /** Deletes a just-saved payment. Lives in the provider, which outlives this form. */
   onUndo: (paymentId: number) => void
 }) {
@@ -299,7 +319,7 @@ function PaymentForm({
           action: { label: 'Undo', onClick: () => onUndo(created.id) },
         })
       }
-      onDone()
+      onDone(true)
     } catch (error) {
       const byField: Partial<Record<Field, string>> = {}
       for (const [key, msg] of Object.entries(fieldErrors(error))) {
@@ -443,6 +463,11 @@ function PaymentForm({
             }}
             min={monthMin}
             max={monthMax}
+            hint={
+              info
+                ? `Months before ${formatMonth(info.joined_month)}${info.left_month ? ` or after ${formatMonth(info.left_month)}` : ''} are greyed out. Change their Joined month with Edit on their profile.`
+                : undefined
+            }
             invalid={Boolean(errors.forMonth)}
             aria-describedby={errorId('forMonth') ?? (hint ? 'payment-month-hint' : undefined)}
             className="h-12"
@@ -479,6 +504,8 @@ function PaymentForm({
           {factsRow && (
             <MonthFacts
               row={factsRow}
+              joined={info?.joined_month}
+              left={info?.left_month ?? undefined}
               excludingThis={mode === 'edit' && factsRow !== monthRow}
               editing={mode === 'edit'}
             />
@@ -556,7 +583,7 @@ function PaymentForm({
           to save
         </p>
         <div className="flex flex-col-reverse gap-2 sm:flex-row">
-          <Button type="button" variant="outline" size="lg" onClick={onDone}>
+          <Button type="button" variant="outline" size="lg" onClick={() => onDone()}>
             Cancel
           </Button>
           <Button type="submit" size="lg" disabled={saving} className="min-w-36 font-bold">
@@ -593,10 +620,14 @@ function withoutPayment(row: FactsRow, amount: number): FactsRow {
 /** What's already recorded for the chosen month, e.g. "September: ₹500 of ₹1,500 paid". */
 function MonthFacts({
   row,
+  joined,
+  left,
   editing,
   excludingThis,
 }: {
   row: FactsRow
+  joined?: string
+  left?: string
   editing: boolean
   excludingThis: boolean
 }) {
@@ -604,10 +635,13 @@ function MonthFacts({
   const others = excludingThis ? ' by other payments' : ''
   let text: ReactNode
   if (row.expected_paise === 0) {
-    text =
-      row.paid_paise > 0
-        ? `${formatRupees(row.paid_paise)} paid${others}, no fee due.`
-        : 'no fee due.'
+    const why =
+      joined && row.month < joined
+        ? 'before they joined, so no fee is due'
+        : left && row.month > left
+          ? 'after they left, so no fee is due'
+          : 'no fee due'
+    text = row.paid_paise > 0 ? `${formatRupees(row.paid_paise)} paid${others}, ${why}.` : `${why}.`
   } else if (row.paid_paise === 0) {
     text = excludingThis
       ? `${formatRupees(row.expected_paise)} fee, nothing else paid.`

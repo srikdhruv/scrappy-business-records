@@ -6,7 +6,7 @@ import { InfoIcon } from 'lucide-react'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
-import { useCreateStudent, useUpdateStudent } from '@/api/queries'
+import { useCreateStudent, useServerMonth, useUpdateStudent } from '@/api/queries'
 import type { StudentDetail, StudentUpdate } from '@/api/types'
 import { MonthPicker } from '@/components/month-picker'
 import { Button } from '@/components/ui/button'
@@ -85,14 +85,22 @@ function StudentForm({
   onDone: (saved?: StudentDetail) => void
 }) {
   const editing = student !== undefined
-  // The server's month when editing (every number is worked out for it); the laptop's for new.
-  const now = student?.current_month ?? currentMonth()
+  // The server's current month: from the student when editing, else asked for. The laptop's
+  // clock is only a stand-in for the moment before the server answers.
+  const serverMonth = useServerMonth()
+  const now = student?.current_month ?? serverMonth ?? currentMonth()
   const [name, setName] = useState(student?.name ?? '')
   const [fee, setFee] = useState(student ? paiseToRupeesInput(student.monthly_fee_paise) : '')
   const [feeFrom, setFeeFrom] = useState<string | null>(
     student && student.joined_month > now ? student.joined_month : now,
   )
   const [joined, setJoined] = useState<string | null>(student?.joined_month ?? now)
+  // If the server's month arrives after the form opened, use it, unless a month was picked.
+  const [defaultJoined, setDefaultJoined] = useState(now)
+  if (!editing && defaultJoined !== now && joined === defaultJoined) {
+    setDefaultJoined(now)
+    setJoined(now)
+  }
   const [left, setLeft] = useState<string | null>(student?.left_month ?? null)
   const [phone, setPhone] = useState(student?.phone ?? '')
   const [guardian, setGuardian] = useState(student?.guardian_name ?? '')

@@ -24,8 +24,8 @@ import { MarkLeftDialog } from '@/components/mark-left-dialog'
 import { Panel } from '@/components/panel'
 import { PaymentsTable } from '@/components/payments-table'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
-import { MonthStatusBadge, StatusPill } from '@/components/status'
-import { TONE_TEXT, balanceTone } from '@/lib/status'
+import { ExtraPaidNote, MonthStatusBadge, PaidAheadNote, StatusPill } from '@/components/status'
+import { TONE_TEXT, balanceTone, standingLabel } from '@/lib/status'
 import { StudentAvatar } from '@/components/student-avatar'
 import { StudentFormDialog } from '@/components/student-form'
 import { Button } from '@/components/ui/button'
@@ -345,7 +345,13 @@ function BalanceCard({
     (m) => m.is_due && (m.status === 'unpaid' || m.status === 'partial'),
   )
   const oldest = owed[0]
-  const amount = Math.abs(student.balance_paise)
+  // "(Jul, Aug)": which months, when there are only a few.
+  const owedMonths =
+    owed.length > 0 && owed.length <= 3
+      ? `(${owed.map((m) => formatMonth(m.month).slice(0, 3)).join(', ')})`
+      : owed.length > 3
+        ? `(${owed.length} months)`
+        : ''
   return (
     <section
       aria-label="Balance"
@@ -358,32 +364,40 @@ function BalanceCard({
     >
       <div>
         <p className="text-base font-bold text-muted-foreground">Balance</p>
+        {/* Rule 6: anything owed for a due month is the headline, whatever else was paid. */}
         <p
           className={cn(
             'mt-1 text-4xl font-extrabold tracking-tight wrap-anywhere tabular-nums',
             TONE_TEXT[tone],
           )}
         >
-          {student.status === 'up_to_date'
-            ? 'Up to date'
-            : student.status === 'owes'
-              ? `Owes ${formatRupees(amount)}`
-              : credit > 0
-                ? `Credit ${formatRupees(amount)}`
-                : `Paid ahead ${formatRupees(amount)}`}
+          {standingLabel(student)}
+          {owedMonths && (
+            <span className="ml-2 text-xl font-bold whitespace-nowrap">{owedMonths}</span>
+          )}
         </p>
+        {(student.paid_ahead_paise > 0 || (credit > 0 && student.status === 'owes')) && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {student.paid_ahead_paise > 0 && (
+              <PaidAheadNote paise={student.paid_ahead_paise} to={aheadTo} className="text-sm" />
+            )}
+            {credit > 0 && student.status === 'owes' && (
+              <ExtraPaidNote
+                paise={credit}
+                month={overpaid.length === 1 ? overpaid[0]!.month : undefined}
+                className="text-sm"
+              />
+            )}
+          </div>
+        )}
         <p className="mt-2 text-base text-foreground/80">
           {student.status === 'owes'
             ? `Not fully paid for ${plural(owed.length, 'month')}.`
-            : student.status === 'credit' && credit === 0
-              ? aheadTo
-                ? `Paid ahead to ${formatMonth(aheadTo)}.`
-                : `Paid ${formatRupees(amount)} towards months that aren’t due yet.`
-              : student.status === 'credit'
-                ? `Paid ${formatRupees(amount)} more than was due so far.`
-                : aheadTo
-                  ? `Everything due is paid, and ahead to ${formatMonth(aheadTo)}.`
-                  : 'Everything due so far has been paid.'}
+            : student.status === 'credit'
+              ? `Paid ${formatRupees(credit)} more than was due.`
+              : aheadTo
+                ? `Everything due is paid, and ahead to ${formatMonth(aheadTo)}.`
+                : 'Everything due so far has been paid.'}
         </p>
       </div>
       {oldest && (

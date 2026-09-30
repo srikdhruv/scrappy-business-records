@@ -166,4 +166,57 @@ describe('Log payment form', () => {
     expect(await screen.findByText('Payment removed')).toBeInTheDocument()
     expect(mockDb.payments).toHaveLength(before - 1)
   })
+
+  it('moves focus to the "Yet to pay" heading after saving from a row', async () => {
+    const user = userEvent.setup()
+    renderApp('/')
+    const list = within(
+      (await screen.findByRole('heading', { name: /Yet to pay/ })).closest('section')!,
+    )
+    await user.click(list.getByRole('button', { name: 'Log payment for Kabir Mehta' }))
+    await findDialog('Log a payment')
+    await user.keyboard('{Enter}')
+    await screen.findByText('Payment saved')
+    await waitFor(() => expect(screen.getByRole('heading', { name: /Yet to pay/ })).toHaveFocus())
+  })
+
+  describe('the month picker', () => {
+    async function openForZara() {
+      const { user, dialog } = await openFromHeader()
+      dialog.getByRole('combobox', { name: /Student/ }).focus()
+      await user.keyboard('zara')
+      await user.click(await screen.findByRole('option', { name: /Zara Khan/ }))
+      await dialog.findByText(/Next due|Due now|Oldest unpaid|All paid up/)
+      return { user, dialog }
+    }
+
+    it('opens on the chosen month, so the arrow keys work straight away', async () => {
+      const { user, dialog } = await openForZara()
+      await user.click(dialog.getByLabelText(/^For month:/))
+      // Zara has paid September and October, so November is suggested and chosen.
+      expect(dialog.getByLabelText(/^For month:/)).toHaveTextContent('November 2026')
+      await waitFor(() =>
+        expect(document.activeElement).toHaveAttribute('aria-label', 'November 2026'),
+      )
+      await user.keyboard('{ArrowLeft}')
+      expect(document.activeElement).toHaveAttribute('aria-label', 'October 2026')
+    })
+
+    it('skips greyed-out months and says why they are greyed out', async () => {
+      // Zara joined in September 2026: nothing before it can be picked.
+      const { user, dialog } = await openForZara()
+      await user.click(dialog.getByLabelText(/^For month:/))
+      expect(
+        await screen.findByText(/Months before September 2026 are greyed out/),
+      ).toBeInTheDocument()
+      const september = screen.getByRole('button', { name: 'September 2026' })
+      september.focus()
+      await user.keyboard('{ArrowLeft}') // August and earlier are disabled
+      expect(september).toHaveFocus()
+      await user.keyboard('{ArrowUp}')
+      expect(september).toHaveFocus()
+      await user.keyboard('{ArrowRight}')
+      expect(screen.getByRole('button', { name: 'October 2026' })).toHaveFocus()
+    })
+  })
 })

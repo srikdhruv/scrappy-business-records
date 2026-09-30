@@ -16,8 +16,8 @@ name. **Back to** (under the month) brings you back to this month.
   much in total. Click a name to open their profile.
 - **Paid too much:** months where someone paid more than their fee.
 
-A month that hasn't started yet shows who has already **paid ahead** for it. Nothing counts as
-owed until the month comes.
+A month that hasn't started yet shows who has **not paid ahead** for it yet, marked **Not due
+yet**. Nothing counts as owed until the month comes.
 
 When everyone has paid, you'll see **Everyone's paid for** the month 🎉.
 
@@ -74,9 +74,11 @@ Earlier months keep the old fee.
 
 - **Wrong payment:** go to **Payments**, find it (search, filter, or click a column heading to
   sort), then click **Edit** or **Delete**. You can also do this from the student's profile.
-- **Paid too much:** the student's profile shows which month was paid extra (for example "Paid
-  ₹1,500 extra in Feb 2026"). Click **Edit payment** next to it, and change the amount or the
-  month if it was meant for another month. Paying early for months that haven't started yet is
+- **Paid too much:** the **Balance** box on the student's profile lists each month that was paid
+  extra (for example "July 2026 · ₹2,500 paid for a ₹2,000 fee"). Click **Edit payment** next to
+  it, and change the amount or the month if it was meant for another month. If they also still
+  owe for a month, the box says **Owes** first, with a note such as "Paid ₹500 extra in Jul
+  2026", so you can match the two up. Paying early for months that haven't started yet is
   different: that shows as **Paid ahead**, and there is nothing to fix.
 - **Student added by mistake:** open their profile and click **Delete**. This also deletes their
   payments, and the app will ask you to confirm first.

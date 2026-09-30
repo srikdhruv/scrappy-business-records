@@ -7,7 +7,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { currentMonth, formatMonth } from '@/lib/format'
+import { addMonths, currentMonth, formatMonth } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -23,6 +23,7 @@ export function MonthPicker({
   clearLabel,
   min,
   max,
+  hint,
   invalid,
   className,
   'aria-describedby': describedBy,
@@ -39,6 +40,8 @@ export function MonthPicker({
   clearLabel?: string
   min?: string
   max?: string
+  /** A line under the grid, e.g. why some months are greyed out. */
+  hint?: string
   invalid?: boolean
   className?: string
   'aria-describedby'?: string
@@ -51,19 +54,44 @@ export function MonthPicker({
   const initialYear = Number((value ?? now).slice(0, 4))
   const [year, setYear] = useState(initialYear)
   const gridRef = useRef<HTMLDivElement>(null)
-  // After arrowing past December/January into the next/previous year, focus lands here.
-  const pendingFocus = useRef<number | null>(null)
+  // The month to focus once it's on screen (after opening, or after arrowing into another year).
+  const pendingFocus = useRef<string | null>(null)
 
   useEffect(() => {
-    if (pendingFocus.current === null) return
-    gridRef.current?.querySelectorAll('button')[pendingFocus.current]?.focus()
-    pendingFocus.current = null
-  }, [year])
+    const month = pendingFocus.current
+    if (!month || !open) return
+    const button = gridRef.current?.querySelector<HTMLButtonElement>(`[data-month="${month}"]`)
+    if (button) {
+      button.focus()
+      pendingFocus.current = null
+    }
+  })
 
-  const disabled = (month: string) => (min && month < min) || (max && month > max)
+  const disabled = (month: string) => Boolean((min && month < min) || (max && month > max))
+
+  /** Focus `month`, showing its year first if needed. */
+  const focusMonth = (month: string) => {
+    pendingFocus.current = month
+    const monthYear = Number(month.slice(0, 4))
+    if (monthYear !== year) setYear(monthYear)
+    else gridRef.current?.querySelector<HTMLButtonElement>(`[data-month="${month}"]`)?.focus()
+  }
+
+  // On opening, focus the chosen month, else this month, else the nearest month allowed, so
+  // the arrow keys work straight away.
+  const startMonth = (): string => {
+    for (const candidate of [value, now]) if (candidate && !disabled(candidate)) return candidate
+    if (min && now < min) return min
+    if (max && now > max) return max
+    return now
+  }
 
   const onOpenChange = (next: boolean) => {
-    if (next) setYear(Number((value ?? now).slice(0, 4)))
+    if (next) {
+      const start = startMonth()
+      pendingFocus.current = start
+      setYear(Number(start.slice(0, 4)))
+    }
     setOpen(next)
   }
 
@@ -72,6 +100,8 @@ export function MonthPicker({
     setOpen(false)
   }
 
+  // Arrows move by one month (left/right) or three (up/down), skipping greyed-out months and
+  // moving into the next or previous year as needed.
   const onGridKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const moves: Record<string, number> = {
       ArrowLeft: -1,
@@ -80,21 +110,12 @@ export function MonthPicker({
       ArrowDown: 3,
     }
     const step = moves[event.key]
-    if (step === undefined) return
-    const buttons = [...(gridRef.current?.querySelectorAll('button') ?? [])]
-    const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
-    if (index < 0) return
+    const from = (document.activeElement as HTMLElement | null)?.dataset.month
+    if (step === undefined || !from) return
     event.preventDefault()
-    const next = index + step
-    if (next < 0) {
-      pendingFocus.current = next + 12
-      setYear((y) => y - 1)
-    } else if (next > 11) {
-      pendingFocus.current = next - 12
-      setYear((y) => y + 1)
-    } else {
-      buttons[next]?.focus()
-    }
+    let next = addMonths(from, step)
+    for (let i = 0; i < 48 && disabled(next); i++) next = addMonths(next, step)
+    if (!disabled(next)) focusMonth(next)
   }
 
   return (
@@ -121,7 +142,21 @@ export function MonthPicker({
           <CalendarIcon className="size-5 text-muted-foreground" aria-hidden />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-80 p-3" align="start">
+      <PopoverContent
+        className="w-80 p-3"
+        align="start"
+        onOpenAutoFocus={(event) => {
+          // Not the "Previous year" button: the month itself (see onOpenChange).
+          event.preventDefault()
+          const month = pendingFocus.current
+          const button =
+            month && gridRef.current?.querySelector<HTMLButtonElement>(`[data-month="${month}"]`)
+          if (button) {
+            button.focus()
+            pendingFocus.current = null
+          }
+        }}
+      >
         <div className="mb-2 flex items-center justify-between">
           <Button
             type="button"
@@ -160,10 +195,10 @@ export function MonthPicker({
               <button
                 key={i}
                 type="button"
-                disabled={Boolean(disabled(month))}
+                data-month={month}
+                disabled={disabled(month)}
                 aria-pressed={selected}
                 aria-label={formatMonth(month)}
-                autoFocus={selected || (!value && isNow)}
                 onClick={() => pick(month)}
                 className={cn(
                   'h-11 rounded-lg text-base font-semibold transition-colors outline-none',
@@ -178,6 +213,7 @@ export function MonthPicker({
             )
           })}
         </div>
+        {hint && <p className="mt-2 px-1 text-sm text-muted-foreground">{hint}</p>}
         {clearLabel && (
           <Button type="button" variant="ghost" className="mt-1 w-full" onClick={() => pick(null)}>
             <XIcon aria-hidden />

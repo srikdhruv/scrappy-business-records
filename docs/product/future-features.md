@@ -37,7 +37,8 @@ taught by a hired instructor), and each batch has several students.
 ## 2b. Smarter handling of extra money
 
 In the MVP, payments are recorded exactly as typed. Credit (money in overpaid months) is shown
-next to the student ("has ₹X credit"), and the owner fixes it by editing the payment's month.
+next to the student ("Paid ₹X extra in July 2026"), and the owner fixes it by editing the
+payment's month.
 Options considered for later:
 
 - **Offer to split:** when the amount is more than that month's fee, the form offers "Split

@@ -1,4 +1,5 @@
 import {
+  CloudOffIcon,
   LayoutDashboardIcon,
   ReceiptIndianRupeeIcon,
   ShieldCheckIcon,
@@ -8,7 +9,8 @@ import {
 import { NavLink, Outlet, useLocation } from 'react-router'
 import { useEffect } from 'react'
 
-import { useHealth } from '@/api/queries'
+import { useHealth, useServerReachable } from '@/api/queries'
+import { UNREACHABLE_MESSAGE } from '@/lib/errors'
 import { cn } from '@/lib/utils'
 
 interface NavItem {
@@ -55,8 +57,25 @@ function AppVersion() {
   )
 }
 
+/** Shown on every page while the server isn't answering, so old numbers aren't trusted. */
+function UnreachableBanner() {
+  return (
+    <div
+      role="alert"
+      className="mb-6 flex items-start gap-3 rounded-xl border border-owed/25 bg-owed-soft px-4 py-3 text-base text-owed"
+    >
+      <CloudOffIcon className="mt-0.5 size-5 shrink-0" aria-hidden />
+      <p>
+        <strong>{UNREACHABLE_MESSAGE}</strong>{' '}
+        <span className="text-foreground/80">The numbers on this page may be out of date.</span>
+      </p>
+    </div>
+  )
+}
+
 export function AppShell() {
   const { pathname } = useLocation()
+  const reachable = useServerReachable()
   // Each page starts at the top, like a normal website.
   useEffect(() => {
     window.scrollTo(0, 0)
@@ -121,6 +140,7 @@ export function AppShell() {
 
       <main className="min-w-0 flex-1 px-5 py-6 sm:px-8 lg:px-10 lg:py-8">
         <div className="mx-auto w-full max-w-6xl">
+          {!reachable && <UnreachableBanner />}
           <Outlet />
         </div>
       </main>

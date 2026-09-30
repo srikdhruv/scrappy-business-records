@@ -17,7 +17,7 @@ import type {
   SuggestedPayment,
   YetToPayItem,
 } from '@/api/types'
-import { addMonths, MONTHS_AHEAD } from '@/lib/format'
+import { addMonths, monthsBetween, MONTHS_AHEAD } from '@/lib/format'
 
 export interface StudentRow {
   id: number
@@ -138,9 +138,31 @@ export function balance(book: StudentBook, now: string): number {
   return totalPaid - expected
 }
 
-export function balanceStatus(balancePaise: number): BalanceStatus {
-  if (balancePaise < 0) return 'owes'
-  if (balancePaise > 0) return 'credit'
+/** What's left on every due month that is Unpaid or Partial (backend `owed`). */
+export function owedPaise(book: StudentBook, now: string): number {
+  const paid = paidByMonth(book.payments)
+  const { joined_month, left_month } = book.student
+  const end = left_month !== null && left_month < now ? left_month : now
+  let owed = 0
+  if (joined_month <= end) {
+    for (const m of monthRange(joined_month, end)) {
+      owed += Math.max(0, expectedFor(book, m) - (paid.get(m) ?? 0))
+    }
+  }
+  return owed
+}
+
+/** Money paid for months after the current one (backend `paid_ahead`). */
+export function paidAheadPaise(book: StudentBook, now: string): number {
+  let ahead = 0
+  for (const [m, p] of paidByMonth(book.payments)) if (m > now) ahead += p
+  return ahead
+}
+
+/** Rule 6 (backend `standing_status`): owing wins; then credit; then up to date. */
+export function standingStatus(owed: number, credit: number): BalanceStatus {
+  if (owed > 0) return 'owes'
+  if (credit > 0) return 'credit'
   return 'up_to_date'
 }
 
@@ -196,9 +218,10 @@ export function suggestPayment(book: StudentBook, now: string): SuggestedPayment
 }
 
 /** Months they have been a student: joined_month to the current (or left) month, both counted. */
+/** Whole months since joining (to now, or to leaving): joined August, now September -> 1. */
 export function tenureMonths(student: StudentRow, now: string): number {
   const last = student.left_month !== null && student.left_month < now ? student.left_month : now
-  return student.joined_month <= last ? monthRange(student.joined_month, last).length : 0
+  return Math.max(0, monthsBetween(student.joined_month, last))
 }
 
 /** Money paid in overpaid due months (paid > expected, up to the current month). */

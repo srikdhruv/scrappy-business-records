@@ -202,10 +202,12 @@ export function PaymentsTable({
 
   const total = payments.reduce((sum, p) => sum + p.amount_paise, 0)
   const rightAligned = new Set(['amount'])
+  // Below a medium window the note gives way, so Edit and Delete stay on screen.
+  const wideOnly = new Set(['note'])
 
   return (
     <>
-      <Table className="min-w-[44rem]">
+      <Table className="md:min-w-[44rem]">
         <TableHeader>
           {table.getHeaderGroups().map((group) => (
             <TableRow key={group.id} className="hover:bg-transparent">
@@ -218,7 +220,11 @@ export function PaymentsTable({
                     aria-sort={
                       sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : undefined
                     }
-                    className={cn('first:pl-6 last:pr-6', rightAligned.has(col.id) && 'text-right')}
+                    className={cn(
+                      'first:pl-6 last:pr-6',
+                      rightAligned.has(col.id) && 'text-right',
+                      wideOnly.has(col.id) && 'hidden md:table-cell',
+                    )}
                   >
                     {col.getCanSort() ? (
                       <SortableHeader
@@ -245,6 +251,7 @@ export function PaymentsTable({
                   className={cn(
                     'first:pl-6 last:pr-6',
                     rightAligned.has(cell.column.id) && 'text-right',
+                    wideOnly.has(cell.column.id) && 'hidden md:table-cell',
                   )}
                 >
                   <table.FlexRender cell={cell} />

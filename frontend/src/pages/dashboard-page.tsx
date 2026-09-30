@@ -37,6 +37,9 @@ import { cn } from '@/lib/utils'
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/
 
+/** Focus returns here after a payment is saved from a row (the row itself may be gone). */
+const YET_TO_PAY_HEADING = 'yet-to-pay-heading'
+
 const monthName = (month: string) => formatMonth(month).split(' ')[0] ?? month
 
 export function DashboardPage() {
@@ -208,6 +211,7 @@ function SummaryCards({ data }: { data: DashboardResponse }) {
       ? Math.min(100, Math.round((s.collected_paise / s.expected_paise) * 100))
       : 0
   const allPaid = s.not_fully_paid_count === 0
+  const nobody = s.active_student_count === 0
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" role="group" aria-label="Summary">
       <SummaryCard
@@ -253,37 +257,55 @@ function SummaryCards({ data }: { data: DashboardResponse }) {
           label="Still due"
           value={formatRupees(s.still_due_paise)}
           icon={HandCoinsIcon}
-          iconClass={s.still_due_paise > 0 ? 'bg-owed-soft text-owed' : 'bg-paid-soft text-paid'}
-          valueClass={s.still_due_paise > 0 ? 'text-owed' : 'text-paid'}
+          iconClass={
+            nobody
+              ? 'bg-muted text-muted-foreground'
+              : s.still_due_paise > 0
+                ? 'bg-owed-soft text-owed'
+                : 'bg-paid-soft text-paid'
+          }
+          valueClass={
+            nobody ? 'text-muted-foreground' : s.still_due_paise > 0 ? 'text-owed' : 'text-paid'
+          }
         >
-          {s.still_due_paise > 0 ? `Left to collect for ${name}` : 'Nothing left to collect'}
+          {nobody
+            ? 'Nothing due'
+            : s.still_due_paise > 0
+              ? `Left to collect for ${name}`
+              : 'Nothing left to collect'}
         </SummaryCard>
       )}
       <SummaryCard
         label={ahead ? 'Not paid ahead' : 'Not fully paid'}
         value={
-          <>
-            {s.not_fully_paid_count}
-            <span className="ml-1.5 text-lg font-bold text-muted-foreground">
-              of {s.active_student_count}
-            </span>
-          </>
+          nobody ? (
+            '—'
+          ) : (
+            <>
+              {s.not_fully_paid_count}
+              <span className="ml-1.5 text-lg font-bold text-muted-foreground">
+                of {s.active_student_count}
+              </span>
+            </>
+          )
         }
         icon={UsersIcon}
         iconClass={
-          ahead
+          ahead || nobody
             ? 'bg-muted text-muted-foreground'
             : allPaid
               ? 'bg-paid-soft text-paid'
               : 'bg-partial-soft text-partial'
         }
-        valueClass={allPaid && !ahead ? 'text-paid' : undefined}
+        valueClass={nobody ? 'text-muted-foreground' : allPaid && !ahead ? 'text-paid' : undefined}
       >
-        {ahead
-          ? 'Nothing to follow up yet'
-          : allPaid
-            ? 'Everyone has paid'
-            : `${s.not_fully_paid_count === 1 ? 'Student' : 'Students'} to follow up with`}
+        {nobody
+          ? `No students in ${name}`
+          : ahead
+            ? 'Nothing to follow up yet'
+            : allPaid
+              ? 'Everyone has paid'
+              : `${s.not_fully_paid_count === 1 ? 'Student' : 'Students'} to follow up with`}
       </SummaryCard>
     </div>
   )
@@ -306,6 +328,7 @@ function YetToPay({ data }: { data: DashboardResponse }) {
   return (
     <Panel
       className="min-w-0"
+      headingId={YET_TO_PAY_HEADING}
       title={ahead ? 'Not paid ahead yet' : 'Yet to pay'}
       count={items.length}
       description={
@@ -346,6 +369,7 @@ function YetToPay({ data }: { data: DashboardResponse }) {
                   studentId: item.student_id,
                   forMonth: data.month,
                   amountPaise: item.remaining_paise,
+                  focusAfterSave: YET_TO_PAY_HEADING,
                 })
               }
             />
@@ -369,9 +393,9 @@ function YetToPayRow({
 }) {
   const partial = item.status === 'partial'
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-3 px-6 py-4 transition-colors hover:bg-muted/30">
+    <li className="flex flex-wrap items-center gap-x-4 gap-y-3 px-6 py-4 transition-colors hover:bg-muted/30 sm:flex-nowrap">
       <StudentAvatar name={item.student_name} />
-      <div className="min-w-0 flex-1 basis-48">
+      <div className="min-w-0 flex-1 basis-48 sm:basis-auto">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
           <Link
             to={`/students/${item.student_id}`}
@@ -395,7 +419,7 @@ function YetToPayRow({
           <p className="truncate text-sm text-muted-foreground">{item.batch_label}</p>
         )}
       </div>
-      <div className="min-w-36 text-right">
+      <div className="min-w-36 shrink-0 text-right">
         <p className="text-lg leading-tight font-extrabold tabular-nums">
           {formatRupees(item.remaining_paise)}
           <span className="ml-1 text-sm font-semibold text-muted-foreground">

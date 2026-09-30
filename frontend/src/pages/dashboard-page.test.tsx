@@ -146,6 +146,18 @@ describe('dashboard', () => {
   describe('when the app can’t be reached', () => {
     withMockApi()
 
+    it('warns, over numbers already on screen, that they may be out of date', async () => {
+      const { queryClient } = renderApp('/')
+      await yetToPay()
+      expect(screen.queryByText(/may be out of date/)).not.toBeInTheDocument()
+      vi.stubGlobal('fetch', () => Promise.reject(new TypeError('Failed to fetch')))
+      await queryClient.refetchQueries({ queryKey: ['health', 'ping'] })
+      expect(await screen.findByText(/may be out of date/)).toBeInTheDocument()
+      // The last numbers are still there, under the warning.
+      expect(screen.getByRole('group', { name: 'Summary' })).toBeInTheDocument()
+      vi.unstubAllGlobals()
+    })
+
     it('says so in plain words', async () => {
       vi.stubGlobal('fetch', () => Promise.reject(new TypeError('Failed to fetch')))
       renderApp('/')

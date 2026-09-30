@@ -11,9 +11,9 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import type { BalanceStatus, MonthStatus } from '@/api/types'
+import type { MonthStatus } from '@/api/types'
 import { formatMonthShort, formatRupees } from '@/lib/format'
-import { balanceLabel, balanceTone, type Tone } from '@/lib/status'
+import { balanceTone, standingLabel, type Standing, type Tone } from '@/lib/status'
 import { cn } from '@/lib/utils'
 
 const TONE_CLASSES: Record<Tone, string> = {
@@ -92,23 +92,35 @@ export function MonthStatusBadge({
   )
 }
 
-export function BalanceChip({
-  status,
-  balancePaise,
-  creditPaise,
+export function BalanceChip({ student, className }: { student: Standing; className?: string }) {
+  const icon = student.status === 'up_to_date' ? CheckIcon : undefined
+  return (
+    <StatusPill tone={balanceTone(student.status)} icon={icon} className={className}>
+      {standingLabel(student)}
+    </StatusPill>
+  )
+}
+
+/** "Paid ahead ₹1,500" (or "Paid ahead to Nov 2026" when the month is known). */
+export function PaidAheadNote({
+  paise,
+  to,
   className,
 }: {
-  status: BalanceStatus
-  balancePaise: number
-  creditPaise: number
+  paise: number
+  to?: string
   className?: string
 }) {
-  const aheadOnly = status === 'credit' && creditPaise === 0
-  const icon = status === 'up_to_date' ? CheckIcon : aheadOnly ? FastForwardIcon : undefined
   return (
-    <StatusPill tone={balanceTone(status)} icon={icon} className={className}>
-      {balanceLabel(status, balancePaise, creditPaise)}
-    </StatusPill>
+    <span
+      className={cn(
+        'inline-flex max-w-full items-center gap-1 rounded-full bg-credit-soft px-2 py-0.5 text-xs font-bold text-credit',
+        className,
+      )}
+    >
+      <FastForwardIcon className="size-3" aria-hidden />
+      {to ? `Paid ahead to ${formatMonthShort(to)}` : `Paid ahead ${formatRupees(paise)}`}
+    </span>
   )
 }
 

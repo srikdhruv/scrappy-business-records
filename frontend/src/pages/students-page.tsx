@@ -11,7 +11,7 @@ import type { StudentRead } from '@/api/types'
 import { PageHeader } from '@/components/layout/page-header'
 import { Panel } from '@/components/panel'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
-import { BalanceChip, ExtraPaidNote } from '@/components/status'
+import { BalanceChip, ExtraPaidNote, PaidAheadNote } from '@/components/status'
 import { StudentAvatar } from '@/components/student-avatar'
 import { StudentFormDialog } from '@/components/student-form'
 import { Button } from '@/components/ui/button'
@@ -185,14 +185,11 @@ export function StudentsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col items-start gap-1">
-                      <BalanceChip
-                        status={s.status}
-                        balancePaise={s.balance_paise}
-                        creditPaise={s.credit_paise}
-                      />
-                      {s.status !== 'credit' && s.credit_paise > 0 && (
+                      <BalanceChip student={s} />
+                      {s.status === 'owes' && s.credit_paise > 0 && (
                         <ExtraPaidNote paise={s.credit_paise} />
                       )}
+                      {s.paid_ahead_paise > 0 && <PaidAheadNote paise={s.paid_ahead_paise} />}
                     </div>
                   </TableCell>
                   <TableCell className="pr-6">
@@ -203,6 +200,11 @@ export function StudentsPage() {
                     ) : (
                       <>
                         {tenureLabel(s)}
+                        {s.tenure_months > 0 && !s.left_month && (
+                          <span className="block text-sm text-muted-foreground">
+                            Since {formatMonthShort(s.joined_month)}
+                          </span>
+                        )}
                         {s.left_month && (
                           <span className="block text-sm text-muted-foreground">
                             Leaving after {formatMonthShort(s.left_month)}

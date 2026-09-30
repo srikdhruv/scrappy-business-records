@@ -51,8 +51,11 @@ describe('student profile', () => {
   it('calls paying early "paid ahead", not credit', async () => {
     renderApp(`/students/${idOf('Meera Iyer')}`)
     const balance = within(await screen.findByRole('region', { name: 'Balance' }))
-    expect(balance.getByText('Paid ahead ₹2,000')).toBeInTheDocument()
-    expect(balance.getByText('Paid ahead to November 2026.')).toBeInTheDocument()
+    expect(balance.getByText('Up to date')).toBeInTheDocument()
+    expect(balance.getByText('Paid ahead to Nov 2026')).toBeInTheDocument()
+    expect(
+      balance.getByText('Everything due is paid, and ahead to November 2026.'),
+    ).toBeInTheDocument()
   })
 
   it('shows the server’s reason inline when an edit is refused', async () => {
@@ -79,6 +82,51 @@ describe('student profile', () => {
     await user.click((await payments.findAllByRole('button', { name: /^Edit payment/ }))[0]!)
     const dialog = await findDialog('Edit payment')
     expect(dialog.getByText(/₹1,500 fee, nothing else paid/)).toBeInTheDocument()
+  })
+
+  it('says "owes" when a month was paid twice instead of the next one', async () => {
+    // Joined August at ₹1,500; paid August twice and never September or October.
+    const student = mockDb.createStudent({
+      name: 'Nila Test',
+      monthly_fee_paise: 150000,
+      joined_month: '2026-08',
+    })
+    for (let i = 0; i < 2; i++) {
+      mockDb.createPayment({
+        student_id: student.id,
+        amount_paise: 150000,
+        paid_on: '2026-08-05',
+        for_month: '2026-08',
+        method: 'upi',
+      })
+    }
+    renderApp(`/students/${student.id}`)
+    const balance = within(await screen.findByRole('region', { name: 'Balance' }))
+    // The net is -₹1,500, but September and October are still owed in full.
+    expect(balance.getByText(/^Owes ₹3,000/)).toBeInTheDocument()
+    expect(balance.getByText('(Sep, Oct)')).toBeInTheDocument()
+    expect(balance.getByText('Paid ₹1,500 extra in Aug 2026')).toBeInTheDocument()
+  })
+
+  it('says "owes" when the joined month moved past a payment', async () => {
+    const student = mockDb.createStudent({
+      name: 'Ojas Test',
+      monthly_fee_paise: 150000,
+      joined_month: '2026-09',
+    })
+    mockDb.createPayment({
+      student_id: student.id,
+      amount_paise: 150000,
+      paid_on: '2026-09-05',
+      for_month: '2026-09',
+      method: 'upi',
+    })
+    mockDb.updateStudent(student.id, { joined_month: '2026-10' })
+    renderApp(`/students/${student.id}`)
+    const balance = within(await screen.findByRole('region', { name: 'Balance' }))
+    expect(balance.getByText(/^Owes ₹1,500/)).toBeInTheDocument()
+    expect(balance.queryByText(/^Credit/)).not.toBeInTheDocument()
+    expect(balance.getByText('Paid ₹1,500 extra in Sep 2026')).toBeInTheDocument()
   })
 
   it('changes the fee from a chosen month, keeping earlier months', async () => {

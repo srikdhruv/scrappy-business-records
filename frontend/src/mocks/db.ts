@@ -18,12 +18,14 @@ import { addMonths, currentMonth, formatMonth, today } from '@/lib/format'
 
 import {
   balance,
-  balanceStatus,
   creditPaise,
   dashboard,
   feeFor,
   isStillActive,
   ledgerMonths,
+  owedPaise,
+  paidAheadPaise,
+  standingStatus,
   MONTHS_AHEAD,
   suggestPayment,
   tenureMonths,
@@ -147,14 +149,17 @@ export class MockDb {
   private toRead(student: StudentRow): StudentRead {
     const book = this.book(student)
     const now = this.now()
-    const bal = balance(book, now)
+    const owed = owedPaise(book, now)
+    const credit = creditPaise(book, now)
     return {
       ...student,
       is_active: isStillActive(student, now),
       monthly_fee_paise: feeFor(book.fees, now < student.joined_month ? student.joined_month : now),
-      balance_paise: bal,
-      status: balanceStatus(bal),
-      credit_paise: creditPaise(book, now),
+      balance_paise: balance(book, now),
+      status: standingStatus(owed, credit),
+      owed_paise: owed,
+      credit_paise: credit,
+      paid_ahead_paise: paidAheadPaise(book, now),
       tenure_months: tenureMonths(student, now),
       current_month: now,
     }

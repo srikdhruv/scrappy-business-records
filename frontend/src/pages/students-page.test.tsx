@@ -17,13 +17,15 @@ describe('students page', () => {
     const rows = await studentRows()
     const kabir = rows.getByRole('link', { name: 'Kabir Mehta' }).closest('tr')!
     expect(within(kabir).getByText('Owes ₹3,000')).toBeInTheDocument()
-    // Months from joining to now, both counted (the server's tenure_months).
-    expect(within(kabir).getByText('1 yr')).toBeInTheDocument()
+    // Whole months since joining (the server's tenure_months): November 2025 to October 2026.
+    expect(within(kabir).getByText('11 mo')).toBeInTheDocument()
+    expect(within(kabir).getByText('Since Nov 2025')).toBeInTheDocument()
     const ananya = rows.getByRole('link', { name: 'Ananya Rao' }).closest('tr')!
     expect(within(ananya).getByText('Up to date')).toBeInTheDocument()
-    expect(within(ananya).getByText('1 yr 3 mo')).toBeInTheDocument()
+    expect(within(ananya).getByText('1 yr 2 mo')).toBeInTheDocument()
     const meera = rows.getByRole('link', { name: 'Meera Iyer' }).closest('tr')!
-    // She paid November early: that's paying ahead, not credit.
+    // She paid November early: she's up to date, and paid ahead (not "credit").
+    expect(within(meera).getByText('Up to date')).toBeInTheDocument()
     expect(within(meera).getByText('Paid ahead ₹2,000')).toBeInTheDocument()
     // Students who left are on the Left tab.
     expect(rows.queryByRole('link', { name: 'Dev Malhotra' })).not.toBeInTheDocument()

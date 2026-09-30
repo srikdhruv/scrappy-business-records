@@ -67,6 +67,32 @@ export function useHealth() {
   })
 }
 
+/**
+ * Is the app's server answering? Checked every 15 seconds while the window is visible, so a
+ * page left open can say so instead of quietly showing numbers that may be out of date.
+ */
+export function useServerReachable() {
+  const ping = useQuery({
+    queryKey: ['health', 'ping'],
+    queryFn: async () => unwrap(await api.GET('/api/health')),
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+    retry: false,
+    staleTime: 0,
+  })
+  return !ping.isError
+}
+
+/** The server's current month ("YYYY-MM"), or undefined until it has answered. */
+export function useServerMonth(): string | undefined {
+  const { data } = useQuery({
+    queryKey: queryKeys.dashboard.month('current'),
+    queryFn: async (): Promise<DashboardResponse> => unwrap(await api.GET('/api/dashboard')),
+    select: (d) => d.current_month,
+  })
+  return data
+}
+
 // ---- Dashboard ----------------------------------------------------------------------------------
 
 /** The dashboard for `month`, or for the server's current month when it's undefined. */

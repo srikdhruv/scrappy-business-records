@@ -30,18 +30,18 @@ export function formatMonthCount(months: number): string {
 type Tenure = Pick<StudentRead, 'tenure_months' | 'joined_month' | 'current_month'>
 
 /**
- * How long someone has been a student, from the server's `tenure_months` (months from joining
- * to now, or to leaving, both counted): "New this month", "1 yr 4 mo", "Starts November 2026".
+ * How long someone has been a student, from the server's `tenure_months` (whole months since
+ * joining): "New this month", "1 mo", "1 yr 4 mo", or "Starts November 2026".
  */
 export function tenureLabel(s: Tenure): string {
-  if (s.tenure_months === 0) return `Starts ${formatMonth(s.joined_month)}`
-  if (s.joined_month === s.current_month) return 'New this month'
+  if (s.joined_month > s.current_month) return `Starts ${formatMonth(s.joined_month)}`
+  if (s.tenure_months === 0) return 'New this month'
   return formatMonthCount(s.tenure_months)
 }
 
 /** The same, to finish a sentence: "member for 1 yr 4 mo", "new this month", "starts …". */
 export function tenurePhrase(s: Tenure): string {
-  if (s.tenure_months === 0) return `starts ${formatMonth(s.joined_month)}`
-  if (s.joined_month === s.current_month) return 'new this month'
+  if (s.joined_month > s.current_month) return `starts ${formatMonth(s.joined_month)}`
+  if (s.tenure_months === 0) return 'new this month'
   return `member for ${formatMonthCount(s.tenure_months)}`
 }

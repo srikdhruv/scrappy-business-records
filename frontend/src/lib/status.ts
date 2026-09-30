@@ -1,5 +1,5 @@
 /** Status words and colours, shared by every screen (see components/status.tsx). */
-import type { BalanceStatus } from '@/api/types'
+import type { BalanceStatus, StudentRead } from '@/api/types'
 import { formatRupees } from '@/lib/format'
 
 export type Tone = 'paid' | 'partial' | 'owed' | 'credit' | 'muted'
@@ -16,22 +16,15 @@ export function balanceTone(status: BalanceStatus): Tone {
   return status === 'owes' ? 'owed' : status === 'credit' ? 'credit' : 'paid'
 }
 
+export type Standing = Pick<StudentRead, 'status' | 'owed_paise' | 'credit_paise'>
+
 /**
- * "Up to date" / "Owes ₹3,000" / "Credit ₹500" / "Paid ahead ₹2,000".
- *
- * A positive balance is either money paid too much for a month that's due (`creditPaise`, real
- * credit) or simply paying ahead for months not due yet. Only the first is called credit.
+ * The headline for a student (PRD ledger rule 6): "Owes ₹2,000" whenever any due month is
+ * still owed, however much was paid ahead or extra elsewhere; else "Credit ₹500" for money paid
+ * too much; else "Up to date". Paying ahead is shown separately, never as credit.
  */
-export function balanceLabel(
-  status: BalanceStatus,
-  balancePaise: number,
-  creditPaise: number,
-): string {
-  if (status === 'owes') return `Owes ${formatRupees(Math.abs(balancePaise))}`
-  if (status === 'credit') {
-    return creditPaise > 0
-      ? `Credit ${formatRupees(balancePaise)}`
-      : `Paid ahead ${formatRupees(balancePaise)}`
-  }
+export function standingLabel(s: Standing): string {
+  if (s.status === 'owes') return `Owes ${formatRupees(s.owed_paise)}`
+  if (s.status === 'credit') return `Credit ${formatRupees(s.credit_paise)}`
   return 'Up to date'
 }

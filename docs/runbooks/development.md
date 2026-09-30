@@ -112,10 +112,14 @@ scripts/
 - **API calls.** Use `api` from `src/api/client.ts` with `unwrap()`, inside TanStack Query hooks
   in `src/api/queries.ts`. Every change (create, edit, delete) refetches students, payments and
   the dashboard (`invalidateRecords`), so no screen shows an old number. Import types from
-  `src/api/types.ts`, e.g. `import type { StudentRead } from '@/api/types'`. It re-exports
-  `schema.d.ts` and adds, as optional, fields the backend PR is adding (`credit_paise`,
-  `tenure_months`, `current_month`, nullable suggestions). Once they're generated, it becomes
-  plain re-exports.
+  `src/api/types.ts`, e.g. `import type { StudentRead } from '@/api/types'`. It only re-exports
+  the generated `schema.d.ts`, so any change to the API is a type error in the UI.
+- **"Now" is the server's month.** Use `current_month` from the API (`useServerMonth()`, or the
+  field on a student or the dashboard), never the laptop's clock, for anything the ledger
+  decides: due or not, "Member for", suggestions.
+- **Standing.** A student's headline comes from `status` and `owed_paise` (PRD rule 6), never
+  from the net `balance_paise`: "Owes ₹2,000 (Jul, Aug)", with "Paid ahead…" or "Paid ₹X extra
+  in…" as notes beside it.
 - **Words and colours.** Status badges come from `src/components/status.tsx`: Paid (green),
   Partial (amber), Unpaid/Owes (muted red), Paid ahead/Credit (teal). Use plain words: "Owes",
   "Paid", "Paid ahead", "Left". Never "arrears" or "delinquent".
