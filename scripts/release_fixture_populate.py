@@ -280,6 +280,22 @@ def populate(api: Api) -> None:
     api.call("DELETE", f"/api/payments/{mistake}")
     api.call("DELETE", f"/api/students/{tara}/fee-changes/{scheduled['id']}")
 
+    # In-app feedback (saved on the laptop; make_release_fixture.py turns sending off). A fixed
+    # id, and no picture: a screenshot is a file beside the database, not a row. Its
+    # diagnostics (a random install ID, the log's last lines) differ from run to run.
+    if api.has("/api/feedback", "post"):
+        api.call(
+            "POST",
+            "/api/feedback",
+            {
+                "id": "00000000-0000-4000-8000-000000000001",
+                "category": "idea",
+                "message": "Could the dashboard show last month too?\nThanks — Ananya's mum",
+                "route": "/?month=" + m(-1),
+                "client": {"local_time": f"{api.today.isoformat()}T10:30:00+05:30"},
+            },
+        )
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])

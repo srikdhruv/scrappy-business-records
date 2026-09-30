@@ -13,9 +13,12 @@ the names the UI uses. Conventions (see docs/data-model.md):
 
 from __future__ import annotations
 
+import base64
+import binascii
 import datetime as dt
 import enum
 import unicodedata
+import uuid
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -29,10 +32,11 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
-from app.models import FeeKind, PaymentMethod
+from app.models import FeedbackCategory, FeedbackStatus, FeeKind, PaymentMethod
 from app.months import MONTH_PATTERN, format_month
 
 __all__ = [
+    "AboutResponse",
     "BacklogItem",
     "BacklogMonth",
     "BalanceStatus",
@@ -44,6 +48,12 @@ __all__ = [
     "ExtraSent",
     "FeeChangeRead",
     "FeeKind",
+    "FeedbackCategory",
+    "FeedbackClientError",
+    "FeedbackClientInfo",
+    "FeedbackCreate",
+    "FeedbackRead",
+    "FeedbackStatus",
     "HealthResponse",
     "LedgerMonth",
     "MonthStatus",
@@ -912,3 +922,153 @@ class ReportResponse(_ReadModel):
         "ReportStatus order), then by name."
     )
     totals: ReportTotals
+
+
+# --------------------------------------------------------------------------- about / feedback
+
+
+class AboutResponse(_ReadModel):
+    """Settings → About: which version this is, and where the data lives."""
+
+    version: str = Field(examples=["0.1.0"])
+    build_id: str = Field(
+        description="The git commit the app was built from (or 'unknown').",
+        examples=["9386553c1482655b37649a823a653f113dfd26b4"],
+    )
+    data_dir: str = Field(description="The folder holding records.db.")
+    backup_dir: str = Field(description="Where the daily backups go.")
+    log_dir: str = Field(description="The folder holding server.log.")
+    feedback_sending: bool = Field(
+        description="Whether this copy sends feedback (a relay URL is set)."
+    )
+    feedback_waiting: int = Field(ge=0, description="Feedback saved here, not sent yet.")
+
+
+SCREENSHOT_MAX_BYTES = 1_400_000
+"""The biggest picture of the screen feedback may carry (the relay takes up to 1.5 MB, and 2 MB
+in all). The dialog shrinks the picture to fit; a bigger one is a 422."""
+_SCREENSHOT_MAX_CHARS = 4 * ((SCREENSHOT_MAX_BYTES + 2) // 3) + 64  # base64, plus a data: prefix
+_IMAGE_SIGNATURES = {b"\xff\xd8\xff": "image/jpeg", b"\x89PNG\r\n\x1a\n": "image/png"}
+
+
+def screenshot_type(data: bytes) -> str | None:
+    """ "image/jpeg" or "image/png" from the file's first bytes, or None for anything else."""
+    for signature, content_type in _IMAGE_SIGNATURES.items():
+        if data.startswith(signature):
+            return content_type
+    return None
+
+
+def decode_screenshot(value: str) -> bytes:
+    """The picture's bytes, from base64 (optionally a `data:image/...;base64,` URL)."""
+    if value.startswith("data:"):
+        value = value.partition(",")[2]
+    return base64.b64decode(value, validate=True)
+
+
+def _clip(limit: int):  # type: ignore[no-untyped-def]
+    """Diagnostics are best effort: text that is too long is cut, and characters that can't be
+    saved become "?", instead of refusing the owner's feedback."""
+
+    def clip(value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        value = value.encode("utf-8", "replace").decode("utf-8")
+        value = "".join(
+            "?" if unicodedata.category(c) == "Cc" and c not in _ALLOWED_CONTROL else c
+            for c in value
+        )
+        return value[:limit]
+
+    return BeforeValidator(clip)
+
+
+def _last(limit: int):  # type: ignore[no-untyped-def]
+    def last(value: object) -> object:
+        return value[-limit:] if isinstance(value, list) else value
+
+    return BeforeValidator(last)
+
+
+class FeedbackClientError(_Model):
+    """One entry of the browser's recent-errors list (a script error, or an API call that
+    failed)."""
+
+    at: Annotated[str, _clip(40)] = ""
+    kind: Annotated[str, _clip(20)] = ""
+    message: Annotated[str, _clip(1000)] = ""
+
+
+class FeedbackClientInfo(_Model):
+    """What the browser knows: when and where, and the last errors it saw."""
+
+    local_time: Annotated[str, _clip(64)] = Field("", description="The laptop's local time.")
+    timezone: Annotated[str, _clip(64)] = ""
+    language: Annotated[str, _clip(32)] = ""
+    user_agent: Annotated[str, _clip(500)] = ""
+    screen: Annotated[str, _clip(32)] = Field("", examples=["1440x900"])
+    window: Annotated[str, _clip(32)] = Field("", examples=["1280x800"])
+    ui_build: Annotated[str, _clip(64)] = Field("", description="The build ID the UI was built at.")
+    errors: Annotated[list[FeedbackClientError], _last(20)] = Field(
+        default_factory=list, description="The last errors (at most 20; older ones are dropped)."
+    )
+
+
+def _message_required(value: str) -> str:
+    if not value:
+        raise _field_error("Please write a message")
+    return value
+
+
+def _valid_screenshot(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        data = decode_screenshot(value)
+    except (binascii.Error, ValueError):
+        raise _field_error("The picture of the screen couldn't be read") from None
+    if screenshot_type(data) is None:
+        raise _field_error("The picture of the screen couldn't be read")
+    if len(data) > SCREENSHOT_MAX_BYTES:
+        raise _field_error("The picture of the screen is too big to send")
+    return value
+
+
+class FeedbackCreate(_Model):
+    id: uuid.UUID | None = Field(
+        None,
+        description="Made by the dialog when it opens. Sending the same id again returns the "
+        "feedback already saved (a double click saves it once). The server makes one if absent.",
+    )
+    category: FeedbackCategory
+    message: Annotated[
+        str,
+        BeforeValidator(_strip),
+        AfterValidator(_message_required),
+        Field(max_length=5000, description="What the owner wrote. Required."),
+    ]
+    route: Annotated[str, _clip(500)] = Field(
+        "", description="The page it was sent from, with its query.", examples=["/students?q=ana"]
+    )
+    client: FeedbackClientInfo = Field(default_factory=FeedbackClientInfo)
+    screenshot: Annotated[
+        Annotated[str, Field(max_length=_SCREENSHOT_MAX_CHARS)] | None,
+        AfterValidator(_valid_screenshot),
+    ] = Field(
+        None,
+        description="A JPEG or PNG of the page, base64 (a data: URL is fine), at most "
+        f"{SCREENSHOT_MAX_BYTES} bytes.",
+    )
+
+
+class FeedbackRead(_ReadModel):
+    id: str
+    category: FeedbackCategory
+    status: FeedbackStatus
+    created_at: UtcDatetime
+    sent_at: UtcDatetime | None
+    attempts: int = Field(ge=0, description="How many times sending was tried.")
+    sending: bool = Field(
+        description="Whether this copy is trying to send it (sending is on and it isn't done). "
+        "If false and still pending, it waits for a version that sends."
+    )

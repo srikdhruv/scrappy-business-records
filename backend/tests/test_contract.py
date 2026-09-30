@@ -27,6 +27,9 @@ EXPECTED_OPERATIONS = {
     ("get", "/api/dashboard"): "getDashboard",
     ("get", "/api/report"): "getReport",
     ("get", "/api/report.xlsx"): "downloadReport",
+    ("get", "/api/about"): "getAbout",
+    ("post", "/api/feedback"): "createFeedback",
+    ("get", "/api/feedback/{feedback_id}"): "getFeedback",
 }
 
 
@@ -49,6 +52,8 @@ def test_status_codes(client: TestClient) -> None:
     fee_change = "/api/students/{student_id}/fee-changes/{fee_change_id}"
     assert "204" in paths[fee_change]["delete"]["responses"]
     assert "200" in paths["/api/students/{student_id}/return"]["post"]["responses"]
+    assert "201" in paths["/api/feedback"]["post"]["responses"]
+    assert "404" in paths["/api/feedback/{feedback_id}"]["get"]["responses"]
     assert "404" in paths["/api/students/{student_id}"]["get"]["responses"]
 
 
@@ -56,7 +61,7 @@ def test_422_uses_validation_shape_and_404_uses_error_response(client: TestClien
     schema = client.get("/api/openapi.json").json()
     for path, ops in schema["paths"].items():
         for method, op in ops.items():
-            if (method, path) == ("get", "/api/health"):
+            if (method, path) in {("get", "/api/health"), ("get", "/api/about")}:
                 continue  # takes no input, so it can't fail validation
             ref = op["responses"]["422"]["content"]["application/json"]["schema"]["$ref"]
             assert ref.endswith("/HTTPValidationError"), (method, path)
@@ -202,6 +207,9 @@ EVERY_ENDPOINT = [
                                "paid_on": "2026-01-05", "for_month": "2026-01",
                                "method": "upi"}),
     ("patch", "/api/payments/1", {"note": "x"}),
+    ("get", "/api/about", None),
+    ("post", "/api/feedback", {"category": "idea", "message": "x"}),
+    ("get", "/api/feedback/3f0e8c1a-5b7d-4e2a-9c1f-0a1b2c3d4e5f", None),
 ]  # fmt: skip
 
 

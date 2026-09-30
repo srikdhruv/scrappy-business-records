@@ -9,6 +9,7 @@ the app somewhere else by setting environment variables before (or even after) i
 | `SCRAPPY_DATA_DIR`   | `$SCRAPPY_HOME\\data`                  | SQLite file location        |
 | `SCRAPPY_BACKUP_DIR` | `Documents\\ScrappyRecords Backups`    | Backups                     |
 | `SCRAPPY_PORT`       | `8765`                                | Server port                 |
+| `SCRAPPY_FEEDBACK_URL` | `FEEDBACK_URL` below                | Feedback relay; empty = off |
 
 On macOS the home is `~/Library/Application Support/ScrappyRecords`.
 """
@@ -27,6 +28,14 @@ BACKUP_DIR_NAME = "ScrappyRecords Backups"
 DB_FILENAME = "records.db"
 HOST = "127.0.0.1"  # Never bind anything else: the app must not be reachable from the network.
 DEFAULT_PORT = 8765
+
+FEEDBACK_URL = ""
+"""The feedback relay (a Cloudflare Worker, `relay/`), e.g.
+`https://scrappy-feedback.<account>.workers.dev/feedback`. Sending feedback is the app's only
+outbound call at runtime, and only feedback the owner chose to send goes there (ADR 0005).
+Empty means sending is off: feedback is still saved on the laptop and goes out once a version
+with a URL is installed. Set it when the relay is deployed
+(docs/runbooks/feedback-relay-setup.md)."""
 
 
 def _env_path(name: str) -> Path | None:
@@ -72,6 +81,23 @@ def db_url() -> str:
 def port() -> int:
     value = os.environ.get("SCRAPPY_PORT", "").strip()
     return int(value) if value else DEFAULT_PORT
+
+
+def feedback_url() -> str:
+    """Where the server sends feedback. `SCRAPPY_FEEDBACK_URL` overrides `FEEDBACK_URL` (even
+    when set to empty, which turns sending off: tests and dev mode do that)."""
+    value = os.environ.get("SCRAPPY_FEEDBACK_URL")
+    return (FEEDBACK_URL if value is None else value).strip()
+
+
+def feedback_dir() -> Path:
+    """Screenshots of feedback waiting to be sent (deleted once sent)."""
+    return data_dir() / "feedback"
+
+
+def install_id_file() -> Path:
+    """A random ID for this copy of the app, made once (see app/diagnostics.py)."""
+    return data_dir() / "install-id"
 
 
 def static_dir() -> Path:

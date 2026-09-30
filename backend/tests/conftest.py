@@ -20,6 +20,8 @@ def scrappy_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pa
     monkeypatch.setenv("SCRAPPY_BACKUP_DIR", str(home / "backups"))
     monkeypatch.delenv("SCRAPPY_DATA_DIR", raising=False)
     monkeypatch.delenv("SCRAPPY_PORT", raising=False)
+    # Never send feedback anywhere from a test (tests that send use a fake relay).
+    monkeypatch.setenv("SCRAPPY_FEEDBACK_URL", "")
     yield home
     dispose_engines()
 

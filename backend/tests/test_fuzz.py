@@ -27,6 +27,12 @@ FIELDS = [
     "method",
     "note",
     "from_month",
+    "id",
+    "category",
+    "message",
+    "route",
+    "client",
+    "screenshot",
 ]
 
 scalars = st.one_of(
@@ -69,6 +75,9 @@ routes = st.sampled_from(
         ("patch", "/api/payments/{id}"),
         ("delete", "/api/payments/{id}"),
         ("get", "/api/dashboard"),
+        ("get", "/api/about"),
+        ("post", "/api/feedback"),
+        ("get", "/api/feedback/{id}"),
     ]
 )
 params = st.dictionaries(

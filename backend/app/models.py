@@ -215,3 +215,87 @@ class Payment(TimestampMixin, Base):
         Index("ix_payments_for_month", "for_month"),
         Index("ix_payments_paid_on", "paid_on"),
     )
+
+
+class FeedbackCategory(enum.StrEnum):
+    """What kind of feedback the owner is sending (the dialog's Type)."""
+
+    problem = "problem"
+    idea = "idea"
+    question = "question"
+
+
+class FeedbackStatus(enum.StrEnum):
+    """`pending`: saved on this laptop, waiting to be sent (retried automatically). `sent`: the
+    feedback inbox has it (`remote_ref` is its issue). `failed`: the inbox turned it down for
+    good (e.g. it didn't pass its checks), so it isn't retried."""
+
+    pending = "pending"
+    sent = "sent"
+    failed = "failed"
+
+
+class Feedback(Base):
+    """In-app feedback, saved here first and sent by `app.feedback_sender` (docs/data-model.md).
+
+    Not the owner's records: nothing in the ledger reads it. The screenshot is a file in
+    `<data folder>/feedback/` (named in `screenshot_file`), not a column, so the daily backups
+    stay small; it is deleted once the feedback has been sent.
+    """
+
+    __tablename__ = "feedback"
+
+    # A UUID made by the dialog when it opens: sending the same feedback twice (a double click,
+    # a retry) finds this row instead of adding another. The relay uses it the same way.
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.current_timestamp()
+    )
+    category: Mapped[FeedbackCategory] = mapped_column(
+        Enum(
+            FeedbackCategory,
+            name="feedback_category",
+            native_enum=False,
+            create_constraint=False,
+            length=16,
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+    )
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    route: Mapped[str | None] = mapped_column(String)
+    # JSON text: what the app attaches automatically (see app/diagnostics.py). Never records.
+    diagnostics: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}")
+    screenshot_file: Mapped[str | None] = mapped_column(String)
+    status: Mapped[FeedbackStatus] = mapped_column(
+        Enum(
+            FeedbackStatus,
+            name="feedback_status",
+            native_enum=False,
+            create_constraint=False,
+            length=16,
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+        default=FeedbackStatus.pending,
+        server_default=FeedbackStatus.pending.value,
+    )
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(Text)
+    sent_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    # Where it landed: the issue's URL in the private feedback repo.
+    remote_ref: Mapped[str | None] = mapped_column(String)
+
+    __table_args__ = (
+        CheckConstraint(
+            "category IN ({})".format(", ".join(f"'{c.value}'" for c in FeedbackCategory)),
+            name="category_valid",
+        ),
+        CheckConstraint(
+            "status IN ({})".format(", ".join(f"'{s.value}'" for s in FeedbackStatus)),
+            name="status_valid",
+        ),
+        CheckConstraint("length(trim(message)) > 0", name="message_not_blank"),
+        CheckConstraint("attempts >= 0", name="attempts_non_negative"),
+        Index("ix_feedback_status", "status"),
+    )
