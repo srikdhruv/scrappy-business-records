@@ -1,8 +1,9 @@
 /**
  * "Mark as coming again" for a student who has left (PRD ledger rule 11): asks which month they
- * are back from, so the months they were away are never owed.
+ * are back from, so the months they were away are never owed, and shows the fee they'll owe from
+ * then (which can be changed).
  */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { useReturnStudent } from '@/api/queries'
@@ -17,10 +18,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { amountProblem } from '@/lib/amount'
 import { errorMessage, fieldErrors } from '@/lib/errors'
-import { feeAt, feeWords } from '@/lib/fees'
-import { addMonths, formatMonth, formatMonthSpan, formatRupees, MONTHS_AHEAD } from '@/lib/format'
+import { newFeeSentence, returnFee } from '@/lib/fees'
+import {
+  addMonths,
+  formatMonth,
+  formatMonthSpan,
+  formatRupees,
+  MONTHS_AHEAD,
+  paiseToRupeesInput,
+  rupeesToPaise,
+} from '@/lib/format'
 import { firstName } from '@/lib/labels'
 
 export function ComeBackDialog({
@@ -36,23 +47,36 @@ export function ComeBackDialog({
   const firstAway = addMonths(student.left_month, 1)
   const [month, setMonth] = useState<string | null>(now < firstAway ? firstAway : now)
   const [error, setError] = useState<string | null>(null)
+  // The fee from the month they're back: worked out like the server does, until it's typed.
+  const [typedFee, setTypedFee] = useState<string | null>(null)
+  const [feeError, setFeeError] = useState<string | null>(null)
   const comeBack = useReturnStudent()
+  // Blocks a second save while the first is still on its way (a double click or Enter).
+  const saving = useRef(false)
   const name = firstName(student.name)
 
   // The months away: from the month after they left to the month before they're back.
   const lastAway = month ? addMonths(month, -1) : ''
   const away = lastAway >= firstAway ? formatMonthSpan(firstAway, lastAway) : null
-  const fee = month ? feeAt(student.fee_history, month) : 0
+  const usualFee = month ? returnFee(student.fee_history, student.left_month, month) : 0
+  const feeText = typedFee ?? paiseToRupeesInput(usualFee)
+  const fee = rupeesToPaise(feeText, { allowZero: true })
+  const feeProblem = amountProblem(feeText, { allowZero: true, what: 'monthly fee' })
   // Money already logged for a month away counts as paid extra once that month has no fee.
   const paidWhileAway = away
     ? student.months.filter((m) => m.month >= firstAway && m.month <= lastAway && m.paid_paise > 0)
     : []
 
   const save = async () => {
-    if (!month) return
+    if (!month || saving.current) return
     setError(null)
+    if (feeProblem || fee === null) {
+      setFeeError(feeProblem)
+      return
+    }
+    saving.current = true
     try {
-      await comeBack.mutateAsync({ id: student.id, fromMonth: month })
+      await comeBack.mutateAsync({ id: student.id, fromMonth: month, feePaise: fee })
       toast.success(`${student.name} is coming again`, {
         description: away
           ? `From ${formatMonth(month)}. Nothing is owed for ${away}.`
@@ -60,9 +84,12 @@ export function ComeBackDialog({
       })
       onOpenChange(false)
     } catch (e) {
-      const msg = fieldErrors(e).from_month
-      if (msg) setError(msg)
+      const fields = fieldErrors(e)
+      if (fields.from_month) setError(fields.from_month)
+      else if (fields.monthly_fee_paise) setFeeError(fields.monthly_fee_paise)
       else toast.error(errorMessage(e))
+    } finally {
+      saving.current = false
     }
   }
 
@@ -83,28 +110,58 @@ export function ComeBackDialog({
               kept.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-2">
-            <Label htmlFor="back-month">Which month are they back from?</Label>
-            <MonthPicker
-              id="back-month"
-              label="Which month are they back from?"
-              current={now}
-              min={firstAway}
-              max={addMonths(now, MONTHS_AHEAD)}
-              value={month}
-              onChange={(m) => {
-                setMonth(m)
-                setError(null)
-              }}
-              invalid={Boolean(error)}
-              aria-describedby={error ? 'back-month-error' : 'back-month-what'}
-              className="sm:max-w-64"
-            />
-            {error && (
-              <p id="back-month-error" className="text-sm font-semibold text-owed">
-                {error}
-              </p>
-            )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid content-start gap-2">
+              <Label htmlFor="back-month">Which month are they back from?</Label>
+              <MonthPicker
+                id="back-month"
+                label="Which month are they back from?"
+                current={now}
+                min={firstAway}
+                max={addMonths(now, MONTHS_AHEAD)}
+                value={month}
+                onChange={(m) => {
+                  setMonth(m)
+                  setError(null)
+                }}
+                invalid={Boolean(error)}
+                aria-describedby={error ? 'back-month-error' : 'back-month-what'}
+              />
+              {error && (
+                <p id="back-month-error" className="text-sm font-semibold text-owed">
+                  {error}
+                </p>
+              )}
+            </div>
+            <div className="grid content-start gap-2">
+              <Label htmlFor="back-fee">Monthly fee from then</Label>
+              <div className="relative">
+                <span
+                  className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-base font-bold text-muted-foreground"
+                  aria-hidden
+                >
+                  ₹
+                </span>
+                <Input
+                  id="back-fee"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={feeText}
+                  onChange={(e) => {
+                    setTypedFee(e.target.value)
+                    setFeeError(null)
+                  }}
+                  aria-invalid={Boolean(feeError) || undefined}
+                  aria-describedby={feeError ? 'back-fee-error' : undefined}
+                  className="pl-7 font-semibold tabular-nums"
+                />
+              </div>
+              {feeError && (
+                <p id="back-fee-error" className="text-sm font-semibold text-owed">
+                  {feeError}
+                </p>
+              )}
+            </div>
           </div>
           {month && (
             <div id="back-month-what" className="grid gap-1.5 rounded-xl bg-muted/60 px-4 py-3">
@@ -113,11 +170,8 @@ export function ComeBackDialog({
                   <strong>{away}</strong>: no fee, so nothing is owed for the months away.
                 </p>
               )}
-              <p>
-                {away ? `From ${formatMonth(month)}` : `Every month from ${formatMonth(month)}`}{' '}
-                {fee === 0 ? 'they’ll have no fee' : `they’ll owe ${feeWords(fee)}`}
-                {away ? ' again.' : ', as if they never left.'}
-              </p>
+              {!away && <p>Every month from {formatMonth(month)} counts, as if they never left.</p>}
+              {fee !== null && <p>{newFeeSentence(student.fee_history, month, fee, now)}</p>}
               {paidWhileAway.length > 0 && (
                 <p className="text-sm text-muted-foreground">
                   {paidWhileAway

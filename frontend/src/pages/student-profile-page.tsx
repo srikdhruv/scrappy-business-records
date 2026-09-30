@@ -31,6 +31,7 @@ import { MarkLeftDialog } from '@/components/mark-left-dialog'
 import { Panel } from '@/components/panel'
 import { PaymentsTable } from '@/components/payments-table'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
+import { FeeNow } from '@/components/fee-now'
 import { ExtraPaidNote, MonthStatusBadge, PaidAheadNote, StatusPill } from '@/components/status'
 import { TONE_TEXT, balanceTone, standingLabel } from '@/lib/status'
 import { StudentAvatar } from '@/components/student-avatar'
@@ -350,16 +351,14 @@ function BalanceCard({
   onFix?: (month: string) => void
 }) {
   const afterLeft = (month: string) => student.left_month !== null && month > student.left_month
-  // Money paid too much: due months, and any month after they left (even a later one).
-  const overpaid = student.months.filter(
-    (m) => m.status === 'overpaid' && (m.is_due || afterLeft(m.month)),
-  )
+  // Money paid too much: any month paid above its fee (all of it where the fee is 0).
+  const overpaid = student.months.filter((m) => m.status === 'overpaid')
   const credit = student.credit_paise
   const tone = balanceTone(student.status)
   // Paid ahead: the last month, after this one and still enrolled, paid in full without a gap.
   let aheadTo: string | undefined
   for (const m of student.months.filter((m) => !m.is_due && !afterLeft(m.month))) {
-    if (m.status !== 'paid' && m.status !== 'overpaid') break
+    if (m.status !== 'paid' && !(m.status === 'overpaid' && m.expected_paise > 0)) break
     aheadTo = m.month
   }
   const owed = student.months.filter(
@@ -509,7 +508,7 @@ function DetailsCard({ student }: { student: StudentDetail }) {
     <Panel title="Details">
       <dl className="grid gap-x-8 gap-y-4 px-6 pb-6 sm:grid-cols-2">
         <Detail label="Monthly fee">
-          <span className="font-bold tabular-nums">{formatRupees(student.monthly_fee_paise)}</span>
+          <FeeNow student={student} long />
         </Detail>
         <Detail label="Joined">
           {formatMonth(student.joined_month)}
@@ -673,7 +672,7 @@ function MonthHistory({
         {rows.map((m) => {
           const owes = m.is_due && (m.status === 'unpaid' || m.status === 'partial')
           const afterLeaving = student.left_month !== null && m.month > student.left_month
-          const extra = (m.is_due || afterLeaving) && m.status === 'overpaid'
+          const extra = m.status === 'overpaid'
           return (
             <TableRow key={m.month} className={cn(extra && 'bg-credit-soft/40')}>
               <TableCell className="pl-6 font-semibold">{formatMonth(m.month)}</TableCell>

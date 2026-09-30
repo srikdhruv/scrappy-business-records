@@ -9,6 +9,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import { useStudents } from '@/api/queries'
 import { PageHeader } from '@/components/layout/page-header'
 import { Panel } from '@/components/panel'
+import { FeeNow } from '@/components/fee-now'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
 import { BalanceChip, ExtraPaidNote, PaidAheadNote } from '@/components/status'
 import { StudentAvatar } from '@/components/student-avatar'
@@ -24,7 +25,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { formatMonthShort, formatRupees } from '@/lib/format'
+import { formatMonthShort } from '@/lib/format'
 import { tenureLabel } from '@/lib/labels'
 import { studentMatches } from '@/lib/search'
 
@@ -176,7 +177,7 @@ export function StudentsPage() {
                     {s.batch_label ?? '—'}
                   </TableCell>
                   <TableCell className="text-right font-semibold tabular-nums">
-                    {formatRupees(s.monthly_fee_paise)}
+                    <FeeNow student={s} />
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col items-start gap-1">

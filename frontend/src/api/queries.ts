@@ -171,11 +171,19 @@ export function useUpdateStudent() {
 export function useReturnStudent() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, fromMonth }: { id: number; fromMonth: string }) =>
+    mutationFn: async ({
+      id,
+      fromMonth,
+      feePaise,
+    }: {
+      id: number
+      fromMonth: string
+      feePaise?: number
+    }) =>
       unwrap(
         await api.POST('/api/students/{student_id}/return', {
           params: { path: { student_id: id } },
-          body: { from_month: fromMonth },
+          body: { from_month: fromMonth, monthly_fee_paise: feePaise },
         }),
       ),
     onSuccess: (student) => {

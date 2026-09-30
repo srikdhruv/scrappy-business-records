@@ -30,6 +30,18 @@ export function nextFeeChange<F extends Fees[number]>(
     .toSorted((a, b) => a.effective_month.localeCompare(b.effective_month))[0]
 }
 
+/**
+ * The fee someone coming back from `back` owes, as the backend's `return_fee` works it out:
+ * the latest fee change on or before `back`, skipping ₹0 ones after `left` (the months away of
+ * an earlier return). Usually the fee they paid when they left.
+ */
+export function returnFee(fees: Fees, left: string, back: string): number {
+  return feeAt(
+    fees.filter((f) => !(f.effective_month > left && f.amount_paise === 0)),
+    back,
+  )
+}
+
 /** "₹1,500 a month", or "no fee" for ₹0. */
 export function feeWords(paise: number): string {
   return paise === 0 ? 'no fee' : `${formatRupees(paise)} a month`
@@ -46,6 +58,9 @@ export function newFeeSentence(fees: Fees, from: string, amount: number, now: st
       ? `From ${formatMonth(from)} they’ll have no fee`
       : `From ${formatMonth(from)} they’ll owe ${formatRupees(amount)} a month`
   const next = nextFeeChange(fees, from)
+  // A ₹0 fee with nothing after it never ends: say so, so a month off isn't left open by mistake.
+  if (!next && amount === 0)
+    return `They’ll have no fee from ${formatMonth(from)} onwards, with no end.`
   if (!next) return `${start}.`
   const already = next.effective_month > now ? 'already scheduled' : 'already set'
   const what = next.amount_paise === 0 ? 'no fee' : formatRupees(next.amount_paise)

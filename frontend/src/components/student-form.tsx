@@ -374,7 +374,7 @@ function StudentForm({
           errorId={errorId('left')}
           help={
             hasLeft
-              ? 'The last month they paid for. If they’ve come back, use Mark as coming again on their profile.'
+              ? 'The last month they paid for. It can only move earlier here. If they’ve come back, use Mark as coming again on their profile.'
               : 'The last month they should pay for. Leave empty while they’re still coming.'
           }
         >
@@ -382,7 +382,8 @@ function StudentForm({
             id="student-left"
             label="Left in month"
             current={now}
-            max={addMonths(now, MONTHS_AHEAD)}
+            // Once it has passed it can only move earlier here; coming back is on the profile.
+            max={hasLeft && student.left_month ? student.left_month : addMonths(now, MONTHS_AHEAD)}
             value={left}
             onChange={(m) => {
               setLeft(m)

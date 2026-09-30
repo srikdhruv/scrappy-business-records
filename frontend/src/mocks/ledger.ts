@@ -156,11 +156,11 @@ export function owedPaise(book: StudentBook, now: string): number {
   return owed
 }
 
-/** Money paid for months after the current one (backend `paid_ahead`). */
+/** Money paid for months after the current one, up to each month's fee (backend `paid_ahead`). */
 export function paidAheadPaise(book: StudentBook, now: string): number {
   let ahead = 0
   for (const [m, p] of paidByMonth(book.payments)) {
-    if (m > now && !afterLeaving(book.student, m)) ahead += p
+    if (m > now && !afterLeaving(book.student, m)) ahead += Math.min(p, expectedFor(book, m))
   }
   return ahead
 }
@@ -228,15 +228,14 @@ export function tenureMonths(student: StudentRow, now: string): number {
 }
 
 /**
- * Backend `credit`: extra paid for months up to now (all of it, for months they weren't
- * enrolled in), plus anything paid for a month after they left, even a later one.
+ * Backend `credit`: what was paid above the fee, in every month with a payment (all of it
+ * where the fee is 0: before joining, after leaving, a month away), including later months.
  */
 export function creditPaise(book: StudentBook, now: string): number {
+  void now
   let credit = 0
   for (const [month, p] of paidByMonth(book.payments)) {
-    if (month <= now || afterLeaving(book.student, month)) {
-      credit += Math.max(0, p - expectedFor(book, month))
-    }
+    credit += Math.max(0, p - expectedFor(book, month))
   }
   return credit
 }
@@ -270,7 +269,7 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
 
     if (isActive(student, month)) {
       const expected = expectedFor(book, month)
-      summary.active_student_count += 1
+      if (expected > 0) summary.active_student_count += 1 // only those with a fee due
       summary.expected_paise += expected
       summary.still_due_paise += Math.max(0, expected - paidInMonth)
       const status = monthStatus(expected, paidInMonth)

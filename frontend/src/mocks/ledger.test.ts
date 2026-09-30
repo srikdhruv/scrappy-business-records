@@ -150,3 +150,18 @@ describe('mock ledger', () => {
     expect(creditPaise(kabir, NOW)).toBe(50000)
   })
 })
+
+describe('paid ahead and credit for later months', () => {
+  it('counts paid ahead up to the fee, and the rest as credit', () => {
+    const b = book({}, [['2026-11', 2000]]) // ₹1,800 fee in November
+    expect(paidAheadPaise(b, NOW)).toBe(180000)
+    expect(creditPaise(b, NOW)).toBe(20000)
+  })
+
+  it('counts a payment for a later month with no fee (a month away) as credit', () => {
+    const b = book({}, [['2026-12', 1800]])
+    b.fees.push({ id: 3, student_id: 1, effective_month: '2026-12', amount_paise: 0 })
+    expect(paidAheadPaise(b, NOW)).toBe(0)
+    expect(creditPaise(b, NOW)).toBe(180000)
+  })
+})

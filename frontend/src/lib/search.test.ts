@@ -7,6 +7,7 @@ const arjun = {
   batch_label: 'Tue/Thu 5pm – Indiranagar',
 }
 const emile = { name: 'Émile Dsouza', phone: '+91 98765-43210', guardian_name: null }
+const obrien = { name: 'Siobhan O’Brien', guardian_name: "Maria D'Souza Smith-Jones" }
 
 describe('fold', () => {
   it('drops capitals and accents', () => {
@@ -33,6 +34,16 @@ describe('studentMatches', () => {
     ['9876543210', emile], // phone saved with punctuation
     ['98765 43210', emile],
     ['+91 98765 43210', emile],
+    ['919876543210', emile],
+    ['+919876543210', emile],
+    ['09876543210', emile],
+    ['+91 90000 00006', arjun],
+    ['obrien', obrien], // apostrophes and hyphens in names don't matter
+    ["o'brien", obrien],
+    ['O’Brien', obrien],
+    ['dsouza', obrien],
+    ["d'souza", obrien],
+    ['smith jones', obrien],
   ])('%j finds %j', (query, student) => {
     expect(studentMatches(student, query)).toBe(true)
   })

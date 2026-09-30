@@ -3,7 +3,7 @@
  * open (with the button showing progress) until the action has finished.
  */
 import { TriangleAlertIcon } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -39,8 +39,12 @@ export function ConfirmDialog({
   onConfirm: () => Promise<unknown>
 }) {
   const [pending, setPending] = useState(false)
+  // Blocks a second click before `pending` has re-rendered the button as disabled.
+  const running = useRef(false)
 
   const confirm = async () => {
+    if (running.current) return
+    running.current = true
     setPending(true)
     try {
       await onConfirm()
@@ -48,6 +52,7 @@ export function ConfirmDialog({
     } catch (error) {
       toast.error(errorMessage(error))
     } finally {
+      running.current = false
       setPending(false)
     }
   }

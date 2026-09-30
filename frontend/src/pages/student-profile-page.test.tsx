@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { mockDb } from '@/mocks/node'
@@ -305,9 +305,10 @@ describe('student profile', () => {
       expect(dialog.getByText(/nothing is owed for the months away/)).toHaveTextContent(
         'August–September 2026: no fee, so nothing is owed for the months away.',
       )
-      expect(dialog.getByText(/again\.$/)).toHaveTextContent(
-        'From October 2026 they’ll owe ₹1,500 a month again.',
+      expect(dialog.getByText(/they’ll owe/)).toHaveTextContent(
+        'From October 2026 they’ll owe ₹1,500 a month.',
       )
+      expect(dialog.getByLabelText('Monthly fee from then')).toHaveValue('1500')
       // Months before the one after they left can't be picked.
       await user.click(month)
       expect(await screen.findByRole('button', { name: 'July 2026' })).toBeDisabled()
@@ -334,9 +335,48 @@ describe('student profile', () => {
       await user.click(dialog.getByLabelText(/^Which month are they back from\?:/))
       await user.click(await screen.findByRole('button', { name: 'August 2026' }))
       expect(dialog.getByText(/as if they never left/)).toHaveTextContent(
-        'Every month from August 2026 they’ll owe ₹1,500 a month, as if they never left.',
+        'Every month from August 2026 counts, as if they never left.',
       )
       expect(dialog.queryByText(/no fee/)).not.toBeInTheDocument()
+    })
+
+    it('can come back on a different fee, and saves once however fast it’s clicked', async () => {
+      const user = userEvent.setup()
+      const id = idOf('Advait Sinha')
+      renderApp(`/students/${id}`)
+      await screen.findByRole('heading', { level: 1, name: 'Advait Sinha' })
+      await user.click(screen.getByRole('button', { name: 'Mark as coming again' }))
+      const dialog = await findDialog('Mark Advait Sinha as coming again?')
+      const fee = dialog.getByLabelText('Monthly fee from then')
+      await user.clear(fee)
+      await user.type(fee, '1800')
+      expect(dialog.getByText(/they’ll owe/)).toHaveTextContent(
+        'From October 2026 they’ll owe ₹1,800 a month.',
+      )
+      const before = mockDb.fees.length
+      const calls = vi.spyOn(mockDb, 'returnStudent')
+      // Two submits in the same moment (a double press of Enter): only one save.
+      const form = dialog.getByRole('button', { name: 'Mark as coming again' }).closest('form')!
+      fireEvent.submit(form)
+      fireEvent.submit(form)
+      expect(await screen.findByText('Advait Sinha is coming again')).toBeInTheDocument()
+      const added = mockDb.fees.filter((f) => f.student_id === id).slice(-2)
+      expect(added).toEqual([
+        expect.objectContaining({ effective_month: '2026-08', amount_paise: 0 }),
+        expect.objectContaining({ effective_month: '2026-10', amount_paise: 180000 }),
+      ])
+      expect(mockDb.fees.length).toBe(before + 2)
+      expect(calls).toHaveBeenCalledTimes(1)
+    })
+
+    it('says when they have no fee now, and from when they will', async () => {
+      const id = idOf('Advait Sinha')
+      mockDb.returnStudent(id, { from_month: '2026-12' })
+      renderApp(`/students/${id}`)
+      await screen.findByRole('heading', { level: 1, name: 'Advait Sinha' })
+      expect(screen.getByText(/until December 2026/).closest('dd')).toHaveTextContent(
+        'No fee until December 2026, then ₹1,500',
+      )
     })
 
     it('doesn’t offer "Still coming" in Edit once they have left', async () => {

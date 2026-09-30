@@ -15,6 +15,7 @@ import type {
   StudentReturn,
   StudentUpdate,
 } from '@/api/types'
+import { nextFeeChange, returnFee } from '@/lib/fees'
 import { addMonths, currentMonth, formatMonth, today } from '@/lib/format'
 
 import {
@@ -100,6 +101,13 @@ function checkNotTooLate(field: string, month: string | null | undefined, now: s
   }
 }
 
+function nextFeeRead(fees: FeeChangeRow[], after: string) {
+  const next = nextFeeChange(fees, after)
+  return next
+    ? { id: next.id, effective_month: next.effective_month, amount_paise: next.amount_paise }
+    : null
+}
+
 function nowIso(): string {
   return new Date().toISOString()
 }
@@ -163,6 +171,10 @@ export class MockDb {
       credit_paise: credit,
       paid_ahead_paise: paidAheadPaise(book, now),
       tenure_months: tenureMonths(student, now),
+      next_fee_change: nextFeeRead(
+        book.fees,
+        now < student.joined_month ? student.joined_month : now,
+      ),
       current_month: now,
     }
   }
@@ -281,6 +293,13 @@ export class MockDb {
     }
     const leftSent = 'left_month' in body
     const left = leftSent ? (body.left_month ?? null) : student.left_month
+    const stored = student.left_month
+    if (leftSent && stored !== null && stored < now && (left === null || left > stored)) {
+      invalid(
+        'left_month',
+        `They left after ${formatMonth(stored)}. To say they've come back, use Mark as coming again on their profile.`,
+      )
+    }
     if (left !== null && left < joined) {
       invalid(
         leftSent ? 'left_month' : 'joined_month',
@@ -332,8 +351,14 @@ export class MockDb {
       )
     }
     checkNotTooLate('from_month', back, now)
+    if (body.monthly_fee_paise != null) {
+      const fee = body.monthly_fee_paise
+      if (!Number.isInteger(fee) || fee < 0 || fee > 100_000_000) {
+        invalid('monthly_fee_paise', 'Input should be less than or equal to 100000000')
+      }
+    }
     const own = () => this.fees.filter((f) => f.student_id === id)
-    const feeBack = feeFor(own(), back)
+    const feeBack = body.monthly_fee_paise ?? returnFee(own(), left, back)
     this.fees = this.fees.filter(
       (f) => f.student_id !== id || !(f.effective_month > left && f.effective_month < back),
     )

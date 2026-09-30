@@ -58,8 +58,8 @@ const MONTH_STATUS: Record<MonthStatus, { tone: Tone; label: string; icon?: Luci
 }
 
 /**
- * A month's status. Months after the current one aren't due yet, so anything paid for them is
- * "Paid ahead" rather than overpaid.
+ * A month's status. Months after the current one aren't due yet, so what's paid for them, up to
+ * the fee, is "Paid ahead". More than the fee is "Paid extra" in any month.
  */
 export function MonthStatusBadge({
   status,
@@ -70,7 +70,7 @@ export function MonthStatusBadge({
   isDue?: boolean
   className?: string
 }) {
-  if (!isDue && (status === 'paid' || status === 'overpaid' || status === 'partial')) {
+  if (!isDue && (status === 'paid' || status === 'partial')) {
     return (
       <StatusPill tone="credit" icon={FastForwardIcon} className={className}>
         {status === 'partial' ? 'Part paid ahead' : 'Paid ahead'}
