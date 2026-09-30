@@ -139,3 +139,32 @@ The owner hires instructors to take some batches and pays them.
 - A **signed `.exe` installer** (MSIX or Inno Setup) with auto-update, replacing the PowerShell
   one-liner.
 - A dark mode, and a printable monthly summary.
+
+## 10. In-app feedback (open problem, revisit after v0.1)
+
+**Goal:** the owner can tell us something is wrong or missing, straight from the app, and it
+lands where we track work (ideally as a GitHub issue), with the app version and the page she
+was on attached.
+
+**Constraints that make this hard:**
+- **Local only.** The app has no server of its own online. Sending feedback would be the first
+  outbound call the app makes at runtime, so it must be an explicit, user-initiated exception.
+- **No GitHub account.** The owner has no GitHub account, and a GitHub token can't be shipped
+  inside a publicly downloadable app without being extractable and abusable.
+- **Privacy.** The repo is public, so its issues are public. Feedback may mention students,
+  phone numbers or amounts, and none of that may end up in public.
+- **Offline.** The laptop may be offline when she wants to send feedback.
+
+**Options considered, and why neither was chosen yet:**
+- **A small relay into a private repo.** A tiny hosted service (e.g. a free-tier Cloudflare
+  Worker) holds a token and files issues in a separate private feedback repo. The app queues
+  feedback while offline.
+  - Concern: it adds the first online component, which someone has to own and maintain, and it
+    needs abuse protection.
+- **A button that opens WhatsApp to the maintainer**, with the version and page prefilled.
+  - Concern: it isn't logged automatically, and the maintainer's number can't live in the public
+    repo, so it would have to be entered at install time.
+
+**Next step:** find a design without those drawbacks before building. For example, feedback
+could be written to a local file that the maintainer collects during updates, or sent through a
+channel the owner already uses. Until then, feedback arrives informally.
