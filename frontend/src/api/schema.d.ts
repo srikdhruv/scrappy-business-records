@@ -932,7 +932,7 @@ export interface components {
             client?: components["schemas"]["FeedbackClientInfo"];
             /**
              * Screenshot
-             * @description A JPEG or PNG of the page, base64 (a data: URL is fine), at most 1400000 bytes.
+             * @description A JPEG or PNG of the page, base64 (a data: URL is fine), at most 700000 bytes.
              */
             screenshot?: string | null;
         };

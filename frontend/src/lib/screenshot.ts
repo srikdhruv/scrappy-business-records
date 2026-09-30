@@ -112,14 +112,31 @@ export async function captureScreen({
   }
 }
 
+/**
+ * Table rows out of the window are drawn empty: copying every cell of a long list (hundreds of
+ * students) is what makes a picture slow. The row itself stays (html-to-image gives it its
+ * real height), so everything keeps its place; only its cells are left out.
+ */
+export function rowsOutOfView(root: HTMLElement, viewHeight: number): Set<Element> {
+  const out = new Set<Element>()
+  for (const row of root.querySelectorAll('tbody > tr')) {
+    const box = row.getBoundingClientRect()
+    if (box.bottom <= 0 || box.top >= viewHeight) out.add(row)
+  }
+  return out
+}
+
 // Anything marked `data-feedback-hide` stays out of the picture.
-const keep = (el: Node) => !(el instanceof HTMLElement && el.dataset.feedbackHide !== undefined)
+const hidden = (el: Node) => el instanceof HTMLElement && el.dataset.feedbackHide !== undefined
 
 async function take(node: HTMLElement | null): Promise<Screenshot | null> {
   if (!node) return null
   try {
     const rect = node.getBoundingClientRect()
     const frame = viewportFrame(rect, { width: window.innerWidth, height: window.innerHeight })
+    const offScreen = rowsOutOfView(node, frame.height)
+    const keep = (el: Node) =>
+      !hidden(el) && !(el.parentElement !== null && offScreen.has(el.parentElement))
     // Draw #root at its real size, moved so the window's part is at the top left of a
     // window-sized picture: exactly what she sees.
     const canvas = await toCanvas(node, {
@@ -145,7 +162,7 @@ async function take(node: HTMLElement | null): Promise<Screenshot | null> {
       const part = await toCanvas(el, {
         pixelRatio: 1,
         backgroundColor: backgroundBehind(el),
-        filter: keep,
+        filter: (child) => !hidden(child),
       })
       context.drawImage(part, box.left - rect.left, box.top, box.width, box.height)
     }

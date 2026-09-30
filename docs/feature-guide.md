@@ -1802,7 +1802,8 @@ haven't been sent yet. If this version can't send feedback, it says so here too.
   `html-to-image`, bundled, then keeps only the part in the window (`visibleBox`), redrawing
   the sticky side menu (`data-screenshot-sticky`) where it is on screen. A JPEG of at most
   700 KB (quality, then size, lowered to fit; the server's limit too). Only the window is
-  drawn (`viewportFrame`), never the whole page, so a list of hundreds of students is fine
+  drawn (`viewportFrame`), never the whole page, and table rows out of the window are drawn
+  empty (`rowsOutOfView`), so a list of hundreds of students is fine and quick (under a second)
   (`e2e/feedback.spec.ts` compares the picture with the real screen at the top, middle and
   bottom of 450 students). Given up after
   10 s (`CAPTURE_TIMEOUT_MS`).
