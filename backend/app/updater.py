@@ -16,9 +16,11 @@ app waits until the time it gives. The answer is cached in memory; the page read
 1. download the NEW release's installer (`install.ps1` / `install.sh` at the release's tag, so
    installer and release match) into a temporary folder;
 2. write `logs/update-attempt.json` (running: from, to, when);
-3. start it fully detached (Windows: `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP |
-   CREATE_NO_WINDOW`; macOS: a new session), so it survives this server being stopped by that
-   same installer, with its output in `logs/update.log`, and `-Version <tag>`;
+3. start it on its own (Windows: `CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`, out of any
+   job object if allowed; macOS: a new session), so it survives this server being stopped by
+   that same installer, with its output in `logs/update.log`, and `-Version <tag>`. (Not
+   `DETACHED_PROCESS`: Windows PowerShell with no console at all exits at once, doing nothing.
+   `CREATE_NO_WINDOW` gives it a console nobody sees; a Windows process outlives its parent.)
 4. the installer stops the app, backs up, swaps the new version in, and opens it again. It
    knows it was started from here (`SCRAPPY_UPDATE_FROM_APP=1`): if it fails after stopping the
    app, it opens the old version again.
@@ -549,11 +551,9 @@ def spawn_installer(
     """Start the installer so it outlives this server (which it is about to stop)."""
     kwargs: dict[str, Any] = {}
     if sys.platform == "win32":
-        flags = (
-            subprocess.DETACHED_PROCESS
-            | subprocess.CREATE_NEW_PROCESS_GROUP
-            | subprocess.CREATE_NO_WINDOW
-        )
+        # Its own process group and a console with no window. Not DETACHED_PROCESS: Windows
+        # PowerShell 5.1 with no console at all exits straight away (code 0, no output).
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         # Leave any job object we're in (a terminal's), so closing it can't kill the update.
         # Not every job allows that, so try without if it's refused.
         attempts = [flags | subprocess.CREATE_BREAKAWAY_FROM_JOB, flags]

@@ -39,9 +39,11 @@ outbound call, besides feedback.
 4. **Update now runs the new release's own installer.** `POST /api/update/start` downloads
    `scripts/install.ps1` (Windows) or `scripts/install.sh` (macOS) **at the new release's tag**
    (`raw.githubusercontent.com/<repo>/<tag>/scripts/...`), so the installer always matches the
-   release it installs, and starts it **fully detached** (Windows: `DETACHED_PROCESS`,
-   `CREATE_NEW_PROCESS_GROUP`, `CREATE_NO_WINDOW`, leaving a job object if allowed; macOS: its own
-   session), so it survives the server being stopped by that same installer:
+   release it installs, and starts it **on its own** (Windows: `CREATE_NEW_PROCESS_GROUP` and
+   `CREATE_NO_WINDOW`, leaving a job object if allowed; macOS: its own session), so it survives
+   the server being stopped by that same installer. (Not `DETACHED_PROCESS`: CI showed Windows
+   PowerShell 5.1 with no console at all exits at once without running the script;
+   `CREATE_NO_WINDOW` gives it a console that is never shown.)
    `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <tmp>\install.ps1 -Version <tag>`
    or `/bin/sh <tmp>/install.sh --version <tag>`, with `SCRAPPY_UPDATE_FROM_APP=1` and
    `SCRAPPY_INSTALL_ROOT` set, its output in `logs/update.log`. The installer does what it

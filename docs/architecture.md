@@ -352,9 +352,10 @@ is only allowed to `127.0.0.1` (the tests' fake relay).
 3. **Update now** (`POST /api/update/start`, only from the app's own page: JSON, the
    `X-Scrappy-Request: 1` header, `Host`/`Origin`/`Sec-Fetch-Site` of the app itself): the
    server downloads `scripts/install.ps1` (or `install.sh`) **at the new release's tag**, writes
-   `logs/update-attempt.json`, and starts it fully detached (Windows: `DETACHED_PROCESS |
-   CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`, working folder `%TEMP%`, never `app\`; macOS:
-   `start_new_session`), with `-Version <tag>`, `SCRAPPY_UPDATE_FROM_APP=1`,
+   `logs/update-attempt.json`, and starts it on its own, so it outlives the server (Windows:
+   `CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`, out of any job object if allowed, working
+   folder `%TEMP%`, never `app\`; not `DETACHED_PROCESS`, with which Windows PowerShell exits at
+   once; macOS: `start_new_session`), with `-Version <tag>`, `SCRAPPY_UPDATE_FROM_APP=1`,
    `SCRAPPY_INSTALL_ROOT` (the running copy's folder, as its Python was started) and its output
    in `logs/update.log`. One at a time: a second start answers 409.
 4. **The installer** does what it always does (stop politely, back up, swap, shortcut, open).
