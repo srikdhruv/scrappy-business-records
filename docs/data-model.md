@@ -88,7 +88,7 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 | `PATCH /students/{id}` | Partial update. A new fee is sent as `monthly_fee_paise` + `fee_effective_month` (which defaults to the current month, or `joined_month` if that is later). See the edit rules below |
 | `DELETE /students/{id}` | Hard delete. Payments cascade |
 | `POST /students/{id}/return` | A student who left comes again (PRD ledger rule 11). Body: `{from_month, monthly_fee_paise?}`; `from_month` is any month after `left_month` and at most 24 months ahead. In one transaction, holding the write lock: a ₹0 fee change at the month after `left_month` (none if `from_month` is that month), fee changes in the gap between them removed, every `'away'` row after `left_month` removed, `monthly_fee_paise` (default: `return_fee`, the latest `'fee'` row on or before `from_month`) recorded from `from_month`, and `left_month` cleared. Answers 200 with the `StudentDetail`. 422 on `from_month` if they haven't been marked as left, or the month is too early or too late. See [Coming back after leaving](#coming-back-after-leaving) |
-| `DELETE /students/{id}/fee-changes/{fee_change_id}` | Remove a fee change that hasn't started yet (its month is after the current month); the fee before it carries on. 204. 404 if the student, or that fee change of theirs, doesn't exist. 422 (`loc: ["path", "fee_change_id"]`) for the first fee, or one that has already started |
+| `DELETE /students/{id}/fee-changes/{fee_change_id}` | Remove a fee change that hasn't started yet (its month is after the current month); the fee before it carries on. 204. 404 if the student, or that fee change of theirs, doesn't exist. 422 (`loc: ["path", "fee_change_id"]`) for the first fee, one that has already started, or the fee they came back on (a `'fee'` row right after an `'away'` one: "This is the fee they came back on. To change it, set a new fee in Edit.") |
 | `GET /payments?student_id=&month=&q=&sort=paid_on\|for_month\|amount\|student\|method&order=asc\|desc` | List, including `student_name`. `month` matches `for_month`; `q` matches the student's name or the note, ignoring case and accents ("emile" finds "Émile"). `sort=student` sorts by name ignoring case and accents; `method` sorts `cash`, `other`, `upi`. Ties go to the latest `paid_on`, then the newest entry |
 | `POST /payments` | Create. Body: `student_id`, `amount_paise`, `paid_on`, `for_month`, `method`, `note?`. 404 if the student doesn't exist. Any `for_month` within the [limits](#limits) is accepted, even one the student isn't active in (it then shows as overpaid) |
 | `GET /payments/{id}` · `PATCH /payments/{id}` · `DELETE /payments/{id}` | `PATCH` may move a payment to another student (404 if that student doesn't exist) |
@@ -193,13 +193,15 @@ router checks them. Each failure is a 422 in the shape above:
    otherwise the stored one. This must be a 422, not a 500 from the database CHECK.
    `left_month: null` clears it as if they never left: every month since counts. That's only
    allowed while the left month hasn't passed (**Mark as staying**). Once it has passed, a
-   `left_month` of `null` or a later month is a 422 ("They left after February 2026. Came back
-   after all? Use Mark as coming again from March 2026, then set a new Left month if
-   needed."): coming back is `POST /students/{id}/return`. Moving it earlier is fine.
+   `left_month` of `null` or a later month is a 422 ("They left after February 2026, so this can only move earlier. If they came back: first set the real last month they paid for before leaving (an earlier one is fine), then use Mark as coming again from the month they came back. Set a new Left month after that if needed."): coming back is `POST /students/{id}/return`. Moving it earlier is fine.
 4. **Setting `left_month`** (to a month other than the stored one) removes the `'away'` runs
    that no longer fit (`_drop_stale_away`): a run starts at an `'away'` row and ends before
    the next `'fee'` row. A run that reaches the new left month, or comes after it, goes (those
-   months are owed again, up to the left month); one that ended before it stays.
+   months are owed again, up to the left month); one that ended before it stays. The UI
+   names those months and asks for a tick before saving (`lib/fees.ts` `awayOwedAgain`,
+   `components/away-warning.tsx`). The 422 for moving a passed left month later gives the way
+   back: set the real (earlier) left month, then `POST /return` from the month they came
+   back.
 
 **Changes at the same moment.** `update_student`, `return_student` and `delete_fee_change`
 start with `app.db.lock_for_writing` (`BEGIN IMMEDIATE`), so a second copy of the same change
@@ -249,7 +251,8 @@ the edges.
   payments, months after a student left (Not applicable), and a future joining month.
 - **Months after the current month** get the same status rule as any other (for example
   `paid` when paid ahead in full, `unpaid` when not), with `is_due: false`. They never count
-  as owed and never appear in the dashboard's *Backlog* or *Overpaid*. A payment for one adds
+  as owed and never appear in the dashboard's *Backlog*; one paid above its fee is in
+  *Overpaid* (for the current month's dashboard or a later one). A payment for one adds
   to `paid_ahead_paise` up to that month's fee, and the rest to `credit_paise` (all of it for
   a month with a ₹0 fee, or after `left_month`). All of it adds to the net `balance_paise`.
 - **Dashboard `active_student_count`** ("from N students", "of N") counts students active in

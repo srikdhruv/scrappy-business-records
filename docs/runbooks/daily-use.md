@@ -79,6 +79,10 @@ owed for them. They owe their fee again from the month they're back.
 Left later than you'd set? Mark them as coming again from the month right after the one they
 left, then **Mark as left** with their real last month.
 
+Marked them as left with the wrong month after they'd come back (the app warned that months
+away would be owed again)? **Edit** → **Left in month** → their real last month, then **Mark
+as coming again** from the month they came back.
+
 ## Changing a student's fee
 
 1. Open their profile and click **Edit**.

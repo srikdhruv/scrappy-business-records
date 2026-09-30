@@ -193,8 +193,10 @@ what's left on it (*June 2026: ₹1,200 left*). Click a row to open the student'
 
 **Paid too much** lists every month, up to the one at the top, where someone paid more than
 their fee: *July 2026 · paid ₹2,500, fee ₹2,000*, and the extra (**+₹500**) in teal. It includes
-payments logged for a month the student wasn't enrolled in (before they joined, or after they
-left), because nothing was due then. Click a row to open the profile and fix it.
+payments logged for a month the student wasn't enrolled in (before they joined, after they
+left, or while they were away), because nothing was due then. On this month's Dashboard (or a
+later one) it also lists later months paid more than their fee, so every *Paid extra* and
+*Credit* on the Students page can be found here. Click a row to open the profile and fix it.
 
 When a section has nobody in it, it says so calmly with a green tick: *"Nothing owed from
 earlier months."*, *"No one has paid more than their fee."*
@@ -210,8 +212,8 @@ because nothing is owed until the month comes:
 - **Not fully paid** becomes **Not paid ahead**, with *"Nothing to follow up yet"*.
 - **Yet to pay** becomes **Not paid ahead yet**, with grey **Not due yet** labels (or teal
   **Part paid ahead**), and amounts marked *due* instead of *left*.
-- **Earlier months still owed** and **Paid too much** stop at this month, because later months
-  can't be owed or overpaid yet.
+- **Earlier months still owed** stops at this month, because later months can't be owed yet.
+  **Paid too much** also lists later months paid more than their fee.
 
 **The celebration.** When everyone enrolled that month has paid in full, *Yet to pay* shows a
 🎉 and *"Everyone's paid for March!"* with how much was collected:
@@ -714,9 +716,11 @@ later."*):
   still coming."* It shows **Still coming** when empty, and its calendar has a **Still coming**
   button to empty it again. Once their last month has passed, it can only be moved
   **earlier** here: later months are greyed out, the **Still coming** button isn't there, and
-  the line says *"The last month they paid for. It can only move earlier here. If they've come
-  back, use Mark as coming again on their profile."* That asks which month they're back from,
-  so the months away aren't owed.
+  the line says *"The last month they paid for. It can only move earlier here. Came back after
+  all? Use Mark as coming again on their profile, then set a new Left month if needed."* That
+  asks which month they're back from, so the months away aren't owed. If a new left month would
+  make months away owed again, a box names them and asks for a tick first (see
+  [Student profile](#student-profile)).
 - **New fee applies from**: this appears, in a marigold box, as soon as you type a fee different
   from their current one. It's also there whenever they have a fee change that hasn't started
   yet (and once you've typed in the fee box, whenever they've had more than one fee), so you
@@ -885,7 +889,9 @@ which the app writes and tidies up itself (if you change their left month, or th
 again). A fee that starts after this month is marked *(not started yet)*, with a **Remove**
 button, in case it was set by mistake or plans changed. Their first fee, and any fee that has
 already started, can't be removed, so past months never change by accident. To undo a month
-off that has already started, **Edit** and set their usual fee from that month.
+off that has already started, **Edit** and set their usual fee from that month. The fee they
+came back on (the one right after *Away (no fee)*) has no **Remove** either: without it they'd
+stay away for good. To change it, set a new fee with **Edit**.
 
 **Month by month** (*"What was due each month, and what came in."*): one row per month, newest
 first, from the month they joined to this month (and any later month they've paid ahead for).
@@ -946,7 +952,10 @@ by the heading is how many there are.
 **Mark them as left**
 1. Click **Mark as left**.
 2. Choose the **last month they should pay for** (this month is filled in).
-3. Click **Mark as left**. You'll see *"Ananya Rao marked as left — Last month they pay for:
+3. If they came back once before and this month falls inside or before those months away, the
+   box names them (*"April–June 2026 will be owed again…"*): tick **Yes, they owe those
+   months** only if that's right.
+4. Click **Mark as left**. You'll see *"Ananya Rao marked as left — Last month they pay for:
    September 2026"*.
 
 <img src="images/feature-guide/mark-left.png" alt="The box 'Mark Ananya Rao as left?': 'Ananya won't owe anything after this month, and will then move to the Left tab. Their payments and history are kept.', 'Last month they should pay for: September 2026', Cancel and Mark as left." width="420">
@@ -987,9 +996,20 @@ earlier is still to come, the box says so instead of "as if they never left".
 the month right after the one they left (so nothing is skipped), then click **Mark as left**
 and choose their real last month.
 
-**Got the left month wrong after they came back?** Change **Left in month** (or use **Mark as
-left** again): the months away that don't fit the new left month are tidied away, and those
-months are owed again. Then mark them as coming again from the right month.
+**Setting a left month that makes months away owed again.** If they came back once, and the
+left month you choose (in **Mark as left** or **Edit**) falls inside or before those months away,
+the app says so before saving: *"April–June 2026 will be owed again, because they were marked
+as away. Is that right?"* Tick **Yes, they owe those months** to go ahead (only if they really
+were there then).
+
+**Chose the wrong left month?** Say they left after March and came back in July (away April to
+June), and you then marked them as left after May by mistake. To put it right:
+1. **Edit** → **Left in month** → choose **March**, their real last month (an earlier month is
+   always allowed), and save.
+2. Click **Mark as coming again**, choose **July** (the month they came back), and save.
+
+April to June are away again, with no fee, and nothing else changed. If you'd rather move the
+left month later, the app refuses and gives these same steps.
 
 If they come back in a later month, the profile's **Monthly fee** says so until then: *"No fee
 until December 2026, then ₹1,000"*, and the Students page shows *No fee* with *₹1,000 from Dec
