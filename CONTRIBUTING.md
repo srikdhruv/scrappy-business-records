@@ -23,6 +23,34 @@ If you changed the database models, add an Alembic migration (see
 [development runbook](docs/runbooks/development.md#database-migrations)). **Never edit a migration
 that has been released** — the user's laptop has already run it.
 
+If your PR changes what the user sees or can do, update the
+[feature guide](docs/feature-guide.md) in the same PR (see below).
+
+Checklist (the [PR template](.github/pull_request_template.md) repeats it):
+
+- [ ] `make fmt`, `make lint` and `make test` pass.
+- [ ] `make gen-api` run and `schema.d.ts` committed, if the API changed.
+- [ ] A migration added, if the models changed.
+- [ ] **Feature guide (`docs/feature-guide.md`) updated**, with new pictures if a screen changed
+      noticeably, or this PR doesn't change what the user sees.
+
+## Keep the feature guide up to date
+
+[`docs/feature-guide.md`](docs/feature-guide.md) describes every screen as it really is. It
+must never describe something that isn't built, or miss something that is.
+
+- **Rule:** any PR that changes what the user can see or do (screens, wording, flows, or API
+  behaviour that the UI shows) **must** update the feature guide in the same PR. If a screen
+  changed noticeably, retake its pictures with `make guide-screenshots` and commit the ones
+  that changed.
+- **CI enforces it.** The *Feature guide* check fails when a PR changes `frontend/src/`
+  (except tests, `*.test.*` files and the mock API), `backend/app/routers/`,
+  `backend/app/services/` or `backend/app/schemas.py`, and doesn't change
+  `docs/feature-guide.md`.
+- **Only if the user really sees no difference** (a refactor, a speed-up, a test helper), add
+  the **`no-guide-change`** label to the PR instead. The check re-runs when labels change.
+- Check it locally: `python3 scripts/ci/check_feature_guide.py --base origin/main`.
+
 ## Principles
 
 1. **The user is non-technical.** Anything they have to do must be a double-click or a single
