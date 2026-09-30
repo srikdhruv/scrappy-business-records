@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import datetime as dt
+import sqlite3
 from collections import Counter
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -45,7 +47,7 @@ def test_seed_mix(session: Session) -> None:
     payments = [p for s in students for p in s.payments]
 
     # Fictional details.
-    assert all(s.phone is None or s.phone.startswith("98765 4") for s in students)
+    assert all(s.phone is None or s.phone.startswith("90000 000") for s in students)
     assert len({s.batch_label for s in students}) == 5
     fees = {f.amount_paise for s in students for f in s.fee_changes}
     assert min(fees) >= 1200_00 and max(fees) <= 3000_00
@@ -131,9 +133,22 @@ def test_seed_refuses_non_empty_database_unless_forced(session: Session) -> None
     assert len(session.scalars(select(Payment.id)).all()) == len(before)
 
 
-def test_main(capsys: pytest.CaptureFixture[str]) -> None:
+def test_main(capsys: pytest.CaptureFixture[str], scrappy_home: Path) -> None:
     assert seed.main([]) == 0
     assert "Added 25 demo students" in capsys.readouterr().out
     assert seed.main([]) == 1
     assert "Use --force" in capsys.readouterr().err
     assert seed.main(["--force"]) == 0
+    out = capsys.readouterr().out
+    assert "Backed up the database" in out
+    [backup] = (scrappy_home / "backups").glob("records-before-seed-*.db")
+    with sqlite3.connect(backup) as conn:
+        assert conn.execute("SELECT count(*) FROM students").fetchone() == (25,)
+
+
+def test_main_refuses_without_scrappy_home(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("SCRAPPY_HOME")
+    assert seed.main(["--force"]) == 1
+    assert "set SCRAPPY_HOME" in capsys.readouterr().err

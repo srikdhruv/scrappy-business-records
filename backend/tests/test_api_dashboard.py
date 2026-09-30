@@ -7,12 +7,13 @@ import datetime as dt
 from fastapi.testclient import TestClient
 from helpers import make_student, pay
 
-from app.clock import get_current_month
+from app.clock import get_current_month, get_today
 
 
 def test_empty_dashboard_defaults_to_current_month(api: TestClient) -> None:
     assert api.get("/api/dashboard").json() == {
         "month": "2026-06",
+        "current_month": "2026-06",
         "summary": {
             "expected_paise": 0,
             "collected_paise": 0,
@@ -70,6 +71,7 @@ def test_dashboard_sections(api: TestClient) -> None:
             "paid_paise": 100000,
             "remaining_paise": 100000,
             "status": "partial",
+            "credit_paise": 0,
         },
         {
             "student_id": meera,
@@ -80,6 +82,7 @@ def test_dashboard_sections(api: TestClient) -> None:
             "paid_paise": 0,
             "remaining_paise": 120000,
             "status": "unpaid",
+            "credit_paise": 0,
         },
     ]
     assert june["backlog"] == [
@@ -105,6 +108,7 @@ def test_dashboard_sections(api: TestClient) -> None:
                 },
             ],
             "total_owed_paise": 200000,
+            "credit_paise": 50000,  # May's overpayment
         },
         {
             "student_id": meera,
@@ -121,12 +125,15 @@ def test_dashboard_sections(api: TestClient) -> None:
                 }
             ],
             "total_owed_paise": 120000,
+            "credit_paise": 0,
         },
     ]
     assert june["overpaid"] == [
         {
             "student_id": ananya,
             "student_name": "Ananya Rao",
+            "batch_label": "Mon/Wed 5pm",
+            "phone": "98765 40001",
             "month": "2026-05",
             "expected_paise": 150000,
             "paid_paise": 200000,
@@ -161,5 +168,5 @@ def test_bad_month_is_422(api: TestClient) -> None:
 
 def test_current_month_comes_from_the_clock(client: TestClient) -> None:
     today = dt.date.today()
-    assert get_current_month() == today.replace(day=1)
+    assert get_current_month(get_today()) == today.replace(day=1)
     assert client.get("/api/dashboard").json()["month"] == today.strftime("%Y-%m")

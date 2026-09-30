@@ -1,10 +1,13 @@
 """Fill the database with realistic, obviously fictional demo data (`make seed`).
 
     python -m app.seed            # refuses if the database already has students
-    python -m app.seed --force    # deletes every student and payment first
+    python -m app.seed --force    # backs up, then deletes every student and payment first
 
-It writes to the configured data folder (`make seed` uses `./.devdata`), creating and migrating
-the database if needed. Everything is relative to today's month and deterministic: the same day
+It only runs when `SCRAPPY_HOME` is set explicitly (`make seed` sets it to `./.devdata`), so it
+can never touch a real install's data by accident. It creates and migrates the database if
+needed. Before `--force` deletes anything, it copies the database into the backup folder.
+
+Everything is relative to today's month and deterministic: the same day
 always gives the same data.
 
 The mix: about 25 students across five batches, 12 months of history, mostly paid on time and
@@ -19,10 +22,13 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import os
 import random
+import sqlite3
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -69,7 +75,7 @@ ROSTER: tuple[Demo, ...] = (
          notes="Parent said they'd clear the dues together."),
     Demo("Saanvi Reddy", "Kavitha Reddy", 1500, 9, 0),
     Demo("Vihaan Joshi", "Neha Joshi", 2000, 9, 3, "overpaid"),
-    Demo("Aditi Sharma", None, 3000, 9, 3),
+    Demo("Aditi Kamath", None, 3000, 9, 3),
     Demo("Kavya Pillai", "Anand Pillai", 1200, 8, 2, "partial"),
     Demo("Aarav Bhat", "Deepa Bhat", 1500, 8, 0, "advance"),
     Demo("Nisha Hegde", None, 2500, 8, 4),
@@ -79,7 +85,7 @@ ROSTER: tuple[Demo, ...] = (
     Demo("Siddharth Rao", None, 2000, 6, 3, phone=False),
     Demo("Pooja Gowda", "Manjunath Gowda", 1500, 5, 0, "partial_now"),
     Demo("Neel Chatterjee", "Rupa Chatterjee", 1800, 5, 1),
-    Demo("Zara Khan", "Farah Khan", 1200, 4, 2),
+    Demo("Zara Khan", "Nasreen Khan", 1200, 4, 2),
     Demo("Aryan Verma", None, 2500, 4, 4),
     Demo("Ira Banerjee", "Moumita Banerjee", 1500, 3, 0),
     Demo("Krish Patil", "Swati Patil", 1200, 2, 2),
@@ -134,7 +140,7 @@ class _Maker:
         fee = demo.fee_rupees * 100
         student = Student(
             name=demo.name,
-            phone=f"98765 4{index:04d}" if demo.phone else None,
+            phone=f"90000 000{index:02d}" if demo.phone else None,  # obviously not real
             guardian_name=demo.guardian,
             batch_label=BATCHES[demo.batch],
             joined_month=joined,
@@ -233,16 +239,42 @@ def seed(session: Session, today: dt.date, *, force: bool = False) -> int:
     return len(students)
 
 
+def backup_before_wipe() -> Path:
+    """Copy the database into the backup folder (SQLite's online backup) and return the copy."""
+    target = config.backup_dir() / f"records-before-seed-{dt.datetime.now():%Y%m%d-%H%M%S}.db"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    src = sqlite3.connect(config.db_path())
+    dst = sqlite3.connect(target)
+    try:
+        src.backup(dst)
+    finally:
+        dst.close()
+        src.close()
+    return target
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.seed", description=__doc__.split("\n")[0])
     parser.add_argument(
-        "--force", action="store_true", help="delete every existing student and payment first"
+        "--force",
+        action="store_true",
+        help="back up, then delete every existing student and payment first",
     )
     args = parser.parse_args(argv)
+
+    if not os.environ.get("SCRAPPY_HOME", "").strip():
+        print(
+            "Not seeding: set SCRAPPY_HOME to a development folder first (make seed does this),"
+            " so demo data never goes into real records.",
+            file=sys.stderr,
+        )
+        return 1
 
     config.ensure_dirs()
     migrate.upgrade_to_head()
     with Session(get_engine()) as session:
+        if args.force and student_count(session):
+            print(f"Backed up the database to {backup_before_wipe()}")
         try:
             added = seed(session, dt.date.today(), force=args.force)
         except RuntimeError as e:

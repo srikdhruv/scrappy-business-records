@@ -26,6 +26,7 @@ def get_dashboard(session: Session, month: dt.date, current_month: dt.date) -> D
     s = board.summary
     return DashboardResponse(
         month=format_month(board.month),
+        current_month=format_month(current_month),
         summary=DashboardSummary(
             expected_paise=s.expected_paise,
             collected_paise=s.collected_paise,
@@ -43,6 +44,7 @@ def get_dashboard(session: Session, month: dt.date, current_month: dt.date) -> D
                 paid_paise=e.line.paid_paise,
                 remaining_paise=e.line.remaining_paise,
                 status=e.line.status,  # type: ignore[arg-type]
+                credit_paise=e.credit_paise,
             )
             for e in board.yet_to_pay
         ],
@@ -63,6 +65,7 @@ def get_dashboard(session: Session, month: dt.date, current_month: dt.date) -> D
                     for line in e.lines
                 ],
                 total_owed_paise=e.total_owed_paise,
+                credit_paise=e.credit_paise,
             )
             for e in board.backlog
         ],
@@ -70,6 +73,8 @@ def get_dashboard(session: Session, month: dt.date, current_month: dt.date) -> D
             OverpaidItem(
                 student_id=e.student.id,
                 student_name=e.student.name,
+                batch_label=e.student.batch_label,
+                phone=e.student.phone,
                 month=format_month(e.line.month),
                 expected_paise=e.line.expected_paise,
                 paid_paise=e.line.paid_paise,

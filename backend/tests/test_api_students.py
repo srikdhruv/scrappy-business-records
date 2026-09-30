@@ -336,24 +336,49 @@ def test_delete_cascades_to_payments(api: TestClient) -> None:
 def test_suggest_payment(api: TestClient) -> None:
     s = make_student(api, joined_month="2026-04")
     url = f"/api/students/{s['id']}/suggest-payment"
-    assert api.get(url).json() == {"for_month": "2026-04", "amount_paise": 150000}
+
+    def owed(month: str, amount: int | None) -> Json:
+        return {"for_month": month, "amount_paise": amount, "reason": "owed"}
+
+    def next_unpaid(month: str, amount: int | None) -> Json:
+        return {"for_month": month, "amount_paise": amount, "reason": "next_unpaid"}
+
+    assert api.get(url).json() == owed("2026-04", 150000)
     pay(api, s["id"], "2026-04")
     pay(api, s["id"], "2026-05", 50000)
-    assert api.get(url).json() == {"for_month": "2026-05", "amount_paise": 100000}
+    assert api.get(url).json() == owed("2026-05", 100000)
     pay(api, s["id"], "2026-05", 100000)
     pay(api, s["id"], "2026-06")
     # Nothing owed: the next month that isn't fully paid.
-    assert api.get(url).json() == {"for_month": "2026-07", "amount_paise": 150000}
+    assert api.get(url).json() == next_unpaid("2026-07", 150000)
     pay(api, s["id"], "2026-07")
     pay(api, s["id"], "2026-08", 40000)
-    assert api.get(url).json() == {"for_month": "2026-08", "amount_paise": 110000}
+    assert api.get(url).json() == next_unpaid("2026-08", 110000)
+
+    # Leaving after August and paying the rest of August: nothing is left.
+    api.patch(f"/api/students/{s['id']}", json={"left_month": "2026-08"})
+    pay(api, s["id"], "2026-08", 110000)
+    assert api.get(url).json() == {"for_month": None, "amount_paise": None, "reason": "all_paid"}
+
+
+def test_suggest_payment_zero_fee(api: TestClient) -> None:
+    s = make_student(api, joined_month="2026-06", monthly_fee_paise=0)
+    assert api.get(f"/api/students/{s['id']}/suggest-payment").json() == {
+        "for_month": "2026-07",
+        "amount_paise": None,
+        "reason": "next_unpaid",
+    }
 
 
 def test_suggest_payment_after_fee_change(api: TestClient) -> None:
     s = make_student(api, joined_month="2026-06")
     api.patch(f"/api/students/{s['id']}", json={"monthly_fee_paise": 250000})
     url = f"/api/students/{s['id']}/suggest-payment"
-    assert api.get(url).json() == {"for_month": "2026-06", "amount_paise": 250000}
+    assert api.get(url).json() == {
+        "for_month": "2026-06",
+        "amount_paise": 250000,
+        "reason": "owed",
+    }
 
 
 # --------------------------------------------------------------------------- active / left

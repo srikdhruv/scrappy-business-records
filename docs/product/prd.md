@@ -124,11 +124,21 @@ These rules decide every number the app shows.
 9. **Suggested payment** (what the *Log payment* form fills in):
    - the oldest month up to the current month that is Unpaid or Partial, with what's left on
      it;
-   - otherwise, the first month *after* the current month that isn't fully paid, with its fee
-     (or what's left of it, if it is partly paid ahead). Usually that is next month. If they
-     have paid ahead, it is the first month after what they have prepaid;
-   - if no later month is owed at all (they leave before then, or their fee is 0), next month
-     and the fee in effect then.
+   - otherwise, the first month *after* the current month that the student is enrolled in and
+     hasn't paid, with its fee (or what's left of it, if it is partly paid ahead). Usually that
+     is next month. If they have paid ahead, it is the first month after what they have
+     prepaid. If that month's fee is 0, no amount is suggested;
+   - if nothing is left to pay in the months they are enrolled in (they have left and paid
+     everything), nothing is suggested.
+
+   It never suggests a month that is already fully paid, or one they aren't enrolled in.
+10. **Credit.** Money in overpaid months up to the current month: the sum of
+    `max(0, paid − expected)` over those months, including payments for months the student
+    wasn't enrolled in. Payments for future months are "paid ahead", not credit. Payments stay
+    exactly as they were typed: credit is never moved to other months or split automatically.
+    Instead, wherever a student is shown as owing (*Yet to pay*, *Backlog*, the students list
+    and the profile), their credit is shown next to it ("has ₹X credit"), so the owner can fix
+    the payment's month.
 
 ### Dashboard for a selected month M
 

@@ -29,6 +29,8 @@ from app.schemas import (
     SuggestedPayment,
 )
 from app.services import ledger
+from app.services.bounds import check_month, valid_id
+from app.services.text import fold
 
 # --------------------------------------------------------------------------- loading
 
@@ -58,7 +60,9 @@ def all_students(session: Session) -> list[Student]:
 
 
 def get_student_row(session: Session, student_id: int) -> Student:
-    student = session.get(Student, student_id, options=_LEDGER_ROWS)
+    student = (
+        session.get(Student, student_id, options=_LEDGER_ROWS) if valid_id(student_id) else None
+    )
     if student is None:
         raise not_found("student", student_id)
     return student
@@ -81,6 +85,9 @@ def _read_fields(student: Student, led: ledger.StudentLedger) -> dict[str, objec
         "monthly_fee_paise": led.monthly_fee_paise,
         "balance_paise": led.balance_paise,
         "status": led.status,
+        "credit_paise": led.credit_paise,
+        "tenure_months": led.tenure_months,
+        "current_month": led.current_month,
         "created_at": student.created_at,
         "updated_at": student.updated_at,
     }
@@ -124,11 +131,11 @@ def student_detail(student: Student, current_month: dt.date) -> StudentDetail:
 
 
 def _matches(student: Student, q: str) -> bool:
-    """Case-insensitive match on name, phone or guardian. Spaces in phone numbers are ignored,
-    so "9876543210" finds "98765 43210"."""
-    needle = q.casefold()
+    """Match on name, phone or guardian, ignoring case and accents. Spaces in phone numbers are
+    ignored, so "9876543210" finds "98765 43210"."""
+    needle = fold(q)
     texts = (student.name, student.guardian_name, student.phone)
-    if any(t and needle in t.casefold() for t in texts):
+    if any(t and needle in fold(t) for t in texts):
         return True
     digits = needle.replace(" ", "")
     return bool(digits and student.phone and digits in student.phone.replace(" ", ""))
@@ -148,7 +155,7 @@ def list_students(
         rows = [s for s in rows if ledger.has_left(to_record(s), current_month) == want_left]
     if q and q.strip():
         rows = [s for s in rows if _matches(s, q.strip())]
-    rows.sort(key=lambda s: (s.name.casefold(), s.id))
+    rows.sort(key=lambda s: (fold(s.name), s.id))
     return [student_read(s, current_month) for s in rows]
 
 
@@ -161,7 +168,9 @@ def suggest_payment(session: Session, student_id: int, current_month: dt.date) -
         to_record(get_student_row(session, student_id)), current_month
     )
     return SuggestedPayment(
-        for_month=format_month(suggestion.for_month), amount_paise=suggestion.amount_paise
+        for_month=suggestion.for_month,  # type: ignore[arg-type]  # Month accepts a date
+        amount_paise=suggestion.amount_paise,
+        reason=suggestion.reason,
     )
 
 
@@ -171,6 +180,9 @@ def suggest_payment(session: Session, student_id: int, current_month: dt.date) -
 def create_student(session: Session, body: StudentCreate, current_month: dt.date) -> StudentDetail:
     """Create a student and their first fee change at `joined_month`."""
     joined = parse_month(body.joined_month)
+    check_month("joined_month", joined, current_month)
+    if body.left_month:
+        check_month("left_month", parse_month(body.left_month), current_month)
     student = Student(
         name=body.name,
         phone=body.phone,
@@ -208,6 +220,12 @@ def update_student(
     fees = sorted(student.fee_changes, key=lambda f: f.effective_month)
 
     joined = parse_month(body.joined_month) if body.joined_month else student.joined_month
+    if body.joined_month:
+        check_month("joined_month", joined, current_month)
+    if body.left_month:
+        check_month("left_month", parse_month(body.left_month), current_month)
+    if body.fee_effective_month:
+        check_month("fee_effective_month", parse_month(body.fee_effective_month), current_month)
     if joined != student.joined_month and len(fees) > 1 and joined >= fees[1].effective_month:
         raise unprocessable(
             "The joined month can't be on or after a later fee change "
@@ -266,8 +284,8 @@ def _set_fee_from(session: Session, student: Student, month: dt.date, amount: in
 
 
 def delete_student(session: Session, student_id: int) -> None:
-    """Hard delete; the database cascades to fee changes and payments."""
-    student = session.get(Student, student_id)
+    """Hard delete; the database cascades to fee changes and payments (they aren't loaded)."""
+    student = session.get(Student, student_id) if valid_id(student_id) else None
     if student is None:
         raise not_found("student", student_id)
     session.delete(student)

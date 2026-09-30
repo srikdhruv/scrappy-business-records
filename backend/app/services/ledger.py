@@ -30,7 +30,8 @@ from dataclasses import dataclass
 from functools import cached_property
 
 from app.months import add_months, first_of_month, month_range
-from app.schemas import BalanceStatus, MonthStatus
+from app.schemas import BalanceStatus, MonthStatus, SuggestionReason
+from app.services.text import fold
 
 __all__ = [
     "BacklogEntry",
@@ -46,9 +47,12 @@ __all__ = [
     "YetToPayEntry",
     "balance_status",
     "build_dashboard",
+    "credit",
     "has_left",
     "month_status",
     "student_ledger",
+    "suggest_payment",
+    "tenure_months",
 ]
 
 # --------------------------------------------------------------------------- inputs
@@ -148,8 +152,12 @@ class MonthLine:
 
 @dataclass(frozen=True, slots=True)
 class Suggestion:
-    for_month: dt.date
-    amount_paise: int
+    """See `suggest_payment`. Month and amount are None when nothing is left to pay; the amount
+    is also None for a month whose fee is 0."""
+
+    reason: SuggestionReason
+    for_month: dt.date | None = None
+    amount_paise: int | None = None
 
 
 @dataclass(frozen=True)
@@ -164,6 +172,10 @@ class StudentLedger:
     """False once the left month has passed (see `has_left`)."""
     balance_paise: int
     status: BalanceStatus
+    credit_paise: int
+    """See `credit`."""
+    tenure_months: int
+    """See `tenure_months`."""
     monthly_fee_paise: int
     total_paid_paise: int
     payment_count: int
@@ -183,6 +195,8 @@ class DashboardSummary:
 class YetToPayEntry:
     student: StudentRecord
     line: MonthLine
+    credit_paise: int
+    """The student's `credit` (money in overpaid due months)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +204,8 @@ class BacklogEntry:
     student: StudentRecord
     lines: tuple[MonthLine, ...]
     """Unpaid or Partial months, oldest first."""
+    credit_paise: int
+    """The student's `credit` (money in overpaid due months)."""
 
     @property
     def total_owed_paise(self) -> int:
@@ -265,6 +281,23 @@ def balance(student: StudentRecord, current_month: dt.date) -> int:
     return sum(p.amount_paise for p in student.payments) - expected_to_date(student, current_month)
 
 
+def credit(student: StudentRecord, current_month: dt.date) -> int:
+    """Money in overpaid months: the sum of max(0, paid - expected) over months up to and
+    including the current month. That includes payments for months the student isn't active
+    in. Payments for later months are "paid ahead", not credit."""
+    return sum(
+        max(0, paid - student.expected(m))
+        for m, paid in student.paid_by_month.items()
+        if m <= current_month
+    )
+
+
+def tenure_months(student: StudentRecord, current_month: dt.date) -> int:
+    """How many months they have been a student: `joined_month` up to the current month (or
+    `left_month`, if earlier), counting both. 0 if they haven't joined yet."""
+    return len(due_months(student, current_month))
+
+
 def history_range(student: StudentRecord, current_month: dt.date) -> list[dt.date]:
     """The months shown on a student's profile, oldest first.
 
@@ -293,31 +326,33 @@ def has_left(student: StudentRecord, current_month: dt.date) -> bool:
 
 
 def suggest_payment(student: StudentRecord, current_month: dt.date) -> Suggestion:
-    """Prefill for the Log payment form.
+    """Prefill for the Log payment form (PRD ledger rule 9). It never suggests a month that is
+    already fully paid, or one outside the months the student is enrolled in.
 
-    1. The oldest due month (up to the current month) that is Unpaid or Partial, with what's
-       left on it.
-    2. Otherwise the first month after the current month (and not before joining) that isn't
-       fully paid: usually next month, or the month after what they've paid ahead. The amount
-       is what's left on it, which is its fee unless it is partly paid ahead.
-    3. If there is no such month (they leave before then, or their fee is 0), the month after
-       the current month (or the joining month, if later) and the fee in effect then.
+    1. `owed`: the oldest due month (up to the current month) that is Unpaid or Partial, with
+       what's left on it.
+    2. `next_unpaid`: otherwise the first enrolled month after the current month that isn't
+       paid yet (Unpaid, Partial, or a 0 fee with nothing paid), with what's left on it: usually
+       next month, or the month after what they've paid ahead. The amount is None if the fee
+       for that month is 0.
+    3. `all_paid`: nothing is left in the enrolled months (they have left and paid up).
     """
     for m in due_months(student, current_month):
         line = month_line(student, m, current_month)
         if line.is_owing:
-            return Suggestion(for_month=m, amount_paise=line.remaining_paise)
+            return Suggestion(SuggestionReason.owed, m, line.remaining_paise)
 
     start = max(add_months(current_month, 1), student.joined_month)
-    # The month after the last paid one is unpaid (if owed), so the search always ends.
-    end = max(start, add_months(max(student.paid_by_month, default=start), 1))
     if student.left_month is not None:
-        end = min(end, student.left_month)
+        end = student.left_month
+    else:
+        # The month after the last paid one has nothing paid, so the search always ends.
+        end = max(start, add_months(max(student.paid_by_month, default=start), 1))
     for m in month_range(start, end) if start <= end else []:
         line = month_line(student, m, current_month)
-        if line.is_owing:
-            return Suggestion(for_month=m, amount_paise=line.remaining_paise)
-    return Suggestion(for_month=start, amount_paise=student.fee_in_effect(start))
+        if line.is_owing or line.status is MonthStatus.not_applicable:
+            return Suggestion(SuggestionReason.next_unpaid, m, line.remaining_paise or None)
+    return Suggestion(SuggestionReason.all_paid)
 
 
 def student_ledger(student: StudentRecord, current_month: dt.date) -> StudentLedger:
@@ -333,6 +368,8 @@ def student_ledger(student: StudentRecord, current_month: dt.date) -> StudentLed
         is_active=not has_left(student, current_month),
         balance_paise=bal,
         status=balance_status(bal),
+        credit_paise=credit(student, current_month),
+        tenure_months=tenure_months(student, current_month),
         monthly_fee_paise=current_fee(student, current_month),
         total_paid_paise=sum(p.amount_paise for p in student.payments),
         payment_count=len(student.payments),
@@ -344,7 +381,7 @@ def student_ledger(student: StudentRecord, current_month: dt.date) -> StudentLed
 
 
 def _sort_key(student: StudentRecord) -> tuple[str, int]:
-    return (student.name.casefold(), student.id)
+    return (fold(student.name), student.id)
 
 
 def build_dashboard(
@@ -362,7 +399,8 @@ def build_dashboard(
     - **Overpaid**: student-months up to M with paid > expected. Only due months count, so
       payments made ahead never show here.
 
-    Lists are sorted by student name; overpaid months are oldest first within a student.
+    Lists are sorted by student name (ignoring case and accents); overpaid months are oldest
+    first within a student. Yet-to-pay and backlog entries carry the student's `credit`.
     """
     month = first_of_month(month)
     current_month = first_of_month(current_month)
@@ -384,7 +422,7 @@ def build_dashboard(
             expected_total += line.expected_paise
             still_due += line.remaining_paise
             if line.is_owing:
-                yet_to_pay.append(YetToPayEntry(s, line))
+                yet_to_pay.append(YetToPayEntry(s, line, credit(s, current_month)))
 
         owing = tuple(
             ml
@@ -392,7 +430,7 @@ def build_dashboard(
             if (ml := month_line(s, m, current_month)).is_owing
         )
         if owing:
-            backlog.append(BacklogEntry(s, owing))
+            backlog.append(BacklogEntry(s, owing, credit(s, current_month)))
 
         for m in sorted(s.paid_by_month):
             if m > overpaid_end:
