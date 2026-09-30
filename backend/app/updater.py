@@ -490,14 +490,31 @@ def _open_update_log() -> Any:
     return open(path, "ab")  # handed to the installer, closed by the caller
 
 
+def install_root(bundle: Path) -> Path:
+    """The folder holding `app/`, spelled the way the running programs were started.
+
+    The installer finds the app's processes by their path. If the folder is reached through a
+    symlink (macOS's /var is /private/var), a resolved path wouldn't match what they were
+    started as, and the installer couldn't stop them. So prefer the path of our own Python
+    (`<root>/app/python/pythonw.exe`, `<root>/app/python/bin/python3`), as it was started."""
+    exe = Path(os.path.abspath(sys.executable))
+    depth = 2 if sys.platform == "win32" else 3
+    if len(exe.parents) > depth:
+        candidate = exe.parents[depth - 1]
+        with contextlib.suppress(OSError):
+            if candidate.resolve() == bundle.resolve():
+                return candidate.parent
+    return bundle.parent
+
+
 def installer_env(root: Path) -> dict[str, str]:
     """The installer's environment: ours, plus how it was started (the contract with future
-    installers, docs/runbooks/release.md)."""
+    installers, docs/runbooks/release.md). `root` is the running app folder (`<root>/app`)."""
     env = dict(os.environ)
     for name in ("SCRAPPY_INSTALL_VERSION", "SCRAPPY_NO_LAUNCH", "SCRAPPY_AFTER_UPDATE"):
         env.pop(name, None)
     env["SCRAPPY_UPDATE_FROM_APP"] = "1"
-    env["SCRAPPY_INSTALL_ROOT"] = str(root.parent)  # update the copy that is running
+    env["SCRAPPY_INSTALL_ROOT"] = str(install_root(root))  # update the copy that is running
     zip_path = config.update_zip()
     if zip_path:
         env["SCRAPPY_INSTALL_ZIP"] = zip_path

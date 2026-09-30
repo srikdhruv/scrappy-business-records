@@ -6,6 +6,10 @@
  *   GET  /received         every body it was sent, as a JSON array
  *   POST /script           queue answers: [{status, body}], used one per feedback POST
  *   GET  /health           {ok: true}
+ *
+ * It also stands in for GitHub's "latest release" (the update check, ADR 0006):
+ *   GET  /releases/latest  404 (nothing released), or the release set with POST /feed
+ *   POST /feed             {tag, body} sets the latest release; {} goes back to 404
  */
 import { createServer } from 'node:http'
 
@@ -13,6 +17,7 @@ const port = Number(process.argv[2] ?? 8799)
 const received = []
 const script = []
 const filed = new Map()
+let release = null
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -32,6 +37,27 @@ function send(res, status, body) {
 createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`)
   if (req.method === 'GET' && url.pathname === '/health') return send(res, 200, { ok: true })
+  if (req.method === 'GET' && url.pathname === '/releases/latest') {
+    if (!release) return send(res, 404, { message: 'Not Found' })
+    return send(res, 200, release)
+  }
+  if (req.method === 'POST' && url.pathname === '/feed') {
+    const { tag, body } = JSON.parse(await readBody(req))
+    release = tag
+      ? {
+          tag_name: tag,
+          name: tag,
+          draft: false,
+          prerelease: false,
+          body: body ?? '',
+          assets: [
+            { name: 'scrappy-records-windows-x64.zip', state: 'uploaded' },
+            { name: 'scrappy-records-macos-arm64.zip', state: 'uploaded' },
+          ],
+        }
+      : null
+    return send(res, 200, { release })
+  }
   if (req.method === 'GET' && url.pathname === '/received') return send(res, 200, received)
   if (req.method === 'POST' && url.pathname === '/script') {
     script.push(...JSON.parse(await readBody(req)))

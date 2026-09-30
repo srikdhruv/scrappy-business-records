@@ -444,6 +444,8 @@ def self_test(zip_path: Path, target: Target, version: str, build: str) -> None:
             SCRAPPY_HOME=str(home),
             SCRAPPY_BACKUP_DIR=str(home / "backups"),
             SCRAPPY_PORT=str(port),
+            SCRAPPY_UPDATE_FEED_URL="",  # the self-test never asks GitHub for updates
+            SCRAPPY_FEEDBACK_URL="",
         )
 
         def run(*args: str) -> str:

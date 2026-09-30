@@ -678,6 +678,28 @@ def test_installer_env_and_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     ]
 
 
+def test_install_root_is_spelled_as_our_python_was_started(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = tmp_path / "real" / "Root"
+    app_dir = real / "app"
+    python = app_dir / ("python/pythonw.exe" if sys.platform == "win32" else "python/bin/python3")
+    python.parent.mkdir(parents=True)
+    python.write_text("")
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(tmp_path / "real", target_is_directory=True)
+    except OSError:
+        pytest.skip("can't make a symlink here")
+    started_as = link / "Root" / python.relative_to(real)
+    monkeypatch.setattr(sys, "executable", str(started_as))
+    # The bundle's own path is resolved (/private/var/...); the processes were started as
+    # /var/...: the installer must be given the second.
+    assert updater.install_root(app_dir.resolve()) == link / "Root"
+    monkeypatch.setattr(sys, "executable", "/usr/bin/python3")  # not ours: the bundle's parent
+    assert updater.install_root(app_dir) == real
+
+
 def test_installer_url_can_be_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
     assert config.update_installer_url("v1.2.3", "install.sh").endswith(
         "/v1.2.3/scripts/install.sh"

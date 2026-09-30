@@ -406,7 +406,7 @@ def main() -> int:
         return 1
 
     if _flag("SCRAPPY_AFTER_UPDATE") and page_is_waiting(port):
-        log.info("Updated: the page that started the update reloads itself; no new browser tab")
+        log.info("After an update: the page that started it reloads itself; no new browser tab")
     elif _flag("SCRAPPY_NO_BROWSER"):
         log.info("SCRAPPY_NO_BROWSER is set, so not opening the browser")
     elif not webbrowser.open(app_url(port)):
