@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime as dt
 import io
+import uuid
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -259,8 +260,10 @@ _KIND_WORDS = {"fee": "Fee", "away": "Away (no fee)"}
 
 
 def everything_workbook(session: Session, current_month: dt.date) -> bytes:
-    """Students, Fee history, Payments and Unassigned payments, with each student's ID so the
-    sheets link up when uploaded again."""
+    """Students, Fee history, Payments and Unassigned payments, with each student's uid (the
+    Student ID column), which links the sheets, and finds the same students again when the
+    file is uploaded into this app or any other."""
+    uids = ensure_uids(session)
     students = student_service.list_students(session, StudentListFilter.all, None, current_month)
     order = {s.id: i for i, s in enumerate(students)}
     phones = {s.id: s.phone for s in students}
@@ -269,13 +272,20 @@ def everything_workbook(session: Session, current_month: dt.date) -> bytes:
         book,
         "Students",
         (*_STUDENT_COLUMNS, _ID),
-        ([*_student_values(s), s.id] for s in students),
+        ([*_student_values(s), uids[s.id]] for s in students),
     )
 
     rows = session.scalars(select(Student).options(selectinload(Student.fee_changes))).all()
     fee_rows = sorted(
         (
-            (order.get(s.id, 0), f.effective_month, s.name, f.amount_paise, f.kind.value, s.id)
+            (
+                order.get(s.id, 0),
+                f.effective_month,
+                s.name,
+                f.amount_paise,
+                f.kind.value,
+                uids[s.id],
+            )
             for s in rows
             for f in s.fee_changes
         ),
@@ -295,7 +305,7 @@ def everything_workbook(session: Session, current_month: dt.date) -> bytes:
         book,
         "Payments",
         (*_PAYMENT_COLUMNS, _ID),
-        ([*_payment_values(p, phones), p.student_id] for p in payments),
+        ([*_payment_values(p, phones), uids[p.student_id]] for p in payments),
     )
 
     unassigned = session.scalars(
@@ -320,6 +330,17 @@ def everything_workbook(session: Session, current_month: dt.date) -> bytes:
         ),
     )
     return _save(book)
+
+
+def ensure_uids(session: Session) -> dict[int, str]:
+    """Every student's uid (see `Student.uid`), giving one to anyone who hasn't got one yet."""
+    rows = list(session.scalars(select(Student)))
+    missing = [s for s in rows if not s.uid]
+    for student in missing:
+        student.uid = uuid.uuid4().hex
+    if missing:
+        session.commit()
+    return {s.id: s.uid for s in rows if s.uid}
 
 
 # --------------------------------------------------------------------------- templates

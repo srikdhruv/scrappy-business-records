@@ -26,6 +26,7 @@ from pydantic import (
     Field,
     ValidationInfo,
     field_validator,
+    model_validator,
 )
 from pydantic_core import PydanticCustomError
 
@@ -1028,7 +1029,8 @@ class ImportFee(_Model):
     kind: FeeKind = FeeKind.fee
 
 
-MAX_IMPORT_ROWS = 100_000
+MAX_IMPORT_ROWS = 300_000
+MAX_UPLOAD_BASE64 = (5 * 1024 * 1024 * 4) // 3 + 8  # a 5 MB file, base64-encoded
 
 
 class ImportStudent(_Model):
@@ -1077,6 +1079,7 @@ class ImportPayment(_Model):
         default=False, description="From the file's Unassigned payments sheet."
     )
     source: ShortText = Field(default=None, description="An unassigned payment's Came from.")
+    sheet: str = Field(default="", max_length=200, description="The sheet it's on.")
 
 
 class ImportStudentPreview(_ReadModel):
@@ -1094,9 +1097,6 @@ class ImportStudentPreview(_ReadModel):
     add_by_default: bool = Field(
         description="`similar` only: added unless the owner says Skip (a brother or sister "
         "sharing a phone with an earlier row of the file)."
-    )
-    data: ImportStudent | None = Field(
-        description="The row to send back to add it; null for a problem."
     )
 
 
@@ -1118,7 +1118,6 @@ class ImportPaymentPreview(_ReadModel):
     candidate_ids: list[int] = Field(
         description="`needs_student`: students it may be, best first, to offer first."
     )
-    data: ImportPayment | None = Field(description="The row to send back; null for a problem.")
 
 
 class ImportPreview(_ReadModel):
@@ -1128,8 +1127,20 @@ class ImportPreview(_ReadModel):
     sheets: list[str] = Field(description="The sheets that were read.")
     ignored_sheets: list[str] = Field(description="Sheets that weren't students or payments.")
     hidden_sheets: list[str] = Field(description="Hidden sheets, which are never read.")
-    students: list[ImportStudentPreview]
-    payments: list[ImportPaymentPreview]
+    students: list[ImportStudentPreview] = Field(
+        description="Every row that needs a choice (`similar`), and the first rows of each other "
+        "status (all of them unless `all_rows_shown` is false)."
+    )
+    payments: list[ImportPaymentPreview] = Field(
+        description="Every row that needs a choice (`needs_student`, `follows_student`, "
+        "`possible_duplicate`), and the first rows of each other status."
+    )
+    student_counts: dict[str, int] = Field(description="How many student rows have each status.")
+    payment_counts: dict[str, int] = Field(description="How many payment rows have each status.")
+    all_rows_shown: bool = Field(
+        description="False for a long file: some rows that need no choice aren't listed, only "
+        "counted."
+    )
     fee_changes: int = Field(
         ge=0, description="Fee-history rows that come with the new students (restored exactly)."
     )
@@ -1137,31 +1148,34 @@ class ImportPreview(_ReadModel):
 
 
 class ImportStudentDecision(_Model):
-    data: ImportStudent
-    add: bool | None = Field(
-        default=None,
-        description="`true` adds a `similar` row as a new student; `false` skips any row. "
-        "Default: add `new` rows only.",
+    row: int = Field(ge=1, description="The student's row in the file's students sheet.")
+    add: bool = Field(
+        description="`true` adds a `similar` row as a new student; `false` skips any row."
     )
 
 
 class ImportPaymentDecision(_Model):
-    data: ImportPayment
+    sheet: str = Field(max_length=200, description="The payment's sheet, as in the preview.")
+    row: int = Field(ge=1)
     choice: ImportPaymentChoice = ImportPaymentChoice.auto
     student_id: int | None = Field(default=None, gt=0, strict=True)
 
-    @field_validator("student_id")
-    @classmethod
-    def _student_for_choice(cls, value: int | None, info: ValidationInfo) -> int | None:
-        if value is None and info.data.get("choice") is ImportPaymentChoice.student:
-            raise _field_error("Choose a student")
-        return value
+    @model_validator(mode="after")
+    def _student_for_choice(self) -> ImportPaymentDecision:
+        if self.student_id is None and self.choice is ImportPaymentChoice.student:
+            raise ValueError("Choose a student")
+        return self
 
 
 class ImportCommit(_Model):
-    """The rows from `ImportPreview` (their `data`) and the owner's choices. Everything is
-    checked again, against the records as they are now, before anything is added."""
+    """The same file again, and the owner's choices (only for the rows she chose something
+    for; every other row does what its status says). The file is read and every row checked
+    again, against the records as they are now, before anything is added."""
 
+    file: str = Field(
+        max_length=MAX_UPLOAD_BASE64,
+        description="The .xlsx file, base64-encoded (at most 5 MB before encoding).",
+    )
     filename: ShortText = None
     students: list[ImportStudentDecision] = Field(default=[], max_length=MAX_IMPORT_ROWS)
     payments: list[ImportPaymentDecision] = Field(default=[], max_length=MAX_IMPORT_ROWS)

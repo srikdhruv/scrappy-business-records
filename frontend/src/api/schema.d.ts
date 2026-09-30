@@ -756,10 +756,16 @@ export interface components {
         };
         /**
          * ImportCommit
-         * @description The rows from `ImportPreview` (their `data`) and the owner's choices. Everything is
-         *     checked again, against the records as they are now, before anything is added.
+         * @description The same file again, and the owner's choices (only for the rows she chose something
+         *     for; every other row does what its status says). The file is read and every row checked
+         *     again, against the records as they are now, before anything is added.
          */
         ImportCommit: {
+            /**
+             * File
+             * @description The .xlsx file, base64-encoded (at most 5 MB before encoding).
+             */
+            file: string;
             /** Filename */
             filename?: string | null;
             /**
@@ -774,85 +780,19 @@ export interface components {
             payments: components["schemas"]["ImportPaymentDecision"][];
         };
         /**
-         * ImportFee
-         * @description One row of a student's fee history, from the file's Fee history sheet.
-         */
-        ImportFee: {
-            /**
-             * Effective Month
-             * @description A month as "YYYY-MM".
-             * @example 2026-10
-             */
-            effective_month: string;
-            /**
-             * Amount Paise
-             * @description Monthly fee in paise: 0 or more, at most 100000000 (₹10,00,000).
-             */
-            amount_paise: number;
-            /** @default fee */
-            kind: components["schemas"]["FeeKind"];
-        };
-        /**
-         * ImportPayment
-         * @description An uploaded payment row, read and checked like `PaymentCreate`.
-         */
-        ImportPayment: {
-            /**
-             * Row
-             * @description Its row number in the file's sheet.
-             */
-            row: number;
-            /**
-             * Student Text
-             * @description The student as written in the file.
-             */
-            student_text: string;
-            /** Phone */
-            phone?: string | null;
-            /**
-             * Student Ref
-             * @description The file's Student ID, from a Download everything file.
-             */
-            student_ref?: string | null;
-            /**
-             * Amount Paise
-             * @description Amount in paise: more than 0, at most 100000000 (₹10,00,000).
-             */
-            amount_paise: number;
-            /**
-             * Paid On
-             * Format: date
-             */
-            paid_on: string;
-            /**
-             * For Month
-             * @description A month as "YYYY-MM".
-             * @example 2026-10
-             */
-            for_month: string;
-            method: components["schemas"]["PaymentMethod"];
-            /** Note */
-            note?: string | null;
-            /**
-             * Unassigned
-             * @description From the file's Unassigned payments sheet.
-             * @default false
-             */
-            unassigned: boolean;
-            /**
-             * Source
-             * @description An unassigned payment's Came from.
-             */
-            source?: string | null;
-        };
-        /**
          * ImportPaymentChoice
          * @enum {string}
          */
         ImportPaymentChoice: "auto" | "student" | "unassigned" | "skip" | "add";
         /** ImportPaymentDecision */
         ImportPaymentDecision: {
-            data: components["schemas"]["ImportPayment"];
+            /**
+             * Sheet
+             * @description The payment's sheet, as in the preview.
+             */
+            sheet: string;
+            /** Row */
+            row: number;
             /** @default auto */
             choice: components["schemas"]["ImportPaymentChoice"];
             /** Student Id */
@@ -896,8 +836,6 @@ export interface components {
              * @description `needs_student`: students it may be, best first, to offer first.
              */
             candidate_ids: number[];
-            /** @description The row to send back; null for a problem. */
-            data: components["schemas"]["ImportPayment"] | null;
         };
         /**
          * ImportPaymentStatus
@@ -927,10 +865,35 @@ export interface components {
              * @description Hidden sheets, which are never read.
              */
             hidden_sheets: string[];
-            /** Students */
+            /**
+             * Students
+             * @description Every row that needs a choice (`similar`), and the first rows of each other status (all of them unless `all_rows_shown` is false).
+             */
             students: components["schemas"]["ImportStudentPreview"][];
-            /** Payments */
+            /**
+             * Payments
+             * @description Every row that needs a choice (`needs_student`, `follows_student`, `possible_duplicate`), and the first rows of each other status.
+             */
             payments: components["schemas"]["ImportPaymentPreview"][];
+            /**
+             * Student Counts
+             * @description How many student rows have each status.
+             */
+            student_counts: {
+                [key: string]: number;
+            };
+            /**
+             * Payment Counts
+             * @description How many payment rows have each status.
+             */
+            payment_counts: {
+                [key: string]: number;
+            };
+            /**
+             * All Rows Shown
+             * @description False for a long file: some rows that need no choice aren't listed, only counted.
+             */
+            all_rows_shown: boolean;
             /**
              * Fee Changes
              * @description Fee-history rows that come with the new students (restored exactly).
@@ -967,58 +930,18 @@ export interface components {
              */
             backup_file: string | null;
         };
-        /**
-         * ImportStudent
-         * @description An uploaded student row, read and checked like `StudentCreate`.
-         */
-        ImportStudent: {
+        /** ImportStudentDecision */
+        ImportStudentDecision: {
             /**
              * Row
-             * @description Its row number in the file's sheet.
+             * @description The student's row in the file's students sheet.
              */
             row: number;
             /**
-             * Ref
-             * @description The file's Student ID, which links its fee history and payments.
-             */
-            ref?: string | null;
-            /** Name */
-            name: string;
-            /** Phone */
-            phone?: string | null;
-            /** Guardian Name */
-            guardian_name?: string | null;
-            /** Batch Label */
-            batch_label?: string | null;
-            /** Notes */
-            notes?: string | null;
-            /**
-             * Joined Month
-             * @description A month as "YYYY-MM".
-             * @example 2026-10
-             */
-            joined_month: string;
-            /** Left Month */
-            left_month?: string | null;
-            /**
-             * Monthly Fee Paise
-             * @description Monthly fee in paise: 0 or more, at most 100000000 (₹10,00,000).
-             */
-            monthly_fee_paise: number;
-            /**
-             * Fees
-             * @description Their fee history from the file, oldest first, restored exactly. Without it they get `monthly_fee_paise` from `joined_month`.
-             */
-            fees?: components["schemas"]["ImportFee"][] | null;
-        };
-        /** ImportStudentDecision */
-        ImportStudentDecision: {
-            data: components["schemas"]["ImportStudent"];
-            /**
              * Add
-             * @description `true` adds a `similar` row as a new student; `false` skips any row. Default: add `new` rows only.
+             * @description `true` adds a `similar` row as a new student; `false` skips any row.
              */
-            add?: boolean | null;
+            add: boolean;
         };
         /** ImportStudentPreview */
         ImportStudentPreview: {
@@ -1053,8 +976,6 @@ export interface components {
              * @description `similar` only: added unless the owner says Skip (a brother or sister sharing a phone with an earlier row of the file).
              */
             add_by_default: boolean;
-            /** @description The row to send back to add it; null for a problem. */
-            data: components["schemas"]["ImportStudent"] | null;
         };
         /**
          * ImportStudentStatus
@@ -2033,15 +1954,12 @@ export type FeeKind = components['schemas']['FeeKind'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];
 export type HealthResponse = components['schemas']['HealthResponse'];
 export type ImportCommit = components['schemas']['ImportCommit'];
-export type ImportFee = components['schemas']['ImportFee'];
-export type ImportPayment = components['schemas']['ImportPayment'];
 export type ImportPaymentChoice = components['schemas']['ImportPaymentChoice'];
 export type ImportPaymentDecision = components['schemas']['ImportPaymentDecision'];
 export type ImportPaymentPreview = components['schemas']['ImportPaymentPreview'];
 export type ImportPaymentStatus = components['schemas']['ImportPaymentStatus'];
 export type ImportPreview = components['schemas']['ImportPreview'];
 export type ImportResult = components['schemas']['ImportResult'];
-export type ImportStudent = components['schemas']['ImportStudent'];
 export type ImportStudentDecision = components['schemas']['ImportStudentDecision'];
 export type ImportStudentPreview = components['schemas']['ImportStudentPreview'];
 export type ImportStudentStatus = components['schemas']['ImportStudentStatus'];

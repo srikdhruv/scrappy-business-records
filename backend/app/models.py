@@ -100,6 +100,10 @@ class Student(TimestampMixin, Base):
     # Last month they owe. Set means the student is archived ("left").
     left_month: Mapped[dt.date | None] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text)
+    # A random id that stays with the student across Excel downloads and uploads (a restore
+    # keeps it), so a Download everything file finds the same students again in any app,
+    # whatever their database ids. Given the first time they're downloaded.
+    uid: Mapped[str | None] = mapped_column(String)
 
     fee_changes: Mapped[list[FeeChange]] = relationship(
         back_populates="student",
@@ -125,6 +129,7 @@ class Student(TimestampMixin, Base):
             "left_month IS NULL OR left_month >= joined_month", name="left_after_joined"
         ),
         Index("ix_students_name", "name"),
+        Index("ix_students_uid", "uid", unique=True),
     )
 
 

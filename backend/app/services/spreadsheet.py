@@ -23,7 +23,6 @@ import math
 import re
 import warnings
 import zipfile
-from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -36,9 +35,10 @@ MAX_FILE_BYTES = 5 * 1024 * 1024
 """The largest file accepted (5 MB): years of records are far smaller."""
 MAX_ROWS = 5000
 """The most rows read from one sheet of a list someone made."""
-MAX_ROWS_WITH_IDS = 100_000
-"""The most rows in all, and in a sheet with the app's Student ID column (a Download everything
-file, which is as big as the records)."""
+MAX_ROWS_WITH_IDS = 300_000
+"""The most rows in a sheet with the app's Student ID column (a Download everything file, which
+is as big as the records are), and in the whole file. A 5 MB file can't really hold more: the
+file size is the real limit."""
 _MAX_UNZIPPED_BYTES = 80 * 1024 * 1024  # an .xlsx is a zip; refuse one that balloons
 _MAX_ZIP_ENTRIES = 2000
 _HEADER_SEARCH_ROWS = 10  # the headings may be below a title or a blank row or two
@@ -260,48 +260,66 @@ def _check_container(data: bytes) -> None:
         raise BadFile("This file is too big to read. Upload one with fewer rows.")
 
 
-def _merged(ws: Any) -> dict[int, list[tuple[int, int, int]]]:
-    """A sheet's merged cells, by row: (first column, last column, the range's first row). Read
-    straight from the sheet's XML, as read-only sheets don't keep them. Empty if unreadable."""
+_MERGE_COLUMNS = 64  # no sheet the app reads is wider; a merge wider than this is cut
+_MERGES = 20_000  # more merged ranges than this and the rest are left as they are
+
+
+def _merged(ws: Any) -> list[tuple[int, int, int, int]]:
+    """A sheet's merged ranges as (first row, last row, first column, last column), sorted by
+    first row, read straight from the sheet's XML (read-only sheets don't keep them). Only
+    the first `_MERGE_COLUMNS` columns count, so one huge merge in a tiny file costs nothing.
+    Empty if unreadable."""
     from xml.etree.ElementTree import iterparse
 
     from openpyxl.utils.cell import range_boundaries
 
-    by_row: dict[int, list[tuple[int, int, int]]] = defaultdict(list)
+    ranges: list[tuple[int, int, int, int]] = []
     try:
         with ws._get_source() as source:  # the sheet's XML inside the .xlsx
             for _, element in iterparse(source):
-                if element.tag.endswith("}mergeCell"):
+                if element.tag.endswith("}mergeCell") and len(ranges) < _MERGES:
                     first_col, first_row, last_col, last_row = range_boundaries(element.get("ref"))
-                    for r in range(first_row, min(last_row, first_row + MAX_ROWS_WITH_IDS) + 1):
-                        by_row[r].append((first_col, last_col, first_row))
+                    if first_col <= _MERGE_COLUMNS:
+                        last_col = min(last_col, _MERGE_COLUMNS)
+                        ranges.append((first_row, last_row, first_col, last_col))
                 element.clear()
     except Exception:  # never let an odd merge stop the upload; the cells just stay empty
-        return {}
-    return by_row
+        return []
+    return sorted(ranges)
 
 
 def _fill_merged(
-    rows: Iterable[tuple[Any, ...]], merged: dict[int, list[tuple[int, int, int]]]
+    rows: Iterable[tuple[Any, ...]], merged: list[tuple[int, int, int, int]]
 ) -> Iterator[tuple[Any, ...]]:
     """Rows with each merged range's value copied into all of its cells, as it looks in Excel
-    (a name merged down three rows is the name on each of them)."""
+    (a name merged down three rows is the name on each of them). Only rows the sheet really
+    has are read, so a range reaching row 1,000,000 costs no more than the rows present."""
     if not merged:
         yield from rows
         return
-    first_values: dict[tuple[int, int], Any] = {}
+    upcoming = list(merged)
+    upcoming.reverse()  # pop() gives the next range to start
+    active: list[tuple[int, int, int, int, Any]] = []  # ranges covering the current row, with value
     for number, values in enumerate(rows, start=1):
-        ranges = merged.get(number)
-        if not ranges:
+        active = [r for r in active if r[1] >= number]
+        starting: list[tuple[int, int, int, int]] = []
+        while upcoming and upcoming[-1][0] <= number:
+            first = upcoming.pop()
+            if first[1] >= number:
+                starting.append(first)
+        if not active and not starting:
             yield values
             continue
         filled = list(values)
-        for first_col, last_col, first_row in ranges:
+        for first_row, last_row, first_col, last_col in starting:
+            if len(filled) < first_col:
+                filled += [None] * (first_col - len(filled))
+            # A range that started on a row that wasn't read (it was empty) has no value.
+            value = filled[first_col - 1] if first_row == number else None
+            active.append((first_row, last_row, first_col, last_col, value))
+        for _, _, first_col, last_col, value in active:
             if len(filled) < last_col:
                 filled += [None] * (last_col - len(filled))
-            if number == first_row:
-                first_values[(first_row, first_col)] = filled[first_col - 1]
-            value = first_values.get((first_row, first_col))
             for c in range(first_col, last_col + 1):
                 filled[c - 1] = value
         yield tuple(filled)
@@ -426,8 +444,13 @@ def _guess_order(values: tuple[Any, ...]) -> list[SheetKind]:
     | Fees | Mode" is a list of payments); else students first; fee history when it says so."""
     headings = {normalize_heading(v) for v in values}
     order = [SheetKind.students, SheetKind.payments, SheetKind.fee_history]
-    paymentish = set(_STRICT_AMOUNT) | set(_PAYMENT_HEADINGS[Col.paid_on])
-    paymentish |= set(_PAYMENT_HEADINGS[Col.method])
+    # An amount or a payment method means payments. A date alone is weaker: a list of students
+    # can have a date (of joining) too, so it counts only without a phone column, which a
+    # list of payments rarely has ("Name | Mobile | Fee | Date" is students; "Name | Date |
+    # Fees" is payments).
+    paymentish = set(_STRICT_AMOUNT) | set(_PAYMENT_HEADINGS[Col.method])
+    if not headings & set(_PAYMENT_HEADINGS[Col.phone]):
+        paymentish |= set(_PAYMENT_HEADINGS[Col.paid_on])
     if headings & paymentish:
         order = [SheetKind.payments, SheetKind.students, SheetKind.fee_history]
     if headings & set(_FEE_HEADINGS[Col.fee_from]) and headings & set(_FEE_HEADINGS[Col.kind]):

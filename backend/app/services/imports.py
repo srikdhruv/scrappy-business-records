@@ -30,20 +30,30 @@ included). Fee history for students already here is left alone.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import datetime as dt
+import re
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.orm import Session
 
 from app import backup
 from app.db import lock_for_writing
 from app.errors import unprocessable
-from app.models import FeeChange, FeeKind, Payment, PaymentMethod, Student, UnassignedPayment
+from app.models import (
+    FeeChange,
+    FeeKind,
+    Payment,
+    PaymentMethod,
+    Student,
+    UnassignedPayment,
+)
 from app.months import format_month, parse_month
 from app.schemas import (
     MAX_AMOUNT_PAISE,
@@ -201,6 +211,7 @@ class _Known:
     people: PeopleIndex[int]
     payments: dict[_PayKey, list[_PayExtra]]  # by (student id, amount, paid on, month)
     unassigned: dict[_PayKey, list[_PayExtra]]  # by (name as written, amount, paid on, month)
+    by_uid: dict[str, Student]  # students by uid (see `Student.uid`)
 
 
 def _load_known(session: Session) -> _Known:
@@ -234,7 +245,8 @@ def _load_known(session: Session) -> _Known:
         unassigned[(name_key(text), amount, paid_on, format_month(for_month))].append(
             (PaymentMethod(method).value, _norm_note(note))
         )
-    return _Known(students, people, payments, unassigned)
+    by_uid = {s.uid: s for s in students.values() if s.uid}
+    return _Known(students, people, payments, unassigned, by_uid)
 
 
 def _describe(student: Student) -> str:
@@ -242,6 +254,8 @@ def _describe(student: Student) -> str:
 
 
 # --------------------------------------------------------------------------- students
+
+_UID = re.compile(r"^[0-9a-f]{32}$")  # a uid as `exports.ensure_uids` makes them
 
 
 @dataclass
@@ -252,6 +266,9 @@ class StudentPlan:
     student_id: int | None = None  # exists: who it is; similar: who it looks like
     same_as: int | None = None  # exists in the file: the earlier row it repeats
     add_by_default: bool = False  # similar: added unless the owner says Skip
+    # Students already here it is, or may be: their payments are checked for duplicates of its
+    # payments before any of them is kept as unassigned.
+    look_alikes: list[int] = field(default_factory=list)
 
 
 def _different_people(a: ImportStudent, b: ImportStudent) -> bool:
@@ -264,6 +281,11 @@ def _different_people(a: ImportStudent, b: ImportStudent) -> bool:
 def classify_students(
     rows: Sequence[ImportStudent], known: _Known, current_month: dt.date
 ) -> list[StudentPlan]:
+    """What adding each student row would do. A row's Student ID (from a Download everything
+    file) is the student's uid: when a student here has it, that's who the row is, whatever
+    their name or phone is now. Otherwise rows are matched by name and phone, and when more
+    than one student here has the row's name and phone, the owner chooses: one is never
+    picked silently."""
     plans: list[StudentPlan] = []
     by_ref: dict[str, StudentPlan] = {}
     in_file: PeopleIndex[int] = PeopleIndex()  # earlier rows, by row number
@@ -272,6 +294,8 @@ def classify_students(
     every_row_has_an_id = True  # so far: then rows are only compared with what's here
 
     def add(plan: StudentPlan) -> None:
+        if plan.student_id is not None and not plan.look_alikes:
+            plan.look_alikes = [plan.student_id]
         plans.append(plan)
         by_row[plan.data.row] = plan
         if plan.status is not ImportStudentStatus.problem:
@@ -285,6 +309,18 @@ def classify_students(
         return [
             by_row[p.ident] for p in people if not _different_people(by_row[p.ident].data, data)
         ]
+
+    def similar(data: ImportStudent, reason: str, others: Sequence[Student] = ()) -> None:
+        ids = [o.id for o in others]
+        add(
+            StudentPlan(
+                data,
+                ImportStudentStatus.similar,
+                reason,
+                student_id=ids[0] if ids else None,
+                look_alikes=ids,
+            )
+        )
 
     for data in rows:
         if problem := student_problem(data, current_month):
@@ -307,15 +343,26 @@ def classify_students(
             )
             continue
 
+        # Their uid: the same student, even if their name or phone has changed since.
+        record = known.by_uid.get(data.ref) if data.ref else None
+        if record is not None and record.id not in claimed:
+            claimed[record.id] = data.row
+            unchanged = name_key(record.name) == key and phone_digits(record.phone) == digits
+            add(
+                StudentPlan(
+                    data,
+                    ImportStudentStatus.exists,
+                    f"Already here: {_describe(record)}"
+                    + ("" if unchanged else " (changed since this file was downloaded)"),
+                    student_id=record.id,
+                )
+            )
+            continue
+
         same_name = [known.students[p.ident] for p in known.people.same_name(key)]
         exact = [s for s in same_name if phone_digits(s.phone) == digits]
-        if data.ref:
-            # Uploading a file back into the app it came from: its IDs are the same.
-            exact.sort(key=lambda s: str(s.id) != data.ref)
-            free = [s for s in exact if s.id not in claimed]
-        else:
-            free = exact
-        if free:
+        free = [s for s in exact if not (data.ref and s.id in claimed)]
+        if len(free) == 1:
             same = free[0]
             if data.ref:
                 claimed[same.id] = data.row
@@ -328,23 +375,29 @@ def classify_students(
                 )
             )
             continue
+        if len(free) > 1:
+            similar(
+                data,
+                f"{len(free)} students here are called {free[0].name}"
+                + (" with this phone" if digits else ", with no phone")
+                + ". If it's one of them, choose Skip; if it's someone else, Add as new",
+                free,
+            )
+            continue
         if exact:  # every one of them is already another row of this file
             other = exact[0]
-            add(
-                StudentPlan(
-                    data,
-                    ImportStudentStatus.similar,
-                    f"Same name and phone as {_describe(other)}, who is already row "
-                    f"{claimed[other.id]} of this file",
-                    student_id=other.id,
-                )
+            similar(
+                data,
+                f"Same name and phone as {_describe(other)}, who is already row "
+                f"{claimed[other.id]} of this file",
+                exact,
             )
             continue
 
         file_same = earlier(
             [p for p in in_file.same_name(key) if phone_digits(p.phone) == digits], data
         )
-        if file_same:
+        if file_same and digits:
             first = file_same[0]
             add(
                 StudentPlan(
@@ -356,38 +409,30 @@ def classify_students(
                 )
             )
             continue
+        if file_same:  # the same name, and neither has a phone: perhaps two people
+            similar(
+                data,
+                f"Same name as row {file_same[0].data.row} in this file, and neither has a phone",
+            )
+            continue
         if same_name:
-            other = same_name[0]
-            add(
-                StudentPlan(
-                    data,
-                    ImportStudentStatus.similar,
-                    f"Same name as {_describe(other)}, but a different phone",
-                    student_id=other.id,
-                )
+            similar(
+                data,
+                f"Same name as {_describe(same_name[0])}, but a different phone",
+                same_name,
             )
             continue
         same_phone = [known.students[p.ident] for p in known.people.same_phone(digits)]
         if same_phone:
-            other = same_phone[0]
-            add(
-                StudentPlan(
-                    data,
-                    ImportStudentStatus.similar,
-                    f"Same phone as {_describe(other)}, but a different name",
-                    student_id=other.id,
-                )
+            similar(
+                data,
+                f"Same phone as {_describe(same_phone[0])}, but a different name",
+                same_phone,
             )
             continue
         file_name = earlier(in_file.same_name(key), data)
         if file_name:
-            add(
-                StudentPlan(
-                    data,
-                    ImportStudentStatus.similar,
-                    f"Same name as row {file_name[0].data.row} in this file",
-                )
-            )
+            similar(data, f"Same name as row {file_name[0].data.row} in this file")
             continue
         file_phone = earlier(in_file.same_phone(digits), data)
         if file_phone:
@@ -404,25 +449,26 @@ def classify_students(
             continue
         near = [known.students[p.ident] for p in known.people.near(key)]
         if near:
-            other = near[0]
-            add(
-                StudentPlan(
-                    data,
-                    ImportStudentStatus.similar,
-                    f"Name is very close to {_describe(other)}",
-                    student_id=other.id,
-                )
+            similar(data, f"Name is very close to {_describe(near[0])}", near)
+            continue
+        short = [known.students[p.ident] for p in known.people.short_forms(key)]
+        if short:
+            similar(
+                data,
+                f"Name is like {_describe(short[0])} (one of them is shortened)",
+                short,
             )
             continue
-        file_near = [] if data.ref and every_row_has_an_id else earlier(in_file.near(key), data)
+        compare_in_file = not (data.ref and every_row_has_an_id)
+        file_near = earlier(in_file.near(key), data) if compare_in_file else []
+        file_near = file_near or (
+            earlier(in_file.short_forms(key), data) if compare_in_file else []
+        )
         if file_near:
-            add(
-                StudentPlan(
-                    data,
-                    ImportStudentStatus.similar,
-                    f"Name is very close to {file_near[0].data.name} "
-                    f"(row {file_near[0].data.row}) in this file",
-                )
+            similar(
+                data,
+                f"Name is very like {file_near[0].data.name} (row {file_near[0].data.row}) in "
+                "this file",
             )
             continue
         add(StudentPlan(data, ImportStudentStatus.new))
@@ -441,6 +487,9 @@ class PaymentPlan:
     student_row: int | None = None
     candidate_ids: list[int] = field(default_factory=list)
     by_id: bool = False  # linked by the file's Student ID (a Download everything file)
+    # Students already here its student may be (a "Looks similar" row): a payment of theirs
+    # like this one makes it a duplicate, wherever it would otherwise go.
+    related_ids: list[int] = field(default_factory=list)
 
 
 def _by_name(ids: Iterable[int], known: _Known) -> list[int]:
@@ -503,6 +552,7 @@ def classify_payments(
                 "you add them, otherwise kept as unassigned",
                 student_row=plan.data.row,
                 by_id=by_id,
+                related_ids=plan.look_alikes,
             )
         return None
 
@@ -554,13 +604,17 @@ def classify_payments(
             continue
         here = [i for w, i in found if w == "here"]
         if found:
+            # Any of them may be who paid: a payment of theirs like this one is this one.
+            related = here + [i for w, row in found if w == "file" for i in by_row[row].look_alikes]
+            candidates = _by_name(related, known)
             plans.append(
                 PaymentPlan(
                     data,
                     ImportPaymentStatus.needs_student,
                     f"More than one student matches “{text}”. Choose who paid, or keep it as "
                     "unassigned",
-                    candidate_ids=_by_name(here, known),
+                    candidate_ids=candidates,
+                    related_ids=candidates,
                 )
             )
             continue
@@ -639,6 +693,16 @@ def _dedupe(
             pool = available.get((target[1], *what), []) if target[0] == "student" else []
             file_key = (target, *what)
             where = "logged"
+        # Its student may be someone already here (an older download re-uploaded after their
+        # phone changed, say): a payment of theirs like this one is the same payment.
+        for other in plan.related_ids:
+            other_pool = available.get((other, *what), [])
+            if other_pool and not (target[0] == "student" and target[1] == other):
+                if not pool or (extra in other_pool and extra not in pool):
+                    pool = other_pool
+                    where = f"logged for {known.students[other].name}"
+                if extra in pool:
+                    break
         forced = bool(add_anyway and add_anyway[i])
         described = (
             f"{_rupees(d.amount_paise)} paid on {_day_words(d.paid_on)} for "
@@ -776,7 +840,6 @@ def _parse(book: sheet_io.Workbook, current_month: dt.date) -> _Parsed:
                         reason=problem,
                         student_id=None,
                         add_by_default=False,
-                        data=None,
                     )
                 )
 
@@ -796,7 +859,8 @@ def _parse(book: sheet_io.Workbook, current_month: dt.date) -> _Parsed:
             if not problem and paid_on is None:
                 problem = "Paid-on date is missing"
             if not problem and for_month is None:
-                for_month = format_month(paid_on)  # no month given: the month it was paid in
+                # No month given: the month it was paid in (checked like any month).
+                for_month, problem = _cell(sheet_io.month, paid_on, "Paid-on date")
             method = sheet_io.method(row.get(Col.method))
             note = sheet_io.text(row.get(Col.note))
             data: ImportPayment | None = None  # type: ignore[no-redef]
@@ -815,6 +879,7 @@ def _parse(book: sheet_io.Workbook, current_month: dt.date) -> _Parsed:
                         "note": note,
                         "unassigned": unassigned,
                         "source": sheet_io.text(row.get(Col.source)) if unassigned else None,
+                        "sheet": sheet.title[:200],
                     },
                 )
             if data is not None:
@@ -835,13 +900,69 @@ def _parse(book: sheet_io.Workbook, current_month: dt.date) -> _Parsed:
                         student_id=None,
                         student_row=None,
                         candidate_ids=[],
-                        data=None,
                     )
                 )
     return parsed
 
 
 # --------------------------------------------------------------------------- preview
+
+# Rows that need the owner's choice are always listed in full; of the rest, the first few of
+# each status are (with counts for all), so a big Download everything file previews quickly.
+_CHOICE_STUDENTS = {ImportStudentStatus.similar}
+_CHOICE_PAYMENTS = {
+    ImportPaymentStatus.needs_student,
+    ImportPaymentStatus.follows_student,
+    ImportPaymentStatus.possible_duplicate,
+}
+_LISTED = {"problem": 1000}
+_LISTED_OTHERWISE = 100
+
+
+@dataclass
+class _Plan:
+    """A file, read and checked against the records as they are now."""
+
+    book: sheet_io.Workbook
+    parsed: _Parsed
+    known: _Known
+    students: list[StudentPlan]
+    payments: list[PaymentPlan]
+
+
+def _read(data: bytes) -> sheet_io.Workbook:
+    try:
+        return sheet_io.read_workbook(data)
+    except sheet_io.BadFile as error:
+        raise unprocessable(error.message) from None
+
+
+def _plan(session: Session, data: bytes, today: dt.date, current_month: dt.date) -> _Plan:
+    book = _read(data)
+    parsed = _parse(book, current_month)
+    _check_unique_rows(parsed.student_rows, parsed.payment_rows)
+    known = _load_known(session)
+    splans = classify_students(parsed.student_rows, known, current_month)
+    pplans = classify_payments(parsed.payment_rows, splans, known, today)
+    return _Plan(book, parsed, known, splans, pplans)
+
+
+class _Lister:
+    """Keeps every row that needs a choice, and the first few of every other status."""
+
+    def __init__(self, choice: set[Any]) -> None:
+        self.choice = choice
+        self.counts: dict[str, int] = defaultdict(int)
+        self.all_shown = True
+
+    def keep(self, status: Any) -> bool:
+        self.counts[str(status)] += 1
+        if status in self.choice:
+            return True
+        if self.counts[str(status)] <= _LISTED.get(str(status), _LISTED_OTHERWISE):
+            return True
+        self.all_shown = False
+        return False
 
 
 def preview(
@@ -851,21 +972,16 @@ def preview(
     today: dt.date,
     current_month: dt.date,
 ) -> ImportPreview:
-    """What adding this file would do, row by row. Saves nothing. 422 for a file that can't be
-    read, with a plain message."""
-    try:
-        book = sheet_io.read_workbook(data)
-    except sheet_io.BadFile as error:
-        raise unprocessable(error.message) from None
-    parsed = _parse(book, current_month)
-    _check_unique_rows(parsed.student_rows, parsed.payment_rows)
-    known = _load_known(session)
-    splans = classify_students(parsed.student_rows, known, current_month)
-    pplans = classify_payments(parsed.payment_rows, splans, known, today)
-    added = {p.data.row for p in splans if _added_by_default(p)}
-    duplicates = _dedupe(pplans, [_default_target(p, added) for p in pplans], known)
+    """What adding this file would do. Saves nothing. 422 for a file that can't be read, with
+    a plain message."""
+    plan = _plan(session, data, today, current_month)
+    added = {p.data.row for p in plan.students if _added_by_default(p)}
+    duplicates = _dedupe(
+        plan.payments, [_default_target(p, added) for p in plan.payments], plan.known
+    )
 
-    students_sheet = next((s.title for s in book.of(SheetKind.students)), "Students")
+    students_sheet = next((s.title for s in plan.book.of(SheetKind.students)), "Students")
+    student_list = _Lister(_CHOICE_STUDENTS)
     students = [
         ImportStudentPreview(
             row=p.data.row,
@@ -878,20 +994,23 @@ def preview(
             reason=p.reason,
             student_id=p.student_id,
             add_by_default=p.add_by_default,
-            data=p.data if p.status is not ImportStudentStatus.problem else None,
         )
-        for p in splans
+        for p in plan.students
+        if student_list.keep(p.status)
     ]
-    payments_sheet = next((s.title for s in book.of(SheetKind.payments)), "Payments")
-    unassigned_sheet = next((s.title for s in book.of(SheetKind.unassigned)), "Unassigned payments")
+    students += [s for s in plan.parsed.students if student_list.keep(s.status)]
+
+    payment_list = _Lister(_CHOICE_PAYMENTS)
     payments = []
-    for p, duplicate in zip(pplans, duplicates, strict=True):
+    for p, duplicate in zip(plan.payments, duplicates, strict=True):
         status, reason = duplicate if duplicate else (p.status, p.reason)
+        if not payment_list.keep(status):
+            continue
         d = p.data
         payments.append(
             ImportPaymentPreview(
                 row=d.row,
-                sheet=unassigned_sheet if d.unassigned else payments_sheet,
+                sheet=d.sheet,
                 student_text=d.student_text,
                 amount_paise=d.amount_paise,
                 paid_on=d.paid_on,
@@ -903,18 +1022,21 @@ def preview(
                 student_id=p.student_id,
                 student_row=p.student_row,
                 candidate_ids=p.candidate_ids,
-                data=d if status is not ImportPaymentStatus.problem else None,
             )
         )
+    payments += [r for r in plan.parsed.payments if payment_list.keep(r.status)]
     return ImportPreview(
         filename=filename,
-        sheets=parsed.sheets,
-        ignored_sheets=parsed.ignored,
-        hidden_sheets=book.hidden,
-        students=sorted([*students, *parsed.students], key=lambda r: r.row),
-        payments=sorted([*payments, *parsed.payments], key=lambda r: (r.sheet, r.row)),
+        sheets=plan.parsed.sheets,
+        ignored_sheets=plan.parsed.ignored,
+        hidden_sheets=plan.book.hidden,
+        students=sorted(students, key=lambda r: r.row),
+        payments=sorted(payments, key=lambda r: (r.sheet, r.row)),
+        student_counts=dict(student_list.counts),
+        payment_counts=dict(payment_list.counts),
+        all_rows_shown=student_list.all_shown and payment_list.all_shown,
         fee_changes=sum(
-            len(p.data.fees or ()) for p in splans if p.status is ImportStudentStatus.new
+            len(p.data.fees or ()) for p in plan.students if p.status is ImportStudentStatus.new
         ),
         current_month=format_month(current_month),
     )
@@ -930,7 +1052,7 @@ def _check_unique_rows(
     students: Iterable[ImportStudent], payments: Iterable[ImportPayment]
 ) -> None:
     student_rows = [s.row for s in students]
-    payment_rows = [(p.unassigned, p.row) for p in payments]
+    payment_rows = [(p.sheet, p.row) for p in payments]
     if len(set(student_rows)) != len(student_rows) or len(set(payment_rows)) != len(payment_rows):
         raise unprocessable("Each row can only be sent once. Upload the file again.")
 
@@ -938,49 +1060,66 @@ def _check_unique_rows(
 # --------------------------------------------------------------------------- adding
 
 
+def decode_file(encoded: str) -> bytes:
+    """The file sent with Add (base64), or a plain 422."""
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise unprocessable(
+            "The file didn't arrive whole. Choose it again.", field="file"
+        ) from None
+    if len(data) > sheet_io.MAX_FILE_BYTES:
+        raise unprocessable("This file is bigger than 5 MB. Upload a smaller one.", field="file")
+    return data
+
+
 def commit(
     session: Session, body: ImportCommit, today: dt.date, current_month: dt.date
 ) -> ImportResult:
-    """Add what the owner chose, after checking every row again against the records as they
-    are now. One transaction, with the write lock held from the start; a `pre-import` backup
-    is taken first (only if anything is to be added). Nothing already here is changed."""
-    student_rows = [d.data for d in body.students]
-    payment_rows = [d.data for d in body.payments]
-    _check_unique_rows(student_rows, payment_rows)
-
+    """Add what the owner chose. The file comes again with her choices, and is read and
+    checked again, row by row, against the records as they are now: nothing from the preview
+    is trusted. One transaction, with the write lock held from the start; a `pre-import`
+    backup is taken first (only if anything is to be added). Nothing already here is
+    changed."""
+    data = decode_file(body.file)
     lock_for_writing(session)
-    known = _load_known(session)
-    splans = classify_students(student_rows, known, current_month)
-    added_rows: set[int] = set()
-    for plan, decision in zip(splans, body.students, strict=True):
-        if decision.add is False:
-            continue
-        if _added_by_default(plan) or (
-            plan.status is ImportStudentStatus.similar and decision.add is True
-        ):
-            added_rows.add(plan.data.row)
+    plan = _plan(session, data, today, current_month)
+    known = plan.known
+    student_choice = {d.row: d.add for d in body.students}
+    payment_choice = {(d.sheet, d.row): d for d in body.payments}
 
-    pplans = classify_payments(payment_rows, splans, known, today)
+    added_rows: set[int] = set()
+    for p in plan.students:
+        chosen = student_choice.get(p.data.row)
+        if chosen is False:
+            continue
+        if _added_by_default(p) or (p.status is ImportStudentStatus.similar and chosen):
+            added_rows.add(p.data.row)
+
     targets: list[_Target | None] = []
-    for plan, decision in zip(pplans, body.payments, strict=True):
-        if (
-            plan.status is ImportPaymentStatus.problem
-            or decision.choice is ImportPaymentChoice.skip
-        ):
+    add_anyway: list[bool] = []
+    for p in plan.payments:
+        decision = payment_choice.get((p.data.sheet, p.data.row))
+        choice = decision.choice if decision else ImportPaymentChoice.auto
+        add_anyway.append(choice is ImportPaymentChoice.add)
+        if p.status is ImportPaymentStatus.problem or choice is ImportPaymentChoice.skip:
             targets.append(None)
-        elif decision.choice is ImportPaymentChoice.unassigned:
+        elif choice is ImportPaymentChoice.unassigned:
             targets.append(("unassigned",))
-        elif decision.choice is ImportPaymentChoice.student:
-            chosen = decision.student_id
+        elif choice is ImportPaymentChoice.student and decision is not None:
+            chosen_id = decision.student_id
             # Deleted since the preview? Keep it as unassigned rather than lose it.
-            targets.append(("student", chosen) if chosen in known.students else ("unassigned",))
+            targets.append(
+                ("student", chosen_id) if chosen_id in known.students else ("unassigned",)
+            )
         else:
-            targets.append(_default_target(plan, added_rows))
-    add_anyway = [d.choice is ImportPaymentChoice.add for d in body.payments]
-    duplicates = _dedupe(pplans, targets, known, add_anyway)
+            targets.append(_default_target(p, added_rows))
+    duplicates = _dedupe(plan.payments, targets, known, add_anyway)
     targets = [None if dup else t for t, dup in zip(targets, duplicates, strict=True)]
 
-    total = len(student_rows) + len(payment_rows)
+    # Every row read, problems included.
+    total = len(plan.students) + len(plan.payments)
+    total += len(plan.parsed.students) + len(plan.parsed.payments)
     if not added_rows and not any(targets):
         session.rollback()
         return ImportResult(
@@ -1003,11 +1142,17 @@ def commit(
 
     new_students: dict[int, Student] = {}
     fee_count = 0
-    for plan in splans:
-        d = plan.data
+    taken = set(known.by_uid)
+    for p in plan.students:
+        d = p.data
         if d.row not in added_rows:
             continue
+        # A restored student keeps their uid, so the same file finds them again later.
+        uid = d.ref if d.ref and _UID.match(d.ref) and d.ref not in taken else None
+        if uid:
+            taken.add(uid)
         student = Student(
+            uid=uid,
             name=d.name,
             phone=d.phone,
             guardian_name=d.guardian_name,
@@ -1033,46 +1178,45 @@ def commit(
     session.flush()
 
     source = f"Upload: {body.filename}" if body.filename else "Upload"
-    payments_added = unassigned_added = 0
-    for plan, target in zip(pplans, targets, strict=True):
+    payment_rows: list[dict[str, Any]] = []
+    unassigned_rows: list[dict[str, Any]] = []
+    for p, target in zip(plan.payments, targets, strict=True):
         if target is None:
             continue
-        d = plan.data
+        d = p.data
+        fields = {
+            "amount_paise": d.amount_paise,
+            "paid_on": d.paid_on,
+            "for_month": parse_month(d.for_month),
+            "method": d.method,
+            "note": d.note,
+        }
         if target[0] == "unassigned":
-            session.add(
-                UnassignedPayment(
-                    student_text=d.student_text,
-                    phone=d.phone,
-                    amount_paise=d.amount_paise,
-                    paid_on=d.paid_on,
-                    for_month=parse_month(d.for_month),
-                    method=d.method,
-                    note=d.note,
-                    source=(d.source if d.unassigned and d.source else source)[:200],
-                )
+            unassigned_rows.append(
+                {
+                    **fields,
+                    "student_text": d.student_text,
+                    "phone": d.phone,
+                    "source": (d.source if d.unassigned and d.source else source)[:200],
+                }
             )
-            unassigned_added += 1
-            continue
-        student_id = new_students[target[1]].id if target[0] == "new" else target[1]
-        session.add(
-            Payment(
-                student_id=student_id,
-                amount_paise=d.amount_paise,
-                paid_on=d.paid_on,
-                for_month=parse_month(d.for_month),
-                method=d.method,
-                note=d.note,
-            )
-        )
-        payments_added += 1
+        else:
+            student_id = new_students[target[1]].id if target[0] == "new" else target[1]
+            payment_rows.append({**fields, "student_id": student_id})
+    # Many rows at once (a restore can have tens of thousands): one INSERT each, not one ORM
+    # object each. Still the same transaction.
+    if payment_rows:
+        session.execute(insert(Payment), payment_rows)
+    if unassigned_rows:
+        session.execute(insert(UnassignedPayment), unassigned_rows)
     session.flush()
     session.commit()
-    added = len(new_students) + payments_added + unassigned_added
+    added = len(new_students) + len(payment_rows) + len(unassigned_rows)
     return ImportResult(
         students_added=len(new_students),
         fee_changes_added=fee_count,
-        payments_added=payments_added,
-        unassigned_added=unassigned_added,
+        payments_added=len(payment_rows),
+        unassigned_added=len(unassigned_rows),
         skipped=total - added,
         backup_file=saved.name if saved else None,
     )

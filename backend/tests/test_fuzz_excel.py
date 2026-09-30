@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import json
 from typing import Any
@@ -75,9 +76,11 @@ def test_no_500_from_any_spreadsheet(api: TestClient, book: list[Any]) -> None:
         shown = response.json()
         # Adding whatever the preview offers never fails either.
         body = {
-            "students": [{"data": s["data"], "add": True} for s in shown["students"] if s["data"]],
-            "payments": [{"data": p["data"]} for p in shown["payments"] if p["data"]],
-        }
+            "file": base64.b64encode(data).decode(),
+            "students": [{"row": s["row"], "add": True} for s in shown["students"]],
+            "payments": [{"sheet": p["sheet"], "row": p["row"], "choice": "add"}
+                         for p in shown["payments"]],
+        }  # fmt: skip
         committed = api.post("/api/import/commit", json=body)
         assert committed.status_code in (200, 409, 422), committed.text
 
@@ -92,31 +95,20 @@ def test_no_500_from_raw_bytes(api: TestClient, raw: bytes) -> None:
     assert response.status_code < 500  # 400 or 422: not JSON, or not the right shape
 
 
-student_data = st.dictionaries(
-    st.sampled_from(
-        ["row", "ref", "name", "phone", "guardian_name", "batch_label", "notes", "joined_month",
-         "left_month", "monthly_fee_paise", "fees"]
-    ),
-    values,
-    max_size=8,
-)  # fmt: skip
-payment_data = st.dictionaries(
-    st.sampled_from(
-        ["row", "student_text", "phone", "student_ref", "amount_paise", "paid_on", "for_month",
-         "method", "note", "unassigned", "source"]
-    ),
-    values,
-    max_size=9,
-)  # fmt: skip
+FILE = base64.b64encode(
+    xlsx(("Payments", [["Student", "Amount", "Paid on"], ["Kabir Mehta", 1500, "2026-05-02"]]))
+).decode()
 decisions = st.fixed_dictionaries(
     {
+        "file": st.one_of(st.just(FILE), st.text(max_size=20), scalars),
         "students": st.lists(
-            st.fixed_dictionaries({"data": student_data}, optional={"add": scalars}), max_size=3
+            st.fixed_dictionaries({"row": scalars, "add": scalars}), max_size=3
         ),
         "payments": st.lists(
             st.fixed_dictionaries(
-                {"data": payment_data},
-                optional={"choice": st.sampled_from(["auto", "skip", "student", "unassigned", "x"]),
+                {"sheet": st.one_of(st.just("Payments"), scalars), "row": scalars},
+                optional={"choice": st.sampled_from(["auto", "skip", "student", "unassigned",
+                                                      "add", "x"]),
                           "student_id": scalars},
             ),
             max_size=3,

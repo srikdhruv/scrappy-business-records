@@ -123,3 +123,38 @@ class PeopleIndex[T: Hashable]:
             if len(word) >= 3:
                 found.update({id(p): p for p in self._by_word.get(word, ())})
         return list(found.values())
+
+    def short_forms(self, key: tuple[str, ...]) -> list[Person[T]]:
+        """People whose name is `key` with a word shortened, or the other way round: "Ananya R"
+        and "Ananya Rao", "A Bhat" and "Aarav Bhat". The same number of words, at least one of
+        them the same, and each other word the start of its partner."""
+        if len(key) < 2:
+            return []
+        found: dict[int, Person[T]] = {}
+        for word in set(key):
+            if len(word) < 2:
+                continue
+            for person in self._by_word.get(word, ()):
+                if id(person) not in found and shortened(key, person.key):
+                    found[id(person)] = person
+        return list(found.values())
+
+
+def shortened(a: tuple[str, ...], b: tuple[str, ...]) -> bool:
+    """Whether names `a` and `b` (sorted words) are the same apart from shortened words."""
+    if a == b or len(a) != len(b):
+        return False
+    rest_a = list(a)
+    rest_b = list(b)
+    for word in a:  # the same words first
+        if word in rest_b:
+            rest_a.remove(word)
+            rest_b.remove(word)
+    if len(rest_a) == len(a):
+        return False  # nothing in common
+    for word in sorted(rest_a, key=len):  # then pair each remaining word with one it starts
+        partner = next((w for w in rest_b if w.startswith(word) or word.startswith(w)), None)
+        if partner is None:
+            return False
+        rest_b.remove(partner)
+    return True

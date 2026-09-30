@@ -3,6 +3,7 @@ transaction, a backup first). See app/services/imports.py."""
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import io
 from pathlib import Path
@@ -34,7 +35,9 @@ def xlsx(*sheets: tuple[str, list[list[Any]]]) -> bytes:
 def preview(api: TestClient, data: bytes, filename: str = "upload.xlsx") -> Json:
     response = api.post("/api/import/preview", params={"filename": filename}, content=data)
     assert response.status_code == 200, response.text
-    return response.json()
+    shown = response.json()
+    shown["_file"] = data  # Add sends the file again (not part of the API's answer)
+    return shown
 
 
 def preview_error(api: TestClient, data: bytes) -> str:
@@ -44,30 +47,33 @@ def preview_error(api: TestClient, data: bytes) -> str:
     return item["msg"]
 
 
+def commit_body(
+    shown: Json,
+    students: dict[int, bool] | None = None,
+    payments: dict[int, dict[str, Any]] | None = None,
+) -> Json:
+    """What Add sends: the file again, and choices by row number (students: add; payments:
+    choice and student_id)."""
+    sheets = {p["row"]: p["sheet"] for p in shown["payments"]}
+    return {
+        "file": base64.b64encode(shown["_file"]).decode(),
+        "filename": shown["filename"],
+        "students": [{"row": row, "add": add} for row, add in (students or {}).items()],
+        "payments": [
+            {"sheet": sheets.get(row, "Payments"), "row": row, **choice}
+            for row, choice in (payments or {}).items()
+        ],
+    }
+
+
 def commit(
     api: TestClient,
     shown: Json,
     students: dict[int, bool] | None = None,
     payments: dict[int, dict[str, Any]] | None = None,
 ) -> Json:
-    """Add a preview's rows, with choices by row number (students: add; payments: choice)."""
-    body = {
-        "filename": shown["filename"],
-        "students": [
-            {
-                "data": s["data"],
-                **({"add": students[s["row"]]} if s["row"] in (students or {}) else {}),
-            }
-            for s in shown["students"]
-            if s["data"]
-        ],
-        "payments": [
-            {"data": p["data"], **(payments or {}).get(p["row"], {})}
-            for p in shown["payments"]
-            if p["data"]
-        ],
-    }
-    response = api.post("/api/import/commit", json=body)
+    """Add a preview's file, with choices by row number."""
+    response = api.post("/api/import/commit", json=commit_body(shown, students, payments))
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -131,8 +137,7 @@ def test_student_rows_are_classified(api: TestClient) -> None:
     assert rows[10]["reason"].startswith("Joined month “13/2026” isn't a month")
     assert rows[11]["reason"] == "Joined month can't be later than June 2028 (two years from now)"
     assert rows[12]["reason"].startswith("Monthly fee “abc” isn't an amount")
-    assert rows[6]["data"]["monthly_fee_paise"] == 180000
-    assert rows[8]["data"] is None
+    assert rows[6]["monthly_fee_paise"] == 180000
     # Nothing was saved by the preview.
     assert len(api.get("/api/students", params={"status": "all"}).json()) == 4
 
@@ -167,9 +172,16 @@ def test_blank_joined_month_is_this_month_and_optional_columns_come_through(
     shown = preview(api, data)
     [row] = shown["students"]
     assert row["status"] == "new"
-    assert row["data"] | {"row": 0} == {
-        "row": 0,
-        "ref": None,
+    assert (row["name"], row["phone"], row["monthly_fee_paise"], row["joined_month"]) == (
+        "Kabir Mehta",
+        "9876543210",
+        150000,
+        "2026-06",
+    )
+    commit(api, shown)
+    [student] = api.get("/api/students").json()
+    assert {k: student[k] for k in ("name", "phone", "guardian_name", "batch_label", "notes",
+                                    "joined_month", "left_month", "monthly_fee_paise")} == {
         "name": "Kabir Mehta",
         "phone": "9876543210",
         "guardian_name": "Lakshmi Mehta",
@@ -178,11 +190,7 @@ def test_blank_joined_month_is_this_month_and_optional_columns_come_through(
         "joined_month": "2026-06",
         "left_month": None,
         "monthly_fee_paise": 150000,
-        "fees": None,
-    }
-    commit(api, shown)
-    [student] = api.get("/api/students").json()
-    assert student["monthly_fee_paise"] == 150000 and student["joined_month"] == "2026-06"
+    }  # fmt: skip
 
 
 # --------------------------------------------------------------------------- payments
@@ -252,7 +260,7 @@ def test_payment_rows_are_matched_and_classified(api: TestClient) -> None:
         "fee_changes_added": 0,
         "payments_added": 4,  # rows 2, 3, 5, 13
         "unassigned_added": 1,  # row 4 (ambiguous), kept by default
-        "skipped": 3,  # rows 6 (skipped), 7 and 8 (duplicates); problem rows aren't sent
+        "skipped": 7,  # row 6 (skipped), 7 and 8 (duplicates), 9-12 (problems)
         "backup_file": result["backup_file"],
     }
     assert result["backup_file"].startswith("records-pre-import-")
@@ -358,25 +366,37 @@ def test_commit_checks_everything_again(api: TestClient) -> None:
 
 
 def test_commit_never_trusts_the_client(api: TestClient) -> None:
+    """Add reads the file again: choices can't force in a row that's already here, breaks a
+    rule, or isn't in the file at all."""
     make_student(api, name="Kabir Mehta")
-    body = {
-        "students": [
-            # "exists" can't be forced in with add: true.
-            {"data": {"row": 2, "name": "Kabir Mehta", "joined_month": "2026-01",
-                      "monthly_fee_paise": 150000}, "add": True},
-            # Rules are checked again: too far ahead.
-            {"data": {"row": 3, "name": "Diya Nair", "joined_month": "2030-01",
-                      "monthly_fee_paise": 150000}},
-        ],
-        "payments": [
-            {"data": {"row": 2, "student_text": "Nobody", "amount_paise": 100,
-                      "paid_on": "2031-01-01", "for_month": "2026-01", "method": "upi"},
-             "choice": "student", "student_id": 1},
-            {"data": {"row": 3, "student_text": "Nobody", "amount_paise": 100,
-                      "paid_on": "2026-01-01", "for_month": "2026-01", "method": "upi"},
-             "choice": "student", "student_id": 999},
-        ],
-    }  # fmt: skip
+    data = xlsx(
+        (
+            "Students",
+            [
+                STUDENT_HEAD,
+                ["Kabir Mehta", None, 1500, "Jan 2026"],  # 2 already here
+                ["Diya Nair", None, 1500, "Jan 2030"],  # 3 too far ahead
+            ],
+        ),
+        (
+            "Payments",
+            [
+                PAYMENT_HEAD,
+                ["Nobody", 1, "2031-01-01", "Jan 2026", "UPI"],  # 2 paid in the future
+                ["Nobody", 1, "2026-01-01", "Jan 2026", "UPI"],  # 3
+            ],
+        ),
+    )
+    shown = preview(api, data)
+    body = commit_body(
+        shown,
+        students={2: True, 3: True, 99: True},
+        payments={
+            2: {"choice": "student", "student_id": 1},
+            3: {"choice": "student", "student_id": 999},  # no such student
+            98: {"choice": "add"},
+        },
+    )
     response = api.post("/api/import/commit", json=body)
     assert response.status_code == 200, response.text
     result = response.json()
@@ -385,20 +405,18 @@ def test_commit_never_trusts_the_client(api: TestClient) -> None:
     assert result["unassigned_added"] == 1  # the chosen student doesn't exist: kept, not lost
     assert len(api.get("/api/students").json()) == 1
 
-    # Schema rules too: an over-the-cap amount or a status field is a plain 422.
-    bad = {"payments": [{"data": {**body["payments"][1]["data"], "amount_paise": 10**9}}]}
-    assert api.post("/api/import/commit", json=bad).status_code == 422
-    extra = {"students": [{**body["students"][1], "status": "new"}]}
-    assert api.post("/api/import/commit", json=extra).status_code == 422
-    twice = {"students": [body["students"][1], body["students"][1]]}
-    assert api.post("/api/import/commit", json=twice).status_code == 422
+    # A body that isn't right is a plain 422.
+    for bad in (
+        {**body, "file": "not base64!"},
+        {**body, "file": base64.b64encode(b"Name,Fee").decode()},
+        {**body, "students": [{"row": 2, "add": True, "status": "new"}]},
+        {**body, "payments": [{"sheet": "Payments", "row": 2, "choice": "student"}]},
+        {key: value for key, value in body.items() if key != "file"},
+    ):
+        assert api.post("/api/import/commit", json=bad).status_code == 422, bad
 
 
 def test_commit_is_one_transaction(api: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    from sqlalchemy.orm import Session
-
-    from app.models import Payment
-
     make_student(api, name="Kabir Mehta")
     data = xlsx(
         ("Students", [STUDENT_HEAD, ["Diya Nair", None, 1200, "Mar 2026"]]),
@@ -406,16 +424,15 @@ def test_commit_is_one_transaction(api: TestClient, monkeypatch: pytest.MonkeyPa
     )
     shown = preview(api, data)
 
-    real_flush = Session.flush
+    from app.services import imports
 
-    def flaky_flush(self: Session, *args: Any, **kwargs: Any) -> None:
-        if any(isinstance(o, Payment) for o in self.new):  # after Diya was added
-            raise RuntimeError("disk full")
-        real_flush(self, *args, **kwargs)
+    def broken(*_: object, **__: object) -> None:
+        raise RuntimeError("disk full")
 
-    # Only this patch is undone after the with (not conftest's SCRAPPY_HOME).
+    # Payments are written after Diya was added; only this patch is undone after the with
+    # (not conftest's SCRAPPY_HOME).
     with monkeypatch.context() as patch:
-        patch.setattr(Session, "flush", flaky_flush)
+        patch.setattr(imports, "insert", broken)
         with pytest.raises(RuntimeError):
             commit(api, shown)
     names = [s["name"] for s in api.get("/api/students").json()]
@@ -445,7 +462,7 @@ def test_no_backup_no_import(api: TestClient, monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr(backup, "backup", fail)
     shown = preview(api, xlsx(("Students", [STUDENT_HEAD, ["Diya Nair", None, 1200, None]])))
-    body = {"students": [{"data": shown["students"][0]["data"]}]}
+    body = commit_body(shown)
     response = api.post("/api/import/commit", json=body)
     assert response.status_code == 422
     assert "Couldn't save a backup first" in response.json()["detail"][0]["msg"]

@@ -1,4 +1,4 @@
-"""Migration 0003 (unassigned_payments) only adds a table: the records a v0.1.0 laptop has come
+"""Migrations 0003 (unassigned_payments) and 0004 (students.uid) only add: the records a v0.1.0 laptop has come
 through untouched, and the new table has the same safeguards as `payments`."""
 
 from __future__ import annotations
@@ -64,6 +64,11 @@ def test_upgrade_adds_the_table_and_keeps_every_record() -> None:
             c for c in inspect(conn).get_columns("payments") if c["name"] == "student_id"
         )
     assert student_id["nullable"] is False
+    # 0004 only adds students.uid, empty until the student is first downloaded.
+    with get_engine().connect() as conn:
+        uid = next(c for c in inspect(conn).get_columns("students") if c["name"] == "uid")
+        assert uid["nullable"] is True
+        assert conn.execute(text("SELECT count(*) FROM students WHERE uid IS NULL")).scalar() == 2
     assert columns == [
         "id",
         "student_text",
