@@ -107,6 +107,41 @@ test('leaving again and coming back straight away never starts on an old "no fee
   expect((await detail(request, id)).owed_paise).toBe(5 * 200000) // nothing paid, no gap
 })
 
+test('correcting the left month after coming back makes the right months owed', async ({
+  page,
+  request,
+}) => {
+  const now = await serverMonth(request)
+  const name = uniqueName('Nandini')
+  const id = await createStudent(request, {
+    name,
+    monthly_fee_paise: 100000,
+    joined_month: addMonths(now, -4),
+    left_month: addMonths(now, -3),
+  })
+  // Back next month (away from two months ago), then the left month is corrected to last month.
+  const back = addMonths(now, 1)
+  expect(
+    (await request.post(`/api/students/${id}/return`, { data: { from_month: back } })).ok(),
+  ).toBe(true) // fmt
+  const left = await request.patch(`/api/students/${id}`, {
+    data: { left_month: addMonths(now, -1) },
+  })
+  expect(left.ok()).toBe(true)
+
+  await page.goto(`/students/${id}`)
+  await page.getByRole('button', { name: 'Mark as coming again' }).click()
+  const dialog = page.getByRole('dialog', { name: `Mark ${name} as coming again?` })
+  await pickMonth(page, 'Which month are they back from\\?', back)
+  await dialog.getByRole('button', { name: 'Mark as coming again' }).click()
+  await expect(page.getByText(`${name} is coming again`)).toBeVisible()
+
+  await expect(monthRow(page, addMonths(now, -2)).getByText('Unpaid')).toBeVisible()
+  await expect(monthRow(page, addMonths(now, -1)).getByText('Unpaid')).toBeVisible()
+  await expect(monthRow(page, now).getByText('No fee')).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Fee history' })).toContainText('Away (no fee)')
+})
+
 test('a scheduled fee change shows in the message and can be removed from Fee history', async ({
   page,
   request,

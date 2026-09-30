@@ -22,7 +22,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { amountProblem } from '@/lib/amount'
 import { errorMessage, fieldErrors } from '@/lib/errors'
-import { newFeeSentence, returnFee } from '@/lib/fees'
+import { afterReturn, newFeeSentence, nextFeeChange, returnFee } from '@/lib/fees'
 import {
   addMonths,
   formatMonth,
@@ -58,10 +58,25 @@ export function ComeBackDialog({
   // The months away: from the month after they left to the month before they're back.
   const lastAway = month ? addMonths(month, -1) : ''
   const away = lastAway >= firstAway ? formatMonthSpan(firstAway, lastAway) : null
-  const usualFee = month ? returnFee(student.fee_history, student.left_month, month) : 0
+  const usualFee = month ? returnFee(student.fee_history, month) : 0
   const feeText = typedFee ?? paiseToRupeesInput(usualFee)
   const fee = rupeesToPaise(feeText, { allowZero: true })
   const feeProblem = amountProblem(feeText, { allowZero: true, what: 'monthly fee' })
+  // Their fee history once they're back; the owner's own ₹0 months (a planned month off)
+  // after the return month are kept, so say so.
+  const history =
+    month && fee !== null
+      ? afterReturn(student.fee_history, student.left_month, month, fee)
+      : student.fee_history
+  const keptNoFee = month
+    ? history.filter((f) => f.kind === 'fee' && f.amount_paise === 0 && f.effective_month > month)
+    : []
+  const noFeeWhen = (start: string) => {
+    const next = nextFeeChange(history, start)
+    return next
+      ? `in ${formatMonthSpan(start, addMonths(next.effective_month, -1))}`
+      : `from ${formatMonth(start)} onwards`
+  }
   // Money already logged for a month away counts as paid extra once that month has no fee.
   const paidWhileAway = away
     ? student.months.filter((m) => m.month >= firstAway && m.month <= lastAway && m.paid_paise > 0)
@@ -170,8 +185,19 @@ export function ComeBackDialog({
                   <strong>{away}</strong>: no fee, so nothing is owed for the months away.
                 </p>
               )}
-              {!away && <p>Every month from {formatMonth(month)} counts, as if they never left.</p>}
-              {fee !== null && <p>{newFeeSentence(student.fee_history, month, fee, now)}</p>}
+              {!away && keptNoFee.length === 0 && (
+                <p>Every month from {formatMonth(month)} counts, as if they never left.</p>
+              )}
+              {!away && keptNoFee.length > 0 && (
+                <p>No months are skipped: they owe from {formatMonth(month)}.</p>
+              )}
+              {fee !== null && <p>{newFeeSentence(history, month, fee, now)}</p>}
+              {keptNoFee.map((f) => (
+                <p key={f.id} className="text-sm text-muted-foreground">
+                  No fee {noFeeWhen(f.effective_month)} was set earlier, and stays. If that’s wrong,
+                  remove it in Fee history afterwards.
+                </p>
+              ))}
               {paidWhileAway.length > 0 && (
                 <p className="text-sm text-muted-foreground">
                   {paidWhileAway

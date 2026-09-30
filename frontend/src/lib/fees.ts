@@ -3,7 +3,7 @@
  * same way the backend's ledger does (PRD ledger rules 2 and 7).
  */
 import type { FeeChangeRead } from '@/api/types'
-import { formatMonth, formatRupees } from '@/lib/format'
+import { addMonths, formatMonth, formatRupees } from '@/lib/format'
 
 type Fees = readonly Pick<FeeChangeRead, 'effective_month' | 'amount_paise'>[]
 
@@ -32,14 +32,38 @@ export function nextFeeChange<F extends Fees[number]>(
 
 /**
  * The fee someone coming back from `back` owes, as the backend's `return_fee` works it out:
- * the latest fee change on or before `back`, skipping ₹0 ones after `left` (the months away of
- * an earlier return). Usually the fee they paid when they left.
+ * the latest fee the owner set (not an 'away' row) on or before `back`. Usually the fee they
+ * paid when they left.
  */
-export function returnFee(fees: Fees, left: string, back: string): number {
+export function returnFee(fees: readonly FeeChangeRead[] | Fees, back: string): number {
   return feeAt(
-    fees.filter((f) => !(f.effective_month > left && f.amount_paise === 0)),
+    fees.filter((f) => !('kind' in f && f.kind === 'away')),
     back,
   )
+}
+
+/**
+ * The fee history as it will be once they're back from `back` after leaving after `left`:
+ * the gap's rows and every 'away' row after `left` are gone, a ₹0 'away' row starts the gap,
+ * and `fee` starts at `back` (backend `return_student`).
+ */
+export function afterReturn(
+  fees: readonly FeeChangeRead[],
+  left: string,
+  back: string,
+  fee: number,
+): FeeChangeRead[] {
+  const firstAway = addMonths(left, 1)
+  const kept = fees.filter(
+    (f) =>
+      !(f.effective_month > left && f.effective_month <= back) &&
+      !(f.kind === 'away' && f.effective_month > left),
+  )
+  const added: FeeChangeRead[] = [{ id: -2, effective_month: back, amount_paise: fee, kind: 'fee' }]
+  if (back > firstAway) {
+    added.push({ id: -1, effective_month: firstAway, amount_paise: 0, kind: 'away' })
+  }
+  return [...kept, ...added].toSorted((a, b) => a.effective_month.localeCompare(b.effective_month))
 }
 
 /** "₹1,500 a month", or "no fee" for ₹0. */

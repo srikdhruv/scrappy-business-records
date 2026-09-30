@@ -37,6 +37,8 @@ export interface FeeChangeRow {
   student_id: number
   effective_month: string
   amount_paise: number
+  /** 'fee': set by the owner; 'away': the months away after coming back (backend FeeKind). */
+  kind: 'fee' | 'away'
 }
 
 export interface PaymentRow {
@@ -253,6 +255,7 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
   const summary = {
     expected_paise: 0,
     collected_paise: 0,
+    paid_ahead_paise: 0,
     still_due_paise: 0,
     not_fully_paid_count: 0,
     active_student_count: 0,
@@ -270,6 +273,7 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
     if (isActive(student, month)) {
       const expected = expectedFor(book, month)
       if (expected > 0) summary.active_student_count += 1 // only those with a fee due
+      if (month > now) summary.paid_ahead_paise += Math.min(paidInMonth, expected)
       summary.expected_paise += expected
       summary.still_due_paise += Math.max(0, expected - paidInMonth)
       const status = monthStatus(expected, paidInMonth)

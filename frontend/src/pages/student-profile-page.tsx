@@ -358,7 +358,8 @@ function BalanceCard({
   // Paid ahead: the last month, after this one and still enrolled, paid in full without a gap.
   let aheadTo: string | undefined
   for (const m of student.months.filter((m) => !m.is_due && !afterLeft(m.month))) {
-    if (m.status !== 'paid' && !(m.status === 'overpaid' && m.expected_paise > 0)) break
+    if (m.expected_paise === 0) continue // a month off or away: nothing to pay ahead, go on
+    if (m.status !== 'paid' && m.status !== 'overpaid') break
     aheadTo = m.month
   }
   const owed = student.months.filter(
@@ -418,7 +419,7 @@ function BalanceCard({
           {student.status === 'owes'
             ? `${plural(owed.length, 'month')} not fully paid.`
             : student.status === 'credit'
-              ? `Paid ${formatRupees(credit)} more than was due.`
+              ? `Paid ${formatRupees(credit)} more than the fee.`
               : aheadTo
                 ? `Everything due is paid, and ahead to ${formatMonth(aheadTo)}.`
                 : 'Everything due so far has been paid.'}
@@ -569,7 +570,11 @@ function FeeHistory({ student }: { student: StudentDetail }) {
                   <span
                     className={cn('font-semibold', f.amount_paise === 0 && 'text-muted-foreground')}
                   >
-                    {f.amount_paise === 0 ? 'No fee' : formatRupees(f.amount_paise)}
+                    {f.kind === 'away'
+                      ? 'Away (no fee)'
+                      : f.amount_paise === 0
+                        ? 'No fee'
+                        : formatRupees(f.amount_paise)}
                   </span>{' '}
                   <span className="text-muted-foreground">
                     from {formatMonthShort(f.effective_month)}

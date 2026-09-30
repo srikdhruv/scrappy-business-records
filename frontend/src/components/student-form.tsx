@@ -374,7 +374,7 @@ function StudentForm({
           errorId={errorId('left')}
           help={
             hasLeft
-              ? 'The last month they paid for. It can only move earlier here. If they’ve come back, use Mark as coming again on their profile.'
+              ? 'The last month they paid for. It can only move earlier here. Came back after all? Use Mark as coming again on their profile, then set a new Left month if needed.'
               : 'The last month they should pay for. Leave empty while they’re still coming.'
           }
         >

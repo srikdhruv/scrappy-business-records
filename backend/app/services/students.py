@@ -323,7 +323,8 @@ def _set_fee_from(session: Session, student: Student, month: dt.date, amount: in
     month). Nothing is recorded if that fee is already in effect then."""
     existing = next((f for f in student.fee_changes if f.effective_month == month), None)
     if existing is not None:
-        existing.amount_paise = amount
+        # The owner set it, so it is theirs now, even where it was a month away.
+        existing.amount_paise, existing.kind = amount, FeeKind.fee
     elif to_record(student).fee_in_effect(month) != amount:
         student.fee_changes.append(FeeChange(effective_month=month, amount_paise=amount))
     session.flush()

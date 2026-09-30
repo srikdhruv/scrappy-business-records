@@ -206,10 +206,10 @@ function SummaryCards({ data }: { data: DashboardResponse }) {
   const s = data.summary
   const name = monthName(data.month)
   const ahead = data.month > data.current_month
+  // For a later month, only what's paid up to each fee is "paid ahead" (the rest is extra).
+  const inHand = ahead ? s.paid_ahead_paise : s.collected_paise
   const percent =
-    s.expected_paise > 0
-      ? Math.min(100, Math.round((s.collected_paise / s.expected_paise) * 100))
-      : 0
+    s.expected_paise > 0 ? Math.min(100, Math.round((inHand / s.expected_paise) * 100)) : 0
   const allPaid = s.not_fully_paid_count === 0
   const nobody = s.active_student_count === 0
   return (
@@ -224,7 +224,7 @@ function SummaryCards({ data }: { data: DashboardResponse }) {
       </SummaryCard>
       <SummaryCard
         label={ahead ? 'Paid ahead' : 'Collected'}
-        value={formatRupees(s.collected_paise)}
+        value={formatRupees(inHand)}
         icon={WalletIcon}
         iconClass={ahead ? 'bg-credit-soft text-credit' : 'bg-paid-soft text-paid'}
       >

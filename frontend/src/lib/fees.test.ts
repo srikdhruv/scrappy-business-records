@@ -1,4 +1,4 @@
-import { feeAt, feeWords, newFeeSentence, nextFeeChange, returnFee } from './fees'
+import { afterReturn, feeAt, feeWords, newFeeSentence, nextFeeChange, returnFee } from './fees'
 
 const history = [
   { id: 1, effective_month: '2025-10', amount_paise: 150000 },
@@ -57,22 +57,49 @@ describe('newFeeSentence', () => {
   })
 })
 
-describe('returnFee', () => {
-  it('skips the ₹0 months away of an earlier return', () => {
-    const fees = [
-      { effective_month: '2026-01', amount_paise: 200000 },
-      { effective_month: '2026-04', amount_paise: 0 }, // away, from an earlier return
-      { effective_month: '2026-07', amount_paise: 200000 },
-    ]
-    expect(returnFee(fees, '2026-03', '2026-04')).toBe(200000)
-    expect(returnFee(fees, '2026-03', '2026-05')).toBe(200000)
-    // A raise set for a month while they were away is the fee they come back on.
-    const raised = [...fees, { effective_month: '2026-05', amount_paise: 250000 }]
-    expect(returnFee(raised, '2026-03', '2026-06')).toBe(250000)
-    // A free place stays free.
-    expect(returnFee([{ effective_month: '2026-01', amount_paise: 0 }], '2026-03', '2026-05')).toBe(
-      0,
-    )
+describe('returnFee and afterReturn', () => {
+  const row = (
+    id: number,
+    effective_month: string,
+    amount_paise: number,
+    kind: 'fee' | 'away',
+  ) => ({
+    id,
+    effective_month,
+    amount_paise,
+    kind,
+  })
+  const fees = [
+    row(1, '2026-01', 200000, 'fee'),
+    row(2, '2026-04', 0, 'away'), // an earlier return's months away
+    row(3, '2026-07', 200000, 'fee'),
+    row(4, '2026-11', 0, 'fee'), // a month off the owner set
+    row(5, '2026-12', 200000, 'fee'),
+  ]
+
+  it('never comes back on an "away" row, but does on an owner\'s ₹0', () => {
+    expect(returnFee(fees, '2026-04')).toBe(200000)
+    expect(returnFee(fees, '2026-05')).toBe(200000)
+    expect(returnFee(fees, '2026-11')).toBe(0)
+  })
+
+  it('shows the history as it will be: old "away" rows gone, the owner\'s month off kept', () => {
+    const after = afterReturn(fees, '2026-03', '2026-08', 200000)
+    expect(after.map((f) => [f.effective_month, f.amount_paise, f.kind])).toEqual([
+      ['2026-01', 200000, 'fee'],
+      ['2026-04', 0, 'away'],
+      ['2026-08', 200000, 'fee'],
+      ['2026-11', 0, 'fee'],
+      ['2026-12', 200000, 'fee'],
+    ])
+    // Back straight after leaving: no gap, and the earlier return's "away" April is gone.
+    expect(afterReturn(fees, '2026-03', '2026-04', 200000).map((f) => f.kind)).toEqual([
+      'fee',
+      'fee',
+      'fee',
+      'fee',
+      'fee',
+    ])
   })
 })
 

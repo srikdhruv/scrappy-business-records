@@ -121,6 +121,17 @@ def test_a_planned_month_off_is_kept_when_coming_back(api: TestClient) -> None:
     assert kinds_of(d)[-1] == ("2026-05", 0, "fee")
 
 
+def test_a_fee_set_on_a_month_away_becomes_the_owners(api: TestClient) -> None:
+    s = make_student(api, joined_month="2026-01", left_month="2026-02")
+    come_back(api, s["id"], "2026-05")  # away from March
+    response = api.patch(
+        f"/api/students/{s['id']}",
+        json={"monthly_fee_paise": 120000, "fee_effective_month": "2026-03"},
+    )
+    assert response.status_code == 200, response.text
+    assert kinds_of(response.json())[1] == ("2026-03", 120000, "fee")
+
+
 def test_the_dashboard_counts_paid_ahead_only_up_to_the_fee(api: TestClient) -> None:
     a = make_student(api, monthly_fee_paise=100000, joined_month="2026-01")
     b = make_student(api, name="Kabir Mehta", monthly_fee_paise=100000, joined_month="2026-01",
