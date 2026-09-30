@@ -184,7 +184,11 @@ def test_the_dashboard_counts_paid_ahead_only_up_to_the_fee(api: TestClient) -> 
     pay(api, a["id"], "2026-08", 250000)  # ₹1,500 more than the fee
     pay(api, b["id"], "2026-08", 100000)  # a month away: all extra
     august = api.get("/api/dashboard", params={"month": "2026-08"}).json()["summary"]
-    assert (august["collected_paise"], august["paid_ahead_paise"]) == (350000, 100000)
+    # Only what pays August counts, for both boxes: the extra went to the oldest unpaid months
+    # (January and February for both), so it's counted there instead.
+    assert (august["collected_paise"], august["paid_ahead_paise"]) == (100000, 100000)
+    january = api.get("/api/dashboard", params={"month": "2026-01"}).json()["summary"]
+    assert (january["collected_paise"], january["still_due_paise"]) == (200000, 0)
     assert august["active_student_count"] == 1
     assert api.get("/api/dashboard").json()["summary"]["paid_ahead_paise"] == 0  # June: due
 
@@ -208,12 +212,17 @@ def test_a_payment_for_a_month_away_still_to_come_is_extra_not_paid_ahead(
     come_back(api, s["id"], "2026-09")  # away June to August
     pay(api, s["id"], "2026-08", 100000)  # a month away, still to come
     d = api.get(f"/api/students/{s['id']}").json()
-    assert months_of(d)["2026-08"] == (0, 100000, "overpaid")
-    assert (d["paid_ahead_paise"], d["credit_paise"], d["status"]) == (0, 100000, "credit")
-    # A later month they're enrolled in counts as paid ahead only up to its fee.
+    # Nothing is owed, so it pays the first month with a fee after the months away: September.
+    assert months_of(d)["2026-08"] == (0, 100000, "not_applicable")
+    assert months_of(d)["2026-09"] == (100000, 0, "paid")
+    assert (d["paid_ahead_paise"], d["credit_paise"], d["status"]) == (100000, 0, "up_to_date")
+    # A payment logged for September pays September itself first; August's money then moves on
+    # to October, and September's ₹500 extra to November.
     pay(api, s["id"], "2026-09", 150000)
     d = api.get(f"/api/students/{s['id']}").json()
-    assert (d["paid_ahead_paise"], d["credit_paise"]) == (100000, 150000)
+    assert (d["paid_ahead_paise"], d["credit_paise"]) == (250000, 0)
+    covered = {m["month"]: m["covered_by_credit_paise"] for m in d["months"]}
+    assert (covered["2026-09"], covered["2026-10"], covered["2026-11"]) == (0, 100000, 50000)
 
 
 def test_no_fee_now_then_a_fee_later(api: TestClient) -> None:

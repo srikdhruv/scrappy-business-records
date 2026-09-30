@@ -105,8 +105,13 @@ def test_a_payment_for_a_month_away_is_extra(api: TestClient) -> None:
     s = make_student(api, joined_month="2026-01", left_month="2026-02")
     pay(api, s["id"], "2026-03")  # logged for a month they were away
     d = come_back(api, s["id"], "2026-06")
-    assert months_of(d)["2026-03"] == (0, 150000, "overpaid")
-    assert d["credit_paise"] == 150000
+    # Nothing is due for March, so all of it is extra, and it pays January, the oldest month
+    # still owed. It isn't left as credit.
+    assert months_of(d)["2026-03"] == (0, 150000, "not_applicable")
+    march = next(m for m in d["months"] if m["month"] == "2026-03")
+    assert march["extra_sent"] == [{"to_month": "2026-01", "amount_paise": 150000}]
+    assert months_of(d)["2026-01"] == (150000, 0, "paid")
+    assert d["credit_paise"] == 0
 
 
 def test_coming_back_for_a_student_still_leaving(api: TestClient) -> None:

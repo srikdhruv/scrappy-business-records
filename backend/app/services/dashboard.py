@@ -10,6 +10,7 @@ from app.months import format_month
 from app.schemas import (
     BacklogItem,
     BacklogMonth,
+    CreditMoveItem,
     DashboardResponse,
     DashboardSummary,
     OverpaidItem,
@@ -43,6 +44,7 @@ def get_dashboard(session: Session, month: dt.date, current_month: dt.date) -> D
                 phone=e.student.phone,
                 expected_paise=e.line.expected_paise,
                 paid_paise=e.line.paid_paise,
+                covered_by_credit_paise=e.line.covered_by_credit_paise,
                 remaining_paise=e.line.remaining_paise,
                 status=e.line.status,  # type: ignore[arg-type]
                 credit_paise=e.credit_paise,
@@ -60,6 +62,7 @@ def get_dashboard(session: Session, month: dt.date, current_month: dt.date) -> D
                         month=format_month(line.month),
                         expected_paise=line.expected_paise,
                         paid_paise=line.paid_paise,
+                        covered_by_credit_paise=line.covered_by_credit_paise,
                         remaining_paise=line.remaining_paise,
                         status=line.status,  # type: ignore[arg-type]
                     )
@@ -80,7 +83,22 @@ def get_dashboard(session: Session, month: dt.date, current_month: dt.date) -> D
                 expected_paise=e.line.expected_paise,
                 paid_paise=e.line.paid_paise,
                 excess_paise=e.line.excess_paise,
+                extra_unused_paise=e.line.extra_unused_paise,
             )
             for e in board.overpaid
+        ],
+        credit_moves=[
+            CreditMoveItem(
+                student_id=e.student.id,
+                student_name=e.student.name,
+                batch_label=e.student.batch_label,
+                phone=e.student.phone,
+                payment_id=e.move.payment.id,
+                paid_on=e.move.payment.paid_on,  # type: ignore[arg-type]  # set when stored
+                from_month=format_month(e.move.payment.for_month),
+                to_month=format_month(e.move.to_month),
+                amount_paise=e.move.amount_paise,
+            )
+            for e in board.credit_moves
         ],
     )

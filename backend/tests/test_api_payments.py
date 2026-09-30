@@ -19,6 +19,10 @@ def test_create_and_read(api: TestClient) -> None:
         "for_month": "2026-03",
         "method": "cash",
         "note": None,
+        # Exactly March's fee: all of it pays March.
+        "paid_direct_paise": 150000,
+        "extra_sent": [],
+        "extra_unused_paise": 0,
         "created_at": p["created_at"],
         "updated_at": p["updated_at"],
     }

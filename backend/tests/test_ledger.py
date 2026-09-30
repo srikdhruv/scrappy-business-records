@@ -122,11 +122,17 @@ def test_month_status(expected: int, paid: int, status: MonthStatus) -> None:
 
 
 def test_month_line_remaining_and_excess() -> None:
+    # March's ₹500 above its fee pays part of January, the oldest month not fully paid once
+    # every payment has paid its own month (rule 10). February stays partly paid.
     s = student(pays=((FEB, 1000_00), (MAR, 2000_00)))
+    jan = ledger.month_line(s, JAN, NOW)
     feb = ledger.month_line(s, FEB, NOW)
     mar = ledger.month_line(s, MAR, NOW)
+    assert (jan.remaining_paise, jan.covered_by_credit_paise, jan.status) == (1000_00, 500_00, PART)
     assert (feb.remaining_paise, feb.excess_paise, feb.status) == (500_00, 0, PART)
-    assert (mar.remaining_paise, mar.excess_paise, mar.status) == (0, 500_00, OVER)
+    assert (mar.remaining_paise, mar.excess_paise, mar.status) == (0, 500_00, PAID)
+    assert mar.extra_sent == (ledger.ExtraSent(JAN, 500_00),)
+    assert mar.extra_unused_paise == 0
 
 
 # --------------------------------------------------------------------------- rule 6: balance
@@ -164,19 +170,23 @@ def test_future_payment_is_paid_ahead_not_overpaid() -> None:
     by_month = {line.month: line for line in led.months}
     assert by_month[JUN].is_due and not by_month[JUL].is_due
     assert by_month[JUL].status is PAID
-    assert by_month[AUG].status is UNPAID and not by_month[AUG].is_due
-    # Paid ahead counts towards the net balance, but it isn't credit, up to each month's fee.
+    assert not by_month[AUG].is_due  # partly paid ahead by September's extra (below)
+    # Paid ahead counts towards the net balance, but it isn't credit.
     assert led.balance_paise == 3500_00
-    # September: ₹2,000 against a ₹1,500 fee is ₹1,500 paid ahead and ₹500 extra (credit).
-    assert (led.owed_paise, led.credit_paise, led.paid_ahead_paise) == (0, 500_00, 3000_00)
-    assert led.status is BalanceStatus.credit
-    # A future month is never in the backlog. Its extra money is in the "Paid too much" list
-    # from the current month on, so every credit can be found; looking back, it isn't.
-    for m in (JUN, JUL, SEP, DEC):
+    # September: ₹2,000 against a ₹1,500 fee is ₹1,500 for September and ₹500 extra, which
+    # pays part of August, the first later month not paid yet: all of it is paid ahead.
+    assert by_month[AUG].status is PART and by_month[AUG].covered_by_credit_paise == 500_00
+    assert (led.owed_paise, led.credit_paise, led.paid_ahead_paise) == (0, 0, 3500_00)
+    assert led.status is BalanceStatus.up_to_date
+    # A future month is never in the backlog, and nothing is left over as credit.
+    for m in (MAY, JUN, JUL, SEP, DEC):
         board = ledger.build_dashboard([s], m, NOW)
-        assert [(o.line.month, o.line.excess_paise) for o in board.overpaid] == [(SEP, 500_00)]
+        assert board.overpaid == ()
         assert board.backlog == ()
-    assert ledger.build_dashboard([s], MAY, NOW).overpaid == ()
+    # August's dashboard counts the ₹500 as paid ahead for August.
+    aug = ledger.build_dashboard([s], AUG, NOW)
+    assert (aug.summary.collected_paise, aug.summary.paid_ahead_paise) == (500_00, 500_00)
+    assert [(e.move.payment.for_month, e.move.to_month) for e in aug.credit_moves] == [(SEP, AUG)]
 
 
 def test_expected_after_current_month_is_not_owed() -> None:
@@ -207,19 +217,25 @@ def test_payment_in_an_inactive_month() -> None:
     led = ledger.student_ledger(s, NOW)
     # History starts at the earliest paid month when that's before joining.
     assert [line.month for line in led.months] == month_range(JAN, JUN)
-    assert statuses(led) == {JAN: OVER, FEB: NA, MAR: PAID, APR: UNPAID, MAY: OVER, JUN: NA}
+    # January's ₹500 (before joining) and then May's ₹1,500 (after leaving) are all extra: they
+    # pay April, their last month, oldest payment first. ₹500 of May's is left over: credit.
+    assert statuses(led) == {JAN: NA, FEB: NA, MAR: PAID, APR: PAID, MAY: OVER, JUN: NA}
     jan = led.months[0]
     assert (jan.expected_paise, jan.excess_paise) == (0, 500_00)
+    assert jan.extra_sent == (ledger.ExtraSent(APR, 500_00),)
+    apr = led.months[3]
+    assert [(c.for_month, c.amount_paise) for c in apr.credit_sources] == [
+        (JAN, 500_00),
+        (MAY, 1000_00),
+    ]
     # 500 + 1500 + 1500 paid, 1500 + 1500 due.
     assert led.balance_paise == 500_00
+    assert (led.owed_paise, led.credit_paise) == (0, 500_00)
     board = ledger.build_dashboard([s], NOW, NOW)
-    assert [(o.line.month, o.line.excess_paise) for o in board.overpaid] == [
-        (JAN, 500_00),
-        (MAY, 1500_00),
-    ]
-    # The payment for May still counts as collected for May, though nothing was expected.
+    assert [(o.line.month, o.line.extra_unused_paise) for o in board.overpaid] == [(MAY, 500_00)]
+    # Collected for May is what pays May: nothing, as nothing was expected.
     may = ledger.build_dashboard([s], MAY, NOW).summary
-    assert (may.expected_paise, may.collected_paise, may.still_due_paise) == (0, 1500_00, 0)
+    assert (may.expected_paise, may.collected_paise, may.still_due_paise) == (0, 0, 0)
 
 
 # --------------------------------------------------------------------------- joins
@@ -324,8 +340,12 @@ def test_suggest_skips_months_paid_ahead() -> None:
 def test_suggest_prefers_owed_months_over_next_month() -> None:
     s = student(pays=(*((m, 1500_00) for m in month_range(JAN, MAY)), (JUL, 1500_00)))
     assert ledger.suggest_payment(s, NOW) == owed(JUN, 1500_00)
-    overpaid = student(pays=((JAN, 9000_00),))
-    assert ledger.suggest_payment(overpaid, NOW) == owed(FEB, 1500_00)
+    # ₹9,000 for January pays January and, with its extra, February to June.
+    six_months = student(pays=((JAN, 9000_00),))
+    assert ledger.suggest_payment(six_months, NOW) == next_unpaid(JUL, 1500_00)
+    # ₹8,000 leaves ₹1,000 still owed on June.
+    short = student(pays=((JAN, 8000_00),))
+    assert ledger.suggest_payment(short, NOW) == owed(JUN, 1000_00)
 
 
 def test_suggest_for_students_who_are_leaving_or_left() -> None:
@@ -371,23 +391,26 @@ def test_suggest_for_future_joiner() -> None:
 # --------------------------------------------------------------------------- credit, tenure
 
 
-def test_credit_is_money_in_overpaid_due_months() -> None:
-    s = student(
-        joined=FEB,
-        left=MAY,
-        pays=(
-            (JAN, 300_00),  # before joining: all of it is credit
-            (FEB, 2000_00),  # 500 over
-            (MAR, 1000_00),  # partial: not credit, and doesn't cancel it
-            (JUN, 700_00),  # after leaving (and due): credit
-            (JUL, 1500_00),  # after leaving, though not due yet: credit, not paid ahead
-        ),
+def test_credit_is_only_money_no_month_needed() -> None:
+    pays = (
+        (JAN, 300_00),  # before joining: all of it is extra
+        (FEB, 2000_00),  # 500 over
+        (MAR, 1000_00),  # partial
+        (JUN, 700_00),  # after leaving (and due): all extra
+        (JUL, 1500_00),  # after leaving, though not due yet: all extra, never paid ahead
     )
-    assert ledger.credit(s, NOW) == 300_00 + 500_00 + 700_00 + 1500_00
+    s = student(joined=FEB, left=MAY, pays=pays)
+    # ₹3,000 of extra money pays March's last ₹500, April and ₹1,000 of May. None is left.
     led = ledger.student_ledger(s, NOW)
-    assert (led.credit_paise, led.paid_ahead_paise) == (3000_00, 0)
+    assert (led.credit_paise, led.paid_ahead_paise, led.owed_paise) == (0, 0, 500_00)
+    # Another ₹1,000 for June: ₹500 pays the rest of May, and ₹500 is left over: credit.
+    more = student(joined=FEB, left=MAY, pays=(*pays, (JUN, 1000_00)))
+    assert ledger.credit(more, NOW) == 500_00
+    led = ledger.student_ledger(more, NOW)
+    assert (led.credit_paise, led.paid_ahead_paise, led.owed_paise) == (500_00, 0, 0)
+    assert led.status is BalanceStatus.credit
     # A month later, when July is due, nothing changes.
-    assert ledger.credit(s, JUL) == 3000_00
+    assert ledger.credit(more, JUL) == 500_00
 
     # Paying ahead while still enrolled is not credit.
     staying = student(joined=FEB, pays=((JUL, 1500_00),))
@@ -397,10 +420,18 @@ def test_credit_is_money_in_overpaid_due_months() -> None:
 
 
 def test_dashboard_entries_carry_credit() -> None:
-    s = student(pays=((JAN, 2500_00), (FEB, 1500_00)))  # 1000 over in Jan; Mar-Jun unpaid
+    # ₹1,000 over in January pays ₹1,000 of March; April to June are unpaid. Nothing is left
+    # over, so there is no credit to show next to what's owed.
+    s = student(pays=((JAN, 2500_00), (FEB, 1500_00)))
     board = ledger.build_dashboard([s], NOW, NOW)
-    assert [e.credit_paise for e in board.yet_to_pay] == [1000_00]
-    assert [e.credit_paise for e in board.backlog] == [1000_00]
+    assert [e.credit_paise for e in board.yet_to_pay] == [0]
+    [entry] = board.backlog
+    assert entry.credit_paise == 0
+    assert [(m.month, m.covered_by_credit_paise, m.remaining_paise) for m in entry.lines] == [
+        (MAR, 1000_00, 500_00),
+        (APR, 0, 1500_00),
+        (MAY, 0, 1500_00),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -477,17 +508,17 @@ def school() -> list[StudentRecord]:
 def test_dashboard_present_month(school: list[StudentRecord]) -> None:
     board = ledger.build_dashboard(school, JUN, JUN)
     assert board.month == JUN
+    # Meera paid April twice: the second ₹1,200 pays June, the only month she owed.
     assert board.summary == ledger.DashboardSummary(
         expected_paise=1500_00 + 2000_00 + 1200_00,
-        collected_paise=1500_00 + 500_00,
+        collected_paise=1500_00 + 500_00 + 1200_00,
         paid_ahead_paise=0,
-        still_due_paise=1500_00 + 1200_00,
-        not_fully_paid_count=2,
+        still_due_paise=1500_00,
+        not_fully_paid_count=1,
         active_student_count=3,
     )
     assert [(e.student.id, e.line.status, e.line.remaining_paise) for e in board.yet_to_pay] == [
         (2, PART, 1500_00),
-        (3, UNPAID, 1200_00),
     ]
     assert [
         (b.student.id, [m.month for m in b.lines], b.total_owed_paise) for b in board.backlog
@@ -495,9 +526,11 @@ def test_dashboard_present_month(school: list[StudentRecord]) -> None:
         (2, [MAR, APR, MAY], 3 * 2000_00),
         (4, [APR], 1500_00),
     ]
-    assert [(o.student.id, o.line.month, o.line.excess_paise) for o in board.overpaid] == [
-        (3, APR, 1200_00)
-    ]
+    assert board.overpaid == ()
+    assert [
+        (e.student.id, e.move.payment.for_month, e.move.to_month, e.move.amount_paise)
+        for e in board.credit_moves
+    ] == [(3, APR, JUN, 1200_00)]
 
 
 def test_dashboard_past_month(school: list[StudentRecord]) -> None:
@@ -525,12 +558,13 @@ def test_dashboard_future_month(school: list[StudentRecord]) -> None:
     assert board.summary.collected_paise == 3000_00
     assert [e.student.id for e in board.yet_to_pay] == [1, 2, 3]
     # Backlog stops at the current month: July isn't due yet.
+    # Meera's June is paid by April's extra, so she owes nothing from before August.
     assert [(b.student.id, [m.month for m in b.lines]) for b in board.backlog] == [
         (2, [MAR, APR, MAY, JUN]),
-        (3, [JUN]),
         (4, [APR]),
     ]
-    assert [(o.student.id, o.line.month) for o in board.overpaid] == [(3, APR)]
+    assert board.overpaid == ()
+    assert board.credit_moves == ()  # nothing moved into or out of August
 
 
 def test_dashboard_empty() -> None:
@@ -580,18 +614,13 @@ def test_student_invariants(s: StudentRecord, current: dt.date) -> None:
     assert led.total_paid_paise == total_paid == sum(line.paid_paise for line in led.months)
     owed_lines = [ln for ln in due if s.is_active(ln.month)]
     assert led.owed_paise == sum(ln.remaining_paise for ln in owed_lines)
-    # Paid ahead: later months they're still enrolled in (not after leaving).
-    # Paid ahead: later months they're still enrolled in (not after leaving), up to the fee.
-    assert led.paid_ahead_paise == sum(
-        min(ln.paid_paise, ln.expected_paise)
-        for ln in led.months
-        if not ln.is_due and not (s.left_month and ln.month > s.left_month)
-    )
-    # Credit: everything above the fee, in any month (all of it where the fee is 0).
-    assert led.credit_paise == sum(ln.excess_paise for ln in led.months)
+    # Paid ahead: what pays later months (never after leaving: those have no fee).
+    assert led.paid_ahead_paise == sum(ln.counted_paise for ln in led.months if not ln.is_due)
+    # Credit: what no month needed.
+    assert led.credit_paise == sum(ln.extra_unused_paise for ln in led.months)
     # Every rupee paid is exactly one of: counted against a due month, paid ahead, or credit.
     assert led.total_paid_paise == (
-        sum(min(ln.paid_paise, ln.expected_paise) for ln in led.months if ln.is_due)
+        sum(ln.counted_paise for ln in led.months if ln.is_due)
         + led.paid_ahead_paise
         + led.credit_paise
     )
@@ -605,7 +634,10 @@ def test_student_invariants(s: StudentRecord, current: dt.date) -> None:
     assert all(p.for_month in ms for p in s.payments)
     for line in led.months:
         assert line.remaining_paise >= 0 and line.excess_paise >= 0
-        assert line.expected_paise - line.paid_paise == line.remaining_paise - line.excess_paise
+        assert line.counted_paise + line.remaining_paise == line.expected_paise
+        sent = sum(e.amount_paise for e in line.extra_sent)
+        assert line.paid_paise == line.paid_direct_paise + sent + line.extra_unused_paise
+        assert line.excess_paise == sent + line.extra_unused_paise
         assert line.is_due == (line.month <= current)
         if not s.is_active(line.month):
             assert line.expected_paise == 0
@@ -652,20 +684,23 @@ def test_dashboard_invariants(
     assert summary.still_due_paise >= 0
     assert summary.active_student_count == len([s for s in active if lines[s.id].expected_paise])
     assert summary.expected_paise == sum(lines[s.id].expected_paise for s in active)
-    assert summary.collected_paise == sum(s.paid(month) for s in students)
+    assert summary.collected_paise == sum(lines[s.id].counted_paise for s in students)
     assert summary.still_due_paise == sum(e.line.remaining_paise for e in board.yet_to_pay)
     assert summary.not_fully_paid_count == len(board.yet_to_pay)
     for b in board.backlog:
         assert b.total_owed_paise > 0
         assert all(line.month < month and line.month <= current for line in b.lines)
     for o in board.overpaid:
-        assert o.line.excess_paise > 0
+        assert o.line.extra_unused_paise > 0
         assert o.line.month <= min(month, current) or (o.line.month > current <= month)
     # From the current month on, the list holds every credit.
     if month >= current:
         for s in students:
-            listed = sum(o.line.excess_paise for o in board.overpaid if o.student.id == s.id)
+            listed = sum(o.line.extra_unused_paise for o in board.overpaid if o.student.id == s.id)
             assert listed == ledger.credit(s, current)
+    for e in board.credit_moves:
+        assert month in (e.move.to_month, e.move.payment.for_month)
+        assert e.move.amount_paise > 0
 
 
 # --------------------------------------------------------------------------- rule 6: standing
@@ -680,21 +715,24 @@ def test_paying_ahead_never_hides_months_owed() -> None:
     assert led.status is BalanceStatus.owes
 
 
-def test_paying_a_month_twice_never_hides_the_month_missed() -> None:
-    """May paid twice instead of June: owes June, and May's extra is credit."""
+def test_paying_a_month_twice_pays_the_month_missed() -> None:
+    """May paid twice instead of June: the second payment's money pays June (rule 10)."""
     s = student(joined=MAY, pays=((MAY, 1500_00), (MAY, 1500_00)))
     led = ledger.student_ledger(s, NOW)
     assert led.balance_paise == 0
-    assert (led.owed_paise, led.credit_paise) == (1500_00, 1500_00)
-    assert led.status is BalanceStatus.owes
+    assert (led.owed_paise, led.credit_paise) == (0, 0)
+    assert led.status is BalanceStatus.up_to_date
+    assert ledger.month_line(s, JUN, NOW).covered_by_credit_paise == 1500_00
 
 
-def test_a_payment_from_before_joining_is_credit_and_months_still_owed() -> None:
-    """The joined month moved past a payment: that payment is credit; the months are owed."""
+def test_a_payment_from_before_joining_pays_the_first_month_owed() -> None:
+    """The joined month moved past a payment: that payment pays April, the oldest month owed;
+    May and June are still owed."""
     s = student(joined=APR, pays=((MAR, 1500_00),))
     led = ledger.student_ledger(s, NOW)
-    assert (led.owed_paise, led.credit_paise) == (3 * 1500_00, 1500_00)
+    assert (led.owed_paise, led.credit_paise) == (2 * 1500_00, 0)
     assert led.status is BalanceStatus.owes
+    assert statuses(led)[APR] is PAID and statuses(led)[MAR] is NA
 
 
 def test_paid_ahead_only_is_up_to_date() -> None:
@@ -704,10 +742,11 @@ def test_paid_ahead_only_is_up_to_date() -> None:
     assert led.status is BalanceStatus.up_to_date
 
 
-def test_a_payment_for_a_month_after_leaving_is_credit_not_paid_ahead() -> None:
-    """Left in April; ₹1,500 logged for July (after the current month): not paying ahead, but
-    money that was probably meant for an unpaid month."""
+def test_a_payment_for_a_month_after_leaving_pays_what_is_owed_never_paid_ahead() -> None:
+    """Left in April; ₹1,500 logged for July (after the current month): nothing is due in July,
+    so it pays April, the month still owed. It's never paid ahead for July."""
     s = student(joined=MAR, left=APR, pays=((MAR, 1500_00), (JUL, 1500_00)))
     led = ledger.student_ledger(s, NOW)
-    assert (led.paid_ahead_paise, led.credit_paise, led.owed_paise) == (0, 1500_00, 1500_00)
-    assert led.status is BalanceStatus.owes  # April is still owed
+    assert (led.paid_ahead_paise, led.credit_paise, led.owed_paise) == (0, 0, 0)
+    assert led.status is BalanceStatus.up_to_date
+    assert statuses(led)[JUL] is NA

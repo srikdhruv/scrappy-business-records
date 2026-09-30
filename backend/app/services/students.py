@@ -23,6 +23,8 @@ from app.errors import not_found, unprocessable
 from app.models import FeeChange, FeeKind, Student
 from app.months import add_months, format_month, parse_month
 from app.schemas import (
+    CreditSource,
+    ExtraSent,
     FeeChangeRead,
     LedgerMonth,
     StudentCreate,
@@ -50,23 +52,25 @@ def to_record(student: Student) -> ledger.StudentRecord:
         fee_changes=tuple(
             ledger.FeeChange(f.effective_month, f.amount_paise) for f in student.fee_changes
         ),
-        payments=tuple(ledger.Payment(p.for_month, p.amount_paise) for p in student.payments),
+        payments=tuple(
+            ledger.Payment(p.for_month, p.amount_paise, p.paid_on, p.id) for p in student.payments
+        ),
         batch_label=student.batch_label,
         phone=student.phone,
     )
 
 
 # Load what the ledger needs in two extra queries, however many students there are.
-_LEDGER_ROWS = (selectinload(Student.fee_changes), selectinload(Student.payments))
+LEDGER_ROWS = (selectinload(Student.fee_changes), selectinload(Student.payments))
 
 
 def all_students(session: Session) -> list[Student]:
-    return list(session.scalars(select(Student).options(*_LEDGER_ROWS)))
+    return list(session.scalars(select(Student).options(*LEDGER_ROWS)))
 
 
 def get_student_row(session: Session, student_id: int) -> Student:
     student = (
-        session.get(Student, student_id, options=_LEDGER_ROWS) if valid_id(student_id) else None
+        session.get(Student, student_id, options=LEDGER_ROWS) if valid_id(student_id) else None
     )
     if student is None:
         raise not_found("student", student_id)
@@ -120,6 +124,39 @@ def _next_fee_change(student: Student, current_month: dt.date) -> FeeChangeRead 
     )
 
 
+def extra_sent_read(sent: Iterable[ledger.ExtraSent]) -> list[ExtraSent]:
+    return [ExtraSent(to_month=format_month(e.to_month), amount_paise=e.amount_paise) for e in sent]
+
+
+def credit_sources_read(sources: Iterable[ledger.CreditSource]) -> list[CreditSource]:
+    return [
+        CreditSource(
+            payment_id=c.payment_id,
+            paid_on=c.paid_on,  # type: ignore[arg-type]  # always set for stored payments
+            for_month=format_month(c.for_month),
+            amount_paise=c.amount_paise,
+        )
+        for c in sources
+    ]
+
+
+def ledger_month(line: ledger.MonthLine) -> LedgerMonth:
+    return LedgerMonth(
+        month=format_month(line.month),
+        expected_paise=line.expected_paise,
+        paid_paise=line.paid_paise,
+        paid_direct_paise=line.paid_direct_paise,
+        covered_by_credit_paise=line.covered_by_credit_paise,
+        credit_sources=credit_sources_read(line.credit_sources),
+        extra_sent=extra_sent_read(line.extra_sent),
+        extra_unused_paise=line.extra_unused_paise,
+        remaining_paise=line.remaining_paise,
+        excess_paise=line.excess_paise,
+        status=line.status,
+        is_due=line.is_due,
+    )
+
+
 def student_read(student: Student, current_month: dt.date) -> StudentRead:
     led = ledger.student_ledger(to_record(student), current_month)
     return StudentRead(**_read_fields(student, led))  # type: ignore[arg-type]
@@ -138,18 +175,7 @@ def student_detail(student: Student, current_month: dt.date) -> StudentDetail:
             )
             for f in sorted(student.fee_changes, key=lambda f: f.effective_month)
         ],
-        months=[
-            LedgerMonth(
-                month=format_month(line.month),
-                expected_paise=line.expected_paise,
-                paid_paise=line.paid_paise,
-                remaining_paise=line.remaining_paise,
-                excess_paise=line.excess_paise,
-                status=line.status,
-                is_due=line.is_due,
-            )
-            for line in led.months
-        ],
+        months=[ledger_month(line) for line in led.months],
         payment_count=led.payment_count,
         total_paid_paise=led.total_paid_paise,
     )

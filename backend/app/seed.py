@@ -13,8 +13,9 @@ always gives the same data.
 
 The mix: about 25 students across five batches, 12 months of history, mostly paid on time and
 mostly by UPI, with some cash. Also: a few unpaid for this month, two partial payments, one month
-paid in two parts, two students with a backlog, one overpayment, one advance payment, one
-student who left, one fee change, and two students who joined this month.
+paid in two parts, two students with a backlog, one payment for two months at once (logged for
+this month, so its extra covers last month), one advance payment, one student who left, one fee
+change, and two students who joined this month.
 
 All names and phone numbers are made up.
 """
@@ -75,7 +76,7 @@ ROSTER: tuple[Demo, ...] = (
     Demo("Arjun Menon", "Vivek Menon", 1200, 10, 2, "backlog",
          notes="Parent said they'd clear the dues together."),
     Demo("Saanvi Reddy", "Kavitha Reddy", 1500, 9, 0),
-    Demo("Vihaan Joshi", "Neha Joshi", 2000, 9, 3, "overpaid"),
+    Demo("Vihaan Joshi", "Neha Joshi", 2000, 9, 3, "double"),
     Demo("Aditi Kamath", None, 3000, 9, 3),
     Demo("Kavya Pillai", "Anand Pillai", 1200, 8, 2, "partial"),
     Demo("Aarav Bhat", "Deepa Bhat", 1500, 8, 0, "advance"),
@@ -181,8 +182,11 @@ class _Maker:
             if story == "partial" and m == add_months(now, -3):
                 self.pay(student, m, fee // 2, note="Rest next month")
                 continue
-            if story == "overpaid" and m == add_months(now, -2):
-                self.pay(student, m, fee + 500_00, note="Paid extra by mistake")
+            if story == "double" and m == add_months(now, -1):
+                # Paid together with this month (below). Draw what a payment would, so the
+                # other demo students stay exactly as they were.
+                self.method()
+                self.paid_on(m, late=late)
                 continue
             if story == "split" and m == add_months(now, -4):
                 self.pay(student, m, fee // 3)
@@ -204,6 +208,8 @@ class _Maker:
                 paid_on=self.today,
                 note="Paid next month in advance",
             )
+        elif story == "double":
+            self.pay(student, this_month, 2 * fee, note="Paid for two months")
         elif story in ("regular", "split") and rng.random() < 0.25:
             pass  # not paid yet this month
         else:

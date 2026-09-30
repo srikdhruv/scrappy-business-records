@@ -10,12 +10,20 @@ The rules are the PRD's "Ledger rules" and "Dashboard for a selected month M"
    `m <= left_month`). The left month is the last month they owe.
 2. **Expected** for an active month is the fee in effect (the fee change with the greatest
    `effective_month <= m`; 0 if there is none). For an inactive month it is 0.
-3. **Paid** is the sum of the payments whose `for_month` is m.
-4. **Status**: Paid (paid = expected > 0), Partial (0 < paid < expected), Unpaid (paid = 0 <
-   expected), Overpaid (paid > expected), Not applicable (expected = paid = 0).
-5. Only months up to and including the current month are **due**. Payments for later months are
-   "paid ahead": they never appear in the overpaid or backlog lists.
-6. **Balance** = all payments - expected for every active month up to the current month.
+3. **Paid** is the sum of the payments whose `for_month` is m, exactly as typed.
+4. **Extra money covers unpaid months** (`allocate`). Computed, never stored: payments stay as
+   typed. Pass 1: each payment, in `(paid_on, id)` order, pays its own month up to what's left
+   of that month's fee. Pass 2: each payment's leftover, in the same order, pays the oldest
+   months still not fully paid: due months (up to the current month) first, then later
+   months ("paid ahead"), up to `left_month` or `MONTHS_AHEAD` months ahead. Months with a 0
+   fee are skipped. Whatever is still left is **credit**.
+5. **Status** of a month counts what's paid for it directly plus what extra money covers:
+   Paid, Partial, Unpaid, Overpaid (some of this month's money is credit: no month needed it),
+   Not applicable (fee 0 and no credit left in it).
+6. Only months up to and including the current month are **due**. What covers a later month
+   is "paid ahead".
+7. **Owed** = what's left on due months after (4). **Balance** (net, for reference) = all
+   payments - expected for every active month up to the current month.
 
 All amounts are integer paise. All months are first-of-month `datetime.date`s.
 """
@@ -26,7 +34,7 @@ import bisect
 import datetime as dt
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 
 from app.months import add_months, first_of_month, month_range
@@ -34,23 +42,31 @@ from app.schemas import BalanceStatus, MonthStatus, SuggestionReason
 from app.services.text import fold
 
 __all__ = [
+    "Allocation",
     "BacklogEntry",
+    "CreditMove",
+    "CreditMoveEntry",
+    "CreditSource",
     "Dashboard",
     "DashboardSummary",
+    "ExtraSent",
     "FeeChange",
     "MonthLine",
     "OverpaidEntry",
     "Payment",
+    "PaymentUse",
     "StudentLedger",
     "StudentRecord",
     "Suggestion",
     "YetToPayEntry",
+    "allocate",
     "build_dashboard",
     "credit",
     "has_left",
     "month_status",
     "owed",
     "paid_ahead",
+    "payment_uses",
     "standing_status",
     "student_ledger",
     "suggest_payment",
@@ -59,7 +75,8 @@ __all__ = [
 
 MONTHS_AHEAD = 24
 """Payments can be logged for at most this many months after the current month (see
-app/services/bounds.py), so nothing later is ever suggested."""
+app/services/bounds.py), so nothing later is ever suggested, and extra money never covers a
+month later than this ("paid ahead" stops here)."""
 
 # --------------------------------------------------------------------------- inputs
 
@@ -74,6 +91,14 @@ class FeeChange:
 class Payment:
     for_month: dt.date
     amount_paise: int
+    paid_on: dt.date | None = None
+    """When it was paid. Extra money is handed out in `(paid_on, id)` order; a payment with no
+    date (only in tests) sorts as if paid on the first of its month."""
+    id: int = 0
+
+    @property
+    def order_key(self) -> tuple[dt.date, int]:
+        return (self.paid_on or self.for_month, self.id)
 
 
 @dataclass(frozen=True)
@@ -88,6 +113,9 @@ class StudentRecord:
     payments: tuple[Payment, ...] = ()
     batch_label: str | None = None
     phone: str | None = None
+    _allocations: dict[dt.date, Allocation] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
 
     def is_active(self, month: dt.date) -> bool:
         """Rule 1. The left month is inclusive: it is the last month they owe."""
@@ -106,8 +134,16 @@ class StudentRecord:
         return self.fee_in_effect(month) if self.is_active(month) else 0
 
     def paid(self, month: dt.date) -> int:
-        """Rule 3: the sum of payments for `month`."""
+        """Rule 3: the sum of payments for `month`, exactly as typed."""
         return self.paid_by_month.get(month, 0)
+
+    def allocation(self, current_month: dt.date) -> Allocation:
+        """Rule 4, worked out once per current month (see `allocate`)."""
+        current_month = first_of_month(current_month)
+        cached = self._allocations.get(current_month)
+        if cached is None:
+            cached = self._allocations[current_month] = allocate(self, current_month)
+        return cached
 
     @cached_property
     def paid_by_month(self) -> Mapping[dt.date, int]:
@@ -129,25 +165,211 @@ class StudentRecord:
         return [f.amount_paise for f in self._sorted_fees]
 
 
+# --------------------------------------------------------------------------- allocation
+
+
+@dataclass(frozen=True, slots=True)
+class CreditSource:
+    """Extra money from one payment that covers (part of) another month."""
+
+    payment_id: int
+    paid_on: dt.date | None
+    for_month: dt.date
+    """The month the payment was logged for."""
+    amount_paise: int
+
+
+@dataclass(frozen=True, slots=True)
+class ExtraSent:
+    """Money paid above a month's fee that covers (part of) another month."""
+
+    to_month: dt.date
+    amount_paise: int
+
+
+@dataclass(frozen=True, slots=True)
+class CreditMove:
+    """One payment's extra money covering one month (a `CreditSource` seen from both ends)."""
+
+    payment: Payment
+    to_month: dt.date
+    amount_paise: int
+
+
+@dataclass(frozen=True, slots=True)
+class PaymentUse:
+    """Where one payment's money went. `direct + Σ sent + unused = amount`."""
+
+    payment: Payment
+    direct_paise: int
+    """The part that pays its own month (`for_month`), at most what was left of its fee."""
+    sent: tuple[ExtraSent, ...]
+    """The rest, covering other months, oldest month first."""
+    unused_paise: int
+    """What no month needed: credit."""
+
+
+@dataclass(frozen=True)
+class Allocation:
+    """Rule 4 for one student and one current month. See `allocate`."""
+
+    uses: tuple[PaymentUse, ...]
+    """One per payment, in the same order as `StudentRecord.payments`."""
+    moves: tuple[CreditMove, ...]
+    """Every hand-out of extra money, in the order it happened."""
+
+    @cached_property
+    def direct_by_month(self) -> Mapping[dt.date, int]:
+        totals: dict[dt.date, int] = defaultdict(int)
+        for u in self.uses:
+            totals[u.payment.for_month] += u.direct_paise
+        return dict(totals)
+
+    @cached_property
+    def sources_by_month(self) -> Mapping[dt.date, tuple[CreditSource, ...]]:
+        sources: dict[dt.date, list[CreditSource]] = defaultdict(list)
+        for mv in self.moves:
+            p = mv.payment
+            sources[mv.to_month].append(
+                CreditSource(p.id, p.paid_on, p.for_month, mv.amount_paise)
+            )
+        return {m: tuple(v) for m, v in sources.items()}
+
+    @cached_property
+    def sent_by_month(self) -> Mapping[dt.date, tuple[ExtraSent, ...]]:
+        """By the month the payments were logged for: where their extra went, one entry per
+        month covered (payments for the same month added up), oldest month first."""
+        sent: dict[dt.date, dict[dt.date, int]] = defaultdict(lambda: defaultdict(int))
+        for mv in self.moves:
+            sent[mv.payment.for_month][mv.to_month] += mv.amount_paise
+        return {
+            m: tuple(ExtraSent(to, amount) for to, amount in sorted(dests.items()))
+            for m, dests in sent.items()
+        }
+
+    @cached_property
+    def unused_by_month(self) -> Mapping[dt.date, int]:
+        totals: dict[dt.date, int] = defaultdict(int)
+        for u in self.uses:
+            if u.unused_paise:
+                totals[u.payment.for_month] += u.unused_paise
+        return dict(totals)
+
+    def covered_by_credit(self, month: dt.date) -> int:
+        return sum(s.amount_paise for s in self.sources_by_month.get(month, ()))
+
+    @property
+    def last_covered_month(self) -> dt.date | None:
+        return max(self.sources_by_month, default=None)
+
+
+def allocation_months(student: StudentRecord, current_month: dt.date) -> list[dt.date]:
+    """The months extra money can cover, oldest first: every enrolled month with a fee, up to
+    `left_month` or `MONTHS_AHEAD` months after the current month. Being in date order, the due
+    months (up to the current month) come before the later ones ("paid ahead")."""
+    last = add_months(current_month, MONTHS_AHEAD)
+    if student.left_month is not None:
+        last = min(last, student.left_month)
+    if student.joined_month > last:
+        return []
+    return [m for m in month_range(student.joined_month, last) if student.expected(m) > 0]
+
+
+def allocate(student: StudentRecord, current_month: dt.date) -> Allocation:
+    """Rule 4: where every payment's money goes. Pure and deterministic; never stored.
+
+    Payments are taken in `(paid_on, id)` order (ties keep their order in `payments`).
+
+    - **Pass 1.** Each payment pays its own month (`for_month`), up to what's still left of
+      that month's fee. A month the student isn't enrolled in, or with a 0 fee, takes nothing.
+    - **Pass 2.** Each payment's leftover, in the same order, pays the oldest month that isn't
+      fully paid yet among `allocation_months`: the due months first (before *and* after the
+      month it was logged for), then later months in order (paid ahead).
+    - Whatever is still left is **credit** (`PaymentUse.unused_paise`).
+
+    So `amount = direct + Σ sent + unused` for each payment, and no month is ever covered above
+    its fee.
+    """
+    current_month = first_of_month(current_month)
+    payments = student.payments
+    order = sorted(range(len(payments)), key=lambda i: payments[i].order_key)
+    covered: dict[dt.date, int] = defaultdict(int)
+    direct = [0] * len(payments)
+    for i in order:
+        p = payments[i]
+        use = min(p.amount_paise, max(0, student.expected(p.for_month) - covered[p.for_month]))
+        covered[p.for_month] += use
+        direct[i] = use
+
+    targets = allocation_months(student, current_month)
+    t = 0  # every month before targets[t] is full (covered only ever grows)
+    sent: list[list[ExtraSent]] = [[] for _ in payments]
+    unused = [0] * len(payments)
+    moves: list[CreditMove] = []
+    for i in order:
+        p = payments[i]
+        left = p.amount_paise - direct[i]
+        while left > 0 and t < len(targets):
+            m = targets[t]
+            room = student.expected(m) - covered[m]
+            if room <= 0:
+                t += 1
+                continue
+            take = min(room, left)
+            covered[m] += take
+            left -= take
+            sent[i].append(ExtraSent(m, take))
+            moves.append(CreditMove(p, m, take))
+        unused[i] = left
+
+    return Allocation(
+        uses=tuple(
+            PaymentUse(p, direct[i], tuple(sent[i]), unused[i]) for i, p in enumerate(payments)
+        ),
+        moves=tuple(moves),
+    )
+
+
+def payment_uses(student: StudentRecord, current_month: dt.date) -> tuple[PaymentUse, ...]:
+    """Where each payment's money went, in the order of `student.payments`."""
+    return student.allocation(current_month).uses
+
+
 # --------------------------------------------------------------------------- outputs
 
 
 @dataclass(frozen=True, slots=True)
 class MonthLine:
-    """One student, one month."""
+    """One student, one month, after extra money has been handed out (rule 4)."""
 
     month: dt.date
     expected_paise: int
     paid_paise: int
+    """Everything logged for this month, exactly as typed."""
     status: MonthStatus
     is_due: bool
+    paid_direct_paise: int = 0
+    """The part of `paid_paise` that pays this month: at most its fee."""
+    covered_by_credit_paise: int = 0
+    """Extra money from payments logged for other months that pays this month."""
+    credit_sources: tuple[CreditSource, ...] = ()
+    extra_sent: tuple[ExtraSent, ...] = ()
+    """Where the rest of `paid_paise` went, oldest month first."""
+    extra_unused_paise: int = 0
+    """What's left of `paid_paise` that no month needed: credit."""
+
+    @property
+    def counted_paise(self) -> int:
+        """What pays this month: direct plus credit (never more than the fee)."""
+        return self.paid_direct_paise + self.covered_by_credit_paise
 
     @property
     def remaining_paise(self) -> int:
-        return max(0, self.expected_paise - self.paid_paise)
+        return max(0, self.expected_paise - self.counted_paise)
 
     @property
     def excess_paise(self) -> int:
+        """What was logged for this month above its fee: sent elsewhere, or credit."""
         return max(0, self.paid_paise - self.expected_paise)
 
     @property
@@ -177,9 +399,7 @@ class StudentLedger:
     is_active: bool
     """False once the left month has passed (see `has_left`)."""
     balance_paise: int
-    """Rule 6's net balance. Kept for reference; the headline is `status` (see
-    `standing_status`), because a net figure lets money paid ahead or paid twice hide months
-    that are still owed."""
+    """The net balance. Kept for reference; the headline is `status` (see `standing_status`)."""
     status: BalanceStatus
     owed_paise: int
     """See `owed`."""
@@ -199,8 +419,9 @@ class StudentLedger:
 class DashboardSummary:
     expected_paise: int
     collected_paise: int
+    """What pays M: Σ (direct + credit) over every student, whatever month it was logged for."""
     paid_ahead_paise: int
-    """For a month after the current one: Σ min(paid, expected) over students active then."""
+    """For a month after the current one: the same as `collected_paise`; otherwise 0."""
     still_due_paise: int
     not_fully_paid_count: int
     active_student_count: int
@@ -211,7 +432,7 @@ class YetToPayEntry:
     student: StudentRecord
     line: MonthLine
     credit_paise: int
-    """The student's `credit` (money in overpaid due months)."""
+    """The student's `credit`. Almost always 0: credit is only what no month needed."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,7 +441,7 @@ class BacklogEntry:
     lines: tuple[MonthLine, ...]
     """Unpaid or Partial months, oldest first."""
     credit_paise: int
-    """The student's `credit` (money in overpaid due months)."""
+    """The student's `credit`. Almost always 0: credit is only what no month needed."""
 
     @property
     def total_owed_paise(self) -> int:
@@ -229,8 +450,19 @@ class BacklogEntry:
 
 @dataclass(frozen=True, slots=True)
 class OverpaidEntry:
+    """A month with money that no month needed (`line.extra_unused_paise > 0`)."""
+
     student: StudentRecord
     line: MonthLine
+
+
+@dataclass(frozen=True, slots=True)
+class CreditMoveEntry:
+    """Extra money from a payment logged for one month covering another, shown on M's
+    dashboard because one of the two months is M."""
+
+    student: StudentRecord
+    move: CreditMove
 
 
 @dataclass(frozen=True)
@@ -240,13 +472,15 @@ class Dashboard:
     yet_to_pay: tuple[YetToPayEntry, ...]
     backlog: tuple[BacklogEntry, ...]
     overpaid: tuple[OverpaidEntry, ...]
+    credit_moves: tuple[CreditMoveEntry, ...] = ()
 
 
 # --------------------------------------------------------------------------- single rules
 
 
 def month_status(expected_paise: int, paid_paise: int) -> MonthStatus:
-    """Rule 4."""
+    """Rule 5. `paid_paise` is what pays the month (direct + credit) plus any of its own money
+    that no month needed, so `paid_paise > expected_paise` means some of it is credit."""
     if paid_paise > expected_paise:
         return MonthStatus.overpaid
     if expected_paise == 0:
@@ -259,10 +493,8 @@ def month_status(expected_paise: int, paid_paise: int) -> MonthStatus:
 
 
 def standing_status(owed_paise: int, credit_paise: int) -> BalanceStatus:
-    """Rule 6: a student who still owes for any due month **owes**, whatever else they paid;
-    otherwise money paid too much for a due month is **credit**; otherwise **up to date**.
-    Paying ahead for later months never hides what's owed and isn't credit (see `paid_ahead`).
-    """
+    """A student who still owes for any due month **owes**; otherwise money no month needed is
+    **credit**; otherwise **up to date**. Paid ahead is neither (see `paid_ahead`)."""
     if owed_paise > 0:
         return BalanceStatus.owes
     if credit_paise > 0:
@@ -272,19 +504,28 @@ def standing_status(owed_paise: int, credit_paise: int) -> BalanceStatus:
 
 def month_line(student: StudentRecord, month: dt.date, current_month: dt.date) -> MonthLine:
     month = first_of_month(month)
+    current_month = first_of_month(current_month)
+    alloc = student.allocation(current_month)
     expected = student.expected(month)
-    paid = student.paid(month)
+    direct = alloc.direct_by_month.get(month, 0)
+    by_credit = alloc.covered_by_credit(month)
+    unused = alloc.unused_by_month.get(month, 0)
     return MonthLine(
         month=month,
         expected_paise=expected,
-        paid_paise=paid,
-        status=month_status(expected, paid),
+        paid_paise=student.paid(month),
+        status=month_status(expected, direct + by_credit + unused),
         is_due=month <= current_month,
+        paid_direct_paise=direct,
+        covered_by_credit_paise=by_credit,
+        credit_sources=alloc.sources_by_month.get(month, ()),
+        extra_sent=alloc.sent_by_month.get(month, ()),
+        extra_unused_paise=unused,
     )
 
 
 def due_months(student: StudentRecord, current_month: dt.date) -> list[dt.date]:
-    """Active months up to and including the current month (rules 1 and 5)."""
+    """Active months up to and including the current month (rules 1 and 6)."""
     last = current_month if student.left_month is None else min(current_month, student.left_month)
     return month_range(student.joined_month, last) if student.joined_month <= last else []
 
@@ -295,45 +536,35 @@ def expected_to_date(student: StudentRecord, current_month: dt.date) -> int:
 
 
 def balance(student: StudentRecord, current_month: dt.date) -> int:
-    """Rule 6: all payments (including paid-ahead ones) minus everything due so far."""
+    """The net: all payments (including paid-ahead ones) minus everything due so far."""
     return sum(p.amount_paise for p in student.payments) - expected_to_date(student, current_month)
 
 
 def owed(student: StudentRecord, current_month: dt.date) -> int:
     """What's still owed: the sum of what's left on every due month (active months up to and
-    including the current month) that is Unpaid or Partial. Extra money in another month doesn't
-    reduce it: payments are kept exactly as they were logged."""
+    including the current month) after extra money has covered what it can (rule 4)."""
     return sum(
         month_line(student, m, current_month).remaining_paise
         for m in due_months(student, current_month)
     )
 
 
-def _after_leaving(student: StudentRecord, month: dt.date) -> bool:
-    return student.left_month is not None and month > student.left_month
-
-
 def paid_ahead(student: StudentRecord, current_month: dt.date) -> int:
-    """Money paid for months after the current month that the student is still enrolled in
-    (rule 5: not due yet, not credit), up to each month's fee. Anything above a month's fee (all
-    of it, in a month with a 0 fee, such as a month away) is credit, not paid ahead (see
-    `credit`). So is a payment for a month after they leave."""
-    return sum(
-        min(paid, student.expected(m))
-        for m, paid in student.paid_by_month.items()
-        if m > current_month and not _after_leaving(student, m)
-    )
+    """Money that pays months after the current month: what was logged for them, up to each
+    fee, plus extra money from other payments that covers them (rule 4). Months after
+    `left_month`, or with a 0 fee, never take any."""
+    current_month = first_of_month(current_month)
+    alloc = student.allocation(current_month)
+    direct = sum(a for m, a in alloc.direct_by_month.items() if m > current_month)
+    by_credit = sum(mv.amount_paise for mv in alloc.moves if mv.to_month > current_month)
+    return direct + by_credit
 
 
 def credit(student: StudentRecord, current_month: dt.date) -> int:
-    """Money in overpaid months: the sum of max(0, paid - expected) over every month with a
-    payment, including months the student isn't enrolled in (before joining, after leaving)
-    and months still to come. A later month they're enrolled in is "paid ahead" up to its fee
-    (`paid_ahead`); only what's above the fee is credit, and in a month with a 0 fee (a month
-    away) that's all of it. They owe nothing then, so it was most likely meant for another
-    month. `current_month` is unused; it's kept so every rule has the same signature."""
-    del current_month
-    return sum(max(0, paid - student.expected(m)) for m, paid in student.paid_by_month.items())
+    """Money no month needed: what's left of every payment once it has paid its own month and
+    covered every other month it could (rule 4). Only possible once every enrolled month with a
+    fee, up to `left_month` or `MONTHS_AHEAD` ahead, is fully paid."""
+    return sum(u.unused_paise for u in student.allocation(current_month).uses)
 
 
 def tenure_months(student: StudentRecord, current_month: dt.date) -> int:
@@ -357,12 +588,14 @@ def history_range(student: StudentRecord, current_month: dt.date) -> list[dt.dat
     """The months shown on a student's profile, oldest first.
 
     From `joined_month` (or the earliest month with a payment, if earlier) through the latest of
-    the current month, the latest month with a payment and `joined_month`. That includes months
-    outside the active range that have payments, and a future joining month.
+    the current month, the latest month with a payment, the latest month extra money covers
+    and `joined_month`. That includes months outside the active range that have payments, a
+    future joining month, and later months paid ahead with extra money.
     """
     paid_months = student.paid_by_month.keys()
+    covered = student.allocation(current_month).last_covered_month
     start = min([student.joined_month, *paid_months])
-    end = max([current_month, student.joined_month, *paid_months])
+    end = max([current_month, student.joined_month, *paid_months, *([covered] if covered else [])])
     return month_range(start, end)
 
 
@@ -382,7 +615,8 @@ def has_left(student: StudentRecord, current_month: dt.date) -> bool:
 
 def suggest_payment(student: StudentRecord, current_month: dt.date) -> Suggestion:
     """Prefill for the Log payment form (PRD ledger rule 9). It never suggests a month that is
-    already fully paid, or one outside the months the student is enrolled in.
+    already fully paid (by its own payments or by extra money), or one outside the months the
+    student is enrolled in.
 
     1. `owed`: the oldest due month (up to the current month) that is Unpaid or Partial, with
        what's left on it.
@@ -445,22 +679,25 @@ def _sort_key(student: StudentRecord) -> tuple[str, int]:
 def build_dashboard(
     students: Iterable[StudentRecord], month: dt.date, current_month: dt.date
 ) -> Dashboard:
-    """The dashboard for month M (PRD "Dashboard for a selected month M").
+    """The dashboard for month M (PRD "Dashboard for a selected month M"), after extra money
+    has covered what it can (rule 4, worked out as of the current month, whichever M).
 
-    - **Summary**: expected for M from students active in M; collected = every payment for M;
-      still due = sum of max(0, expected - paid) over students active in M; the number of
-      students who are Unpaid or Partial for M; the number of students active in M.
+    - **Summary**: expected for M from students active in M; collected = what pays M (money
+      logged for M, up to each fee, plus extra money from other payments covering M); still
+      due = what's left on M, over students active in M; the number of students who are Unpaid
+      or Partial for M; the number of students active in M with a fee above 0.
     - **Yet to pay**: students active in M who are Unpaid or Partial for M. For a future M this
       is who hasn't paid ahead yet.
     - **Backlog**: students with Unpaid or Partial months before M. Only due months count
-      (rule 5), so for a future M it stops at the current month.
-    - **Overpaid**: student-months up to M with paid > expected. Looking at the current
-      month or a later one, it also lists every later month paid above its fee (all of it, for
-      a month with no fee), so every credit on the students list can be found here. Paying a
-      later month up to its fee is paid ahead, which is never listed.
+      (rule 6), so for a future M it stops at the current month.
+    - **Overpaid** (credit): student-months up to M holding money no month needed. Looking at
+      the current month or a later one, it also lists later months, so every credit on the
+      students list can be found here.
+    - **Credit moves**: extra money logged for M that covers another month, and extra money
+      logged for another month that covers M.
 
-    Lists are sorted by student name (ignoring case and accents); overpaid months are oldest
-    first within a student. Yet-to-pay and backlog entries carry the student's `credit`.
+    Lists are sorted by student name (ignoring case and accents); overpaid months oldest first
+    within a student; credit moves by the month covered, then the payment's date.
     """
     month = first_of_month(month)
     current_month = first_of_month(current_month)
@@ -470,19 +707,20 @@ def build_dashboard(
     yet_to_pay: list[YetToPayEntry] = []
     backlog: list[BacklogEntry] = []
     overpaid: list[OverpaidEntry] = []
+    moves: list[CreditMoveEntry] = []
 
     backlog_end = min(add_months(month, -1), current_month)
     overpaid_end = min(month, current_month)
 
     for s in ordered:
         line = month_line(s, month, current_month)
-        collected += line.paid_paise
+        collected += line.counted_paise
         if s.is_active(month):
             if line.expected_paise > 0:  # a ₹0 month (a month off, a free place) isn't counted
                 active_count += 1
             expected_total += line.expected_paise
             if month > current_month:
-                paid_ahead_total += min(line.paid_paise, line.expected_paise)
+                paid_ahead_total += line.counted_paise
             still_due += line.remaining_paise
             if line.is_owing:
                 yet_to_pay.append(YetToPayEntry(s, line, credit(s, current_month)))
@@ -495,13 +733,16 @@ def build_dashboard(
         if owing:
             backlog.append(BacklogEntry(s, owing, credit(s, current_month)))
 
-        for m in sorted(s.paid_by_month):
+        alloc = s.allocation(current_month)
+        for m in sorted(alloc.unused_by_month):
             later = m > current_month and month >= current_month
             if m > overpaid_end and not later:
                 continue
-            ml = month_line(s, m, current_month)
-            if ml.status is MonthStatus.overpaid:
-                overpaid.append(OverpaidEntry(s, ml))
+            overpaid.append(OverpaidEntry(s, month_line(s, m, current_month)))
+
+        mine = [mv for mv in alloc.moves if month in (mv.to_month, mv.payment.for_month)]
+        mine.sort(key=lambda mv: (mv.to_month, mv.payment.order_key))
+        moves.extend(CreditMoveEntry(s, mv) for mv in mine)
 
     return Dashboard(
         month=month,
@@ -516,4 +757,5 @@ def build_dashboard(
         yet_to_pay=tuple(yet_to_pay),
         backlog=tuple(backlog),
         overpaid=tuple(overpaid),
+        credit_moves=tuple(moves),
     )
