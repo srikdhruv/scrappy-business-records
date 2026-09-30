@@ -405,23 +405,27 @@ def main() -> int:
 
         step("The installer fails after its backup: the old version opens again and says so")
         marker.write_text("fail once\n")
+        server_log = root / "logs" / "server.log"
+
+        def servers_started() -> int:
+            return server_log.read_text("utf-8", "replace").count("Started server process")
+
+        before = servers_started()
         status, answer = call(port, "POST", "/api/update/start", body, APP_HEADERS)
         if status != 202:
             fail(f"start answered {status} {answer}")
-        seen_down = {"down": False}
 
         def old_version_back() -> bool:
+            # The app was stopped and started again (a new server), it's the old version, and it
+            # says the update failed. (The gap can be too short to catch by polling.)
             version = health(port)
             if version is None:
-                seen_down["down"] = True
                 return False
             if version != OLD_VERSION:
                 fail(f"version {version} came up, expected the old one")
             _, now = call(port, "GET", "/api/update")
             failed = (now.get("last_attempt") or {}).get("outcome") == "failed"
-            if failed and not seen_down["down"]:
-                fail("the installer ended without ever stopping the app")
-            return seen_down["down"] and failed
+            return failed and servers_started() > before
 
         wait_for(
             "the old version to come back, saying it failed",
