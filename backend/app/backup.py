@@ -119,8 +119,13 @@ def backup(reason: str, now: dt.datetime | None = None) -> Path | None:
     return _write(_unique_name(reason, now or dt.datetime.now()))
 
 
-def prune_daily(keep: int = DAILY_KEEP) -> list[Path]:
+def prune_daily(keep: int = DAILY_KEEP, protect: Path | None = None) -> list[Path]:
     """Delete all but the `keep` newest daily backups (in each folder). Returns what was deleted.
+
+    "Newest" means most recently written (modification time), not the date in the name: if the
+    laptop's clock was wrong (a dead clock battery can put it in 2001), the name would sort
+    first and the fresh backup would be pruned at once. `protect` (the backup just written) is
+    never deleted and counts as one of the `keep`.
 
     Only files named exactly `records-YYYY-MM-DD.db` are considered, so pre-update,
     pre-migration and manual backups, and anything the user put there, are never touched.
@@ -129,8 +134,14 @@ def prune_daily(keep: int = DAILY_KEEP) -> list[Path]:
     for folder in (config.backup_dir(), fallback_dir()):
         if not folder.is_dir():
             continue
-        dailies = sorted(p for p in folder.iterdir() if _DAILY_RE.match(p.name) and p.is_file())
-        for old in dailies[:-keep] if keep > 0 else dailies:
+        dailies = [p for p in folder.iterdir() if _DAILY_RE.match(p.name) and p.is_file()]
+        protected = [p for p in dailies if protect is not None and p == protect]
+        others = sorted(
+            (p for p in dailies if p not in protected),
+            key=lambda p: (p.stat().st_mtime_ns, p.name),
+            reverse=True,  # newest first
+        )
+        for old in others[max(0, keep - len(protected)) :]:
             try:
                 old.unlink()
                 deleted.append(old)
@@ -151,7 +162,7 @@ def daily_backup(today: dt.date | None = None) -> Path | None:
             return None
         target = _write(name)
         if target is not None:
-            prune_daily()
+            prune_daily(protect=target)
         return target
     except Exception:
         log.exception("The daily backup failed")

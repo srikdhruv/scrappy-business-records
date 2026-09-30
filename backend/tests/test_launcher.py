@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -129,6 +130,32 @@ def test_a_server_still_starting_is_waited_for_not_duplicated(
         held.close()
     assert started == [], "must not start a second server"
     assert "wait a minute, then double-click" in capsys.readouterr().err
+
+
+def test_a_server_stuck_in_startup_for_minutes_is_called_stuck(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Our server holds its lock but never opened the port, for longer than any real start."""
+    monkeypatch.setattr(launcher, "SLOW_START_TIMEOUT", 0.5)
+    monkeypatch.setattr(launcher, "start_server", lambda port: pytest.fail("started a server"))
+    port = _free_port()
+    monkeypatch.setenv("SCRAPPY_PORT", str(port))
+    held = lifetime.acquire_server_lock()
+    assert held is not None
+    try:
+        age = lifetime.server_lock_age()
+        assert age is not None and age < 60, "the lock records when the server started"
+        # Pretend it started 10 minutes ago.
+        held.seek(0)
+        held.truncate()
+        held.write(f"{time.time() - 600:.0f}\n".encode())
+        held.flush()
+        assert launcher.main() == 1
+    finally:
+        held.close()
+    err = capsys.readouterr().err
+    assert "seems to be stuck" in err
+    assert "wait a minute" not in err
 
 
 def test_bad_port_setting_shows_a_message(

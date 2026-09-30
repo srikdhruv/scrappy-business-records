@@ -1,5 +1,6 @@
 import datetime as dt
 import io
+import os
 import sqlite3
 import subprocess
 import sys
@@ -54,7 +55,9 @@ def test_daily_backups_keep_newest_30_and_leave_others_alone() -> None:
     folder = config.backup_dir()
     start = dt.date(2026, 1, 1)
     for i in range(35):
-        backup.daily_backup(start + dt.timedelta(days=i))
+        written = backup.daily_backup(start + dt.timedelta(days=i))
+        assert written is not None
+        _set_mtime(written, start + dt.timedelta(days=i))
     keepers = [
         folder / "records-pre-update-20260101-101500.db",
         folder / "records-pre-migration-20260101-101500.db",
@@ -69,6 +72,30 @@ def test_daily_backups_keep_newest_30_and_leave_others_alone() -> None:
     assert dailies[0] == f"records-{start + dt.timedelta(days=6):%Y-%m-%d}.db"
     assert dailies[-1] == f"records-{start + dt.timedelta(days=35):%Y-%m-%d}.db"
     assert all(k.exists() for k in keepers)
+
+
+def _set_mtime(path: Path, day: dt.date) -> None:
+    stamp = dt.datetime.combine(day, dt.time(9)).timestamp()
+    os.utime(path, (stamp, stamp))
+
+
+def test_a_wrong_clock_never_prunes_the_backup_just_taken() -> None:
+    """A dead clock battery can put the laptop in 2001. The new daily backup's name then sorts
+    first, but it must be kept (and the oldest real one pruned instead)."""
+    _make_db()
+    folder = config.backup_dir()
+    start = dt.date(2026, 1, 1)
+    for i in range(backup.DAILY_KEEP):
+        written = backup.daily_backup(start + dt.timedelta(days=i))
+        assert written is not None
+        _set_mtime(written, start + dt.timedelta(days=i))
+
+    new = backup.daily_backup(dt.date(2001, 1, 1))
+    assert new is not None and new.exists()
+    dailies = sorted(p.name for p in folder.glob("records-????-??-??.db"))
+    assert len(dailies) == backup.DAILY_KEEP
+    assert "records-2001-01-01.db" in dailies
+    assert "records-2026-01-01.db" not in dailies  # the oldest by time written went instead
 
 
 def test_one_off_backups_are_named_by_reason_and_never_collide() -> None:

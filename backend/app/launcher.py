@@ -48,6 +48,8 @@ APP_TITLE = "Scrappy Records"
 START_TIMEOUT = 20.0  # seconds to wait for a newly started server...
 SLOW_START_TIMEOUT = 60.0  # ...or this long, if it's still running (e.g. a slow first start)
 LOCK_TIMEOUT = SLOW_START_TIMEOUT + 15.0
+# A server that has held its lock this long without opening the port is stuck, not slow.
+STUCK_STARTING_SECONDS = 180.0
 POLL_INTERVAL = 0.25
 IS_WINDOWS = sys.platform == "win32"
 
@@ -221,8 +223,13 @@ def _still_starting_message() -> str:
 
 
 def _timeout_error(port: int) -> LaunchError:
-    if lifetime.server_lock_held() and not port_is_free(port):
-        return LaunchError(_stuck_message())
+    if lifetime.server_lock_held():
+        if not port_is_free(port):
+            return LaunchError(_stuck_message())  # has the port, doesn't answer
+        age = lifetime.server_lock_age()
+        if age is not None and age > STUCK_STARTING_SECONDS:
+            log.error("Our server has been starting for %.0f s without opening the port", age)
+            return LaunchError(_stuck_message())  # stuck in startup
     return LaunchError(_still_starting_message())
 
 
