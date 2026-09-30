@@ -49,6 +49,11 @@ describe('on the pages', () => {
     await user.click(screen.getByRole('tab', { name: /Left/ }))
     await user.type(screen.getByRole('searchbox', { name: 'Search students' }), 'rohan')
     expect(link).toHaveAttribute('href', '/api/export/students.xlsx?status=left&q=rohan')
+    // Download everything is on the page too, not only in the side menu (hidden when narrow).
+    for (const everything of screen.getAllByRole('link', { name: 'Download everything' })) {
+      expect(everything).toHaveAttribute('href', '/api/export/everything.xlsx')
+    }
+    expect(screen.getAllByRole('link', { name: 'Download everything' })).toHaveLength(2)
   })
 
   it('Payments: Download Excel follows the filters and the sort', async () => {
@@ -82,12 +87,13 @@ describe('the upload summary', () => {
         filename: null,
         sheets: [],
         ignored_sheets: [],
+        hidden_sheets: [],
         fee_changes: 0,
         current_month: '2026-10',
         students: [],
         payments: [],
       },
-      { addStudents: new Set(), payments: new Map() },
+      { students: new Map(), payments: new Map() },
     )
     expect(summarySentence(s)).toBe('Nothing new to add.')
     expect(

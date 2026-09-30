@@ -8,19 +8,32 @@ import { plural } from '@/lib/labels'
 /** The Payments page section's id, so the Dashboard can link to it. */
 export const UNASSIGNED_SECTION_ID = 'unassigned-payments'
 
-/** For a payment that needs a student: keep it unassigned, skip it, or give it to a student. */
-export type PaymentChoice = 'unassigned' | 'skip' | 'pick' | `student:${number}`
+/**
+ * What to do with a payment: keep it unassigned, skip it, give it to a student, or (for one that
+ * looks like a duplicate) add it anyway. 'pick' means "another student", not chosen yet.
+ */
+export type PaymentChoice = 'unassigned' | 'skip' | 'pick' | 'add' | `student:${number}`
 
 export interface Choices {
-  /** Rows (in the Students sheet) of "looks similar" students to add anyway. */
-  addStudents: Set<number>
+  /** "Looks similar" students (by row): add them (true) or skip them (false). Missing: the
+   * default, which is Skip unless the row says `add_by_default`. */
+  students: Map<number, boolean>
   /** By payment key (`sheet:row`). Missing means the default for its status. */
   payments: Map<string, PaymentChoice>
 }
 
 export const paymentKey = (p: ImportPaymentPreview) => `${p.sheet}:${p.row}`
 
-export const emptyChoices = (): Choices => ({ addStudents: new Set(), payments: new Map() })
+export const emptyChoices = (): Choices => ({ students: new Map(), payments: new Map() })
+
+export const isDuplicate = (p: ImportPaymentPreview) =>
+  p.status === 'duplicate' || p.status === 'possible_duplicate'
+
+export function studentAdded(s: ImportStudentPreview, choices: Choices): boolean {
+  if (s.status === 'new') return true
+  if (s.status !== 'similar') return false
+  return choices.students.get(s.row) ?? s.add_by_default
+}
 
 /** Where a payment will end up with these choices. */
 export function paymentOutcome(
@@ -28,24 +41,16 @@ export function paymentOutcome(
   choices: Choices,
   studentStatus: Map<number, ImportStudentPreview>,
 ): 'add' | 'unassigned' | 'skip' {
-  if (p.status === 'problem' || p.status === 'duplicate') return 'skip'
+  if (p.status === 'problem') return 'skip'
   const choice = choices.payments.get(paymentKey(p))
   if (choice === 'skip') return 'skip'
   if (choice?.startsWith('student:')) return 'add'
   if (choice === 'unassigned') return 'unassigned'
-  if (p.status === 'ready') {
-    // A new student in the same file, unless it was taken off the list.
-    return 'add'
-  }
-  if (p.status === 'follows_student' && p.student_row !== null) {
-    const student = studentStatus.get(p.student_row)
-    return student && studentAdded(student, choices) ? 'add' : 'unassigned'
-  }
+  if (isDuplicate(p) && choice !== 'add') return 'skip'
+  const student = p.student_row !== null ? studentStatus.get(p.student_row) : undefined
+  if (p.student_id !== null) return 'add'
+  if (student) return studentAdded(student, choices) ? 'add' : 'unassigned'
   return 'unassigned' // needs_student and the Unassigned payments sheet
-}
-
-export function studentAdded(s: ImportStudentPreview, choices: Choices): boolean {
-  return s.status === 'new' || (s.status === 'similar' && choices.addStudents.has(s.row))
 }
 
 export interface Summary {
@@ -66,14 +71,22 @@ export function summarize(preview: ImportPreview, choices: Choices): Summary {
     unassigned: outcomes.filter((o) => o === 'unassigned').length,
     alreadyHere:
       preview.students.filter((s) => s.status === 'exists').length +
-      preview.payments.filter((p) => p.status === 'duplicate').length,
+      preview.payments.filter((p, i) => p.status === 'duplicate' && outcomes[i] === 'skip').length,
     toChoose:
-      preview.students.filter((s) => s.status === 'similar').length +
-      preview.payments.filter((p) => p.status === 'needs_student').length,
+      preview.students.filter(needsChoice).length + preview.payments.filter(needsChoice).length,
     problems:
       preview.students.filter((s) => s.status === 'problem').length +
       preview.payments.filter((p) => p.status === 'problem').length,
   }
+}
+
+/** Rows the To choose tab shows: look-alikes, payments without a student, possible duplicates. */
+export function needsChoice(row: { status: string }): boolean {
+  return (
+    row.status === 'similar' ||
+    row.status === 'needs_student' ||
+    row.status === 'possible_duplicate'
+  )
 }
 
 function joinAnd(parts: string[]): string {

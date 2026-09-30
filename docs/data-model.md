@@ -167,8 +167,8 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 | `StudentReturn` (request) | `from_month`, `monthly_fee_paise` (optional) |
 | `UnassignedPaymentRead` | `id`, `student_text`, `phone`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `source`, `created_at`, `suggested_student_ids` (same name or phone first, then whoever the Students search finds for the name as written; at most 5) |
 | `UnassignedAssign` (request) | `student_id` |
-| `ImportPreview` | `filename`, `sheets` (read), `ignored_sheets`, `students[]` (`ImportStudentPreview`), `payments[]` (`ImportPaymentPreview`), `fee_changes` (fee-history rows restored with the new students), `current_month` |
-| `ImportStudentPreview` | `row`, `sheet`, `name`, `phone`, `monthly_fee_paise`, `joined_month`, `status`, `reason` (plain words), `student_id` (the student already here it is, or looks like), `data` (`ImportStudent`, to send back; `null` for a problem) |
+| `ImportPreview` | `filename`, `sheets` (read), `ignored_sheets`, `hidden_sheets`, `students[]` (`ImportStudentPreview`), `payments[]` (`ImportPaymentPreview`), `fee_changes` (fee-history rows restored with the new students), `current_month` |
+| `ImportStudentPreview` | `row`, `sheet`, `name`, `phone`, `monthly_fee_paise`, `joined_month`, `status`, `reason` (plain words), `student_id` (the student already here it is, or looks like), `add_by_default` (a `similar` row added unless skipped), `data` (`ImportStudent`, to send back; `null` for a problem) |
 | `ImportPaymentPreview` | `row`, `sheet`, `student_text`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `status`, `reason`, `student_id` (an existing student it goes to), `student_row` (a student in the same file it goes to), `candidate_ids` (who it may be), `data` (`ImportPayment`; `null` for a problem) |
 | `ImportStudent` | `row`, `ref` (the file's Student ID), `name`, `phone`, `guardian_name`, `batch_label`, `notes`, `joined_month`, `left_month`, `monthly_fee_paise`, `fees[]` (`ImportFee`: `effective_month`, `amount_paise`, `kind`; the fee history from a Download everything file, restored exactly) |
 | `ImportPayment` | `row`, `student_text`, `phone`, `student_ref`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `unassigned` (from the Unassigned payments sheet), `source` |
@@ -198,9 +198,9 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 - `FeeKind`: `fee`, `away`.
 - `ImportStudentStatus`: `new`, `exists`, `similar`, `problem`.
 - `ImportPaymentStatus`: `ready`, `needs_student`, `follows_student`, `unassigned`, `duplicate`,
-  `problem`.
+  `possible_duplicate`, `problem`.
 - `ImportPaymentChoice`: `auto` (what the status says), `student` (with `student_id`),
-  `unassigned`, `skip`.
+  `unassigned`, `skip`, `add` (add anyway, though it looks like a duplicate).
 - `ExportTemplateKind`: `students`, `payments`.
 
 **Lists.** `GET /students` and `GET /payments` return plain JSON arrays, **unpaginated**: at
@@ -323,22 +323,28 @@ to them), money in rupees with a ₹ format, bold frozen headings, and text cell
 grey **Student ID (for restoring)** column to the Students, Fee history and Payments sheets,
 which links them when the file is uploaded again (IDs aren't kept: the upload gives new ones).
 
-**Reading a file.** At most 5 MB, 5,000 rows a sheet, and a zip that unpacks to at most 80 MB.
+**Reading a file.** At most 5 MB, and a zip that unpacks to at most 80 MB; 5,000 rows a sheet,
+or, for a sheet with the Student ID column (a Download everything file), 100,000 rows in all.
+The size a file claims for a sheet is ignored (`reset_dimensions`: a stale one would drop rows),
+hidden sheets are skipped and listed in `hidden_sheets`, and a merged range's value counts in
+every cell it covers.
 Anything else (not `.xlsx`, an old `.xls`, damaged, password-protected, no recognisable
 headings) is a 422 with a plain message; never a 500. A sheet's kind comes from its name (the
 app's own: *Students*, *Fee history*, *Payments*, *Unassigned payments*) or its headings, found
-in the first 10 rows, ignoring case, punctuation, `₹` and anything in brackets: *Name* or
+in the first 10 rows (a sheet with an amount, date or method heading is tried as payments first,
+where *Fee(s)* is the amount), ignoring case, punctuation, `₹` and anything in brackets: *Name* or
 *Student*; *Fee* or *Monthly fee*; *Amount*; *Date* or *Paid on*; *Month* or *For month*;
 *Phone*/*Mobile*; *Parent*/*Guardian*; *Class*/*Batch*; *Method*/*Mode*; *Note(s)*/*Remarks*.
 One sheet of each kind is read; the rest are listed in `ignored_sheets`. Cells:
 
-- Dates: date cells, Excel day numbers, `5 Oct 2026`, `05/10/2026` (day first, as in India),
-  `5-10-26`, `2026-10-05`.
-- Months: date cells (their month), `Oct 2026`, `October 2026`, `Oct-26`, `2026-10`, `10/2026`.
+- Dates: date cells, Excel day numbers (also as text: `46300`), `5 Oct 2026`, `05/10/2026`
+  (day first, as in India; a time after it is ignored), `5-10-26`, `2026-10-05`.
+- Months: date cells (their month), `Oct 2026`, `October 2026`, `Oct-26`, `2026-10`, `10/2026`,
+  `10/26`.
   A payment with no month counts for the month it was paid in; a student with no joined month
   joins this month.
-- Money: numbers, `₹1,500`, `1500/-`, `Rs. 1,50,000.00`. Negative amounts, text and more than
-  two decimals are problems.
+- Money: numbers, `₹1,500`, `1500/-`, `Rs. 1,50,000.00`. Negative amounts, text, more than
+  two decimals, and two numbers in one cell (`₹500 700`) are problems.
 - Method: UPI (also GPay, PhonePe, Paytm, BHIM), Cash, or Other for anything else, blank
   included.
 
@@ -347,21 +353,40 @@ Every row is then checked with the same rules as typing it in: the `StudentCreat
 the [limits](#limits). A row that breaks one is a **problem**, with the row number and a plain
 reason, and is skipped.
 
-**Students** are matched with the shared search rules (`services/text.py`): names are the same
-when they have the same words, in any order, ignoring capitals, accents, apostrophes and
-hyphens; phones when they have the same digits (without `+91`). `exists`: same name and phone,
-or same name and neither has a phone, or the same as an earlier row. `similar`: same name with a
-different phone (or one of them has none), or the same phone with a different name; skipped
-unless the owner picks *Add as new*. Otherwise `new`. Nothing already here is ever changed.
+**Students** are matched with the shared search rules (`services/text.py`,
+`services/matching.py`, all through indexes, so thousands of rows take seconds): names are the
+same when they have the same words, in any order, ignoring capitals, accents and apostrophes (a
+hyphen separates words); phones when they have the same digits (without `+91`). `exists`: same
+name and phone, or same name and neither has a phone, or the same as an earlier row. `similar`:
+same name with a different phone (or one of them has none), the same phone with a different
+name, or a name a letter apart (5–9 letters) or two apart (10 or more); skipped unless the owner
+picks *Add as new*, except the same phone as an earlier row of the file only (siblings), which
+is added unless she skips it (`add_by_default`). Otherwise `new`. Nothing already here is ever
+changed.
+
+**Student IDs.** Rows of a Download everything file carry the Student ID they had. Two rows with
+different IDs are different people, so rows are never compared with each other (two *Priya S*
+with no phone, or siblings sharing a phone, stay apart); the same ID twice is the same person.
+They're still matched against the students already here, each of whom can be only one ID'd row
+(the one with the same ID first, which is the case when a file goes back into the app it came
+from; any other is `similar`). Payments and fee history link to their student by ID.
 
 **Payments** go to the student named: through the file's Student ID first (a Download
 everything file), else by name and phone among the students here and the `new`/`similar` ones in
-the same file. The same name and phone beats a partial match; the same name with a different
-phone is no match. One match: `ready` (or `follows_student` when it's a `similar` row in the
-file: it goes to them only if they're added, else it's kept unassigned). None, or more than one:
-`needs_student`, kept as unassigned unless the owner picks a student or skips it. A payment is a
-`duplicate` (skipped) when where it's going already has the same amount, `paid_on` and
-`for_month`, or an earlier row does; for unassigned ones, the same name as written too.
+the same file. It goes to a student by itself only when the name matches (the same name and
+phone beats a name-only match; the same name with a different phone is no match), or when the
+row has only a phone number and it's theirs. The same phone under another name is
+`needs_student`, with that student offered first. One match: `ready` (or `follows_student` when
+it's a `similar` row in the file: it goes to them only if they're added, else it's kept
+unassigned). None, or more than one: `needs_student`, kept as unassigned unless the owner picks
+a student or skips it.
+
+**Duplicates** are counted one for one against where each payment is going (a student here, a
+new one, or unassigned by name as written): `duplicate` when a payment there has the same
+amount, `paid_on`, `for_month`, method and note; `possible_duplicate` when only the method or
+note differ. The same for an earlier row of the file, except that rows linked by Student ID are
+never duplicates of each other (a restore brings back two identical instalments). Both are
+skipped unless the owner chooses **Add anyway** (`choice: "add"`).
 
 **Fee history** (a Download everything file) comes with each `new` student and is restored
 exactly, months away included; it must start at the joined month, have one fee a month, and no

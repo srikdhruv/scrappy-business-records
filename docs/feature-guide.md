@@ -1439,9 +1439,9 @@ kept before, or a file downloaded from this app) without typing them in one by o
 ### What you'll see
 
 **Download Excel** and **Upload Excel**, under the title of the **Students** and **Payments**
-pages:
+pages (and, on Students, **Download everything**):
 
-![The top of the Students page: the title, the line 'Everyone in your classes. Click a name to see their full history.', and under it Download Excel and Upload Excel; on the right, New student and the marigold + Log payment button.](images/feature-guide/students-header.png)
+![The top of the Students page: the title, the line 'Everyone in your classes. Click a name to see their full history.', and under it Download Excel, Upload Excel and Download everything; on the right, New student and the marigold + Log payment button.](images/feature-guide/students-header.png)
 
 **Download everything**, under *Your data* at the bottom of the side menu (see
 [Getting around](#getting-around)).
@@ -1471,7 +1471,7 @@ row. **Nothing is saved yet.**
 |---|---|---|---|
 | **New** | Green | Nobody like them is in the app yet | Added |
 | **Already exists** | Grey | Someone with the same name and phone is already in the app (or the same name, and neither has a phone), or it repeats an earlier row of the file. It says who: *"Already here: Ananya Rao (90000 00001)"* | Skipped. Nothing about the student already here is changed |
-| **Looks similar** | Amber | The same name but a different phone, or the same phone but a different name, as someone already here (or an earlier row) | You choose: **Skip** (already chosen for you) or **Add as new** |
+| **Looks similar** | Amber | The same name but a different phone, the same phone but a different name, or a name a letter or two apart (*Ananyaa Rao* and *Ananya Rao*), as someone already here or an earlier row of the file | You choose: **Skip** (already chosen for you) or **Add as new**. When it's only the same phone as an earlier row of the file (*"perhaps a brother or sister"*), **Add as new** is chosen for you |
 | **Problem** | Red | Something in the row can't be used. The reason says what, such as *"Monthly fee is missing"* or *"Joined month “13/2026” isn't a month"* | Skipped. Fix it in the file and upload it again: the rows already added then show as *Already exists* |
 
 **…and for a payment:**
@@ -1479,10 +1479,11 @@ row. **Nothing is saved yet.**
 | Label | Colour | Why | What happens |
 |---|---|---|---|
 | **Will be added** | Green | Its student was found (*To Ananya Rao*), or is a new student in the same file (*To Kiara Sethi (new, row 3)*) | Added |
-| **Needs a student** | Amber | No student has that name or phone, or more than one does | You choose: **Keep as unassigned** (already chosen), **Skip**, or who paid: the likely students are listed, and **Another student…** lets you search |
+| **Needs a student** | Amber | No student has that name, more than one does, or it has someone's phone but a different name (*"Same phone as Kabir Mehta, but the name is “Sunil Mehta”"*: perhaps a parent). A payment only goes to a student by itself when the name matches, or when the row has just a phone number | You choose: **Keep as unassigned** (already chosen), **Skip**, or who paid: the likely students are listed first, and **Another student…** lets you search |
 | **Goes with its student** | Amber | Its student is a *Looks similar* row in the same file | Added to them if you choose **Add as new** for that row; otherwise kept as unassigned |
 | **Unassigned** | Grey | From the *Unassigned payments* sheet of a **Download everything** file | Kept as unassigned (you can still pick a student) |
-| **Already exists** | Grey | That student already has a payment of the same amount, paid on the same day, for the same month, or an earlier row of the file does | Skipped |
+| **Already exists** | Grey | That student already has exactly this payment (the same amount, day, month, method and note), or an earlier row of the file does | Skipped. Choose **Add anyway** if it really was paid twice (two instalments on one day) |
+| **Possible duplicate** | Amber | The same amount, day and month for that student as a payment already here (or an earlier row), but paid another way or with another note | Skipped unless you choose **Add anyway** |
 | **Problem** | Red | Something can't be used, such as *"Paid-on date can't be in the future"* | Skipped |
 
 ![The To choose tab: only Meera Iyer (Looks similar, with Skip) and the payment from Mrs Sharma ('Needs a student: No student called “Mrs Sharma”. Choose who paid, or keep it as unassigned', with Keep as unassigned).](images/feature-guide/excel-upload-choose.png)
@@ -1508,13 +1509,17 @@ It has exactly the students or payments the page shows, in the same order:
 - Payments: *Student, Phone, Amount ₹, Paid on, For month, Method, Note*.
 
 **Download everything**
-1. Click **Download everything** at the bottom of the side menu.
+1. Click **Download everything**: under the title of the **Students** page, or at the bottom
+   of the side menu.
 2. One file, `scrappy-records-everything-2026-09-15.xlsx`, with four sheets: **Students**,
    **Fee history** (every fee each student has had, months away included), **Payments** and
    **Unassigned payments**.
 
 The grey **Student ID (for restoring)** column links the sheets together. Leave it as it is:
-uploading this file into an empty app brings back every record exactly.
+uploading this file into an empty app brings back every record exactly, every Dashboard number
+included. Two students with the same name (or brothers and sisters sharing a phone) stay two
+students, because their IDs are different, and two identical payments on one day both come
+back.
 
 **Upload a file**
 1. On **Students** or **Payments**, click **Upload Excel**. (Either page takes both students
@@ -1522,8 +1527,8 @@ uploading this file into an empty app brings back every record exactly.
 2. Click **Choose a file** and pick an Excel file (`.xlsx`), or drag it onto the box.
 3. Read the summary, and look through the rows. **To choose** shows only the ones that need
    you.
-4. For each **Looks similar** student and **Needs a student** payment, choose what to do, or
-   leave what's already chosen.
+4. For each **Looks similar** student, **Needs a student** payment and **Possible duplicate**,
+   choose what to do, or leave what's already chosen.
 5. Click **Add**. Or click **Cancel** (or **Choose another file**): nothing is saved.
 
 **Start a list from a blank template**
@@ -1545,20 +1550,29 @@ uploading this file into an empty app brings back every record exactly.
   *Parent/guardian*; *Class/batch*; *Notes*; *Amount*; *Date* or *Paid on*; *Month* or *For
   month*; *Method* or *Mode*; *Note*.
 - **Dates** can be real dates, or written like *5 Oct 2026* or *05/10/2026*: **day first**, as
-  in India, so 05/10/2026 is 5 October. **Months** like *Oct 2026*, *October 2026* or
-  *2026-10*. **Money** like *1500*, *₹1,500* or *1500/-*.
+  in India, so 05/10/2026 is 5 October (a time after it, like *10:30*, is ignored). **Months**
+  like *Oct 2026*, *October 2026*, *2026-10* or *10/26*. **Money** like *1500*, *₹1,500* or
+  *1500/-*. Two numbers in one cell (*₹500 700*) is a **Problem**, never ₹5,00,700.
+- **A list of payments with headings like** *Name, Date, Fees, Mode* is read as payments (a
+  date or a payment method means payments), with *Fees* as the amount.
+- **Hidden sheets aren't read**, and the preview names them. Show them in Excel first to add
+  them. **Merged cells** count on every row they cover (a name merged down three rows is the
+  name for all three).
 - A payment with no month counts for the month it was paid in. A payment with no method (or
   one the app doesn't know, like *Cheque*) is **Other**; *GPay*, *PhonePe* and *Paytm* are
   **UPI**. A student with no joined month joins this month.
 - **Names match however they're written:** capitals, accents, apostrophes and word order don't
-  matter (*rao ananya* is Ananya Rao), and phone numbers match with or without spaces or *+91*.
+  matter (*rao ananya* is Ananya Rao), a hyphen counts as a space (*Mary-Jane* is *Mary Jane*),
+  and phone numbers match with or without spaces or *+91*.
 - **The same rules as typing it in:** a fee or payment of at most ₹10,00,000, no month more
   than two years ahead, no paid-on date in the future.
-- **Up to 5 MB, and 5,000 rows a sheet.** Split a bigger list into several files.
+- **Up to 5 MB, and 5,000 rows a sheet** for a list you made. A **Download everything** file
+  can have up to 100,000 rows in all. Split anything bigger into several files. A very long
+  file shows its first rows in the preview; the summary counts them all.
 - Only Excel workbooks (`.xlsx`). An old-style `.xls` file: open it in Excel, choose **File →
   Save As → Excel Workbook**, and upload that. Google Sheets: **File → Download → Microsoft
   Excel**.
-- The downloaded files open in Excel, LibreOffice and Google Sheets. Dates are real dates,
+- The downloaded files are ordinary Excel workbooks (`.xlsx`). Dates are real dates,
   amounts have a ₹ sign, and the headings stay in view as you scroll.
 
 <details><summary>For developers</summary>
@@ -1577,12 +1591,15 @@ uploading this file into an empty app brings back every record exactly.
   `services/spreadsheet.py` (reading a file: headings, dates, months, ₹), `services/imports.py`
   (classify, preview, and `commit`: checked again, `backup("pre-import")`, one transaction),
   `services/text.py` (`name_key`, `phone_digits`, `student_matches`: the Students search, in
-  Python).
+  Python), `services/matching.py` (indexes by name, phone, word and near-miss name, so
+  thousands of rows take seconds).
 - **PRD:** scope item 7; stories X1 and X2.
 - **Tests:** `backend/tests/test_excel_import.py` (every status, duplicates, checked again,
   rollback, the backup, bad files), `test_excel_export.py` (the round trip into an empty app,
-  what each download holds), `test_spreadsheet_cells.py` (cells, and the matcher against
-  `search.test.ts`'s examples), `test_fuzz_excel.py`;
+  what each download holds, and look-alikes kept apart on a restore), `test_excel_review.py`
+  (stale sheet sizes, hidden sheets, merged cells, near-miss names, possible duplicates, speed),
+  `test_spreadsheet_cells.py` (cells, and the matcher against `search.test.ts`'s examples),
+  `test_fuzz_excel.py`;
   `frontend/src/components/excel-upload-dialog.test.tsx`, `lib/downloads.test.ts`;
   `frontend/e2e/excel.spec.ts`.
 
@@ -1601,7 +1618,7 @@ until you say whose it is. Nothing is lost, and nothing is counted for the wrong
 
 **At the top of the Payments page**, only while there are any:
 
-![The Unassigned payments section, with 2: 'From an uploaded file, but it wasn't clear which student paid. They aren't counted for anyone (or in Collected) until you give each one to a student. 2 payments, ₹3,000 in all.' Meera Iyer 98765 00013, ₹1,800 for Sep 2026, paid on 6 Sep 2026 · UPI, 'Upload: new-students-september.xlsx · Maybe: Meera Iyer, Rahul Iyer', with a Choose the student box, Assign and Delete. Below, Mrs Sharma, ₹1,200, note 'No name'.](images/feature-guide/unassigned-payments.png)
+![The Unassigned payments section, with 2: 'From an uploaded file, but it wasn't clear which student paid. They aren't counted for anyone (or in Collected) until you give each one to a student. 2 payments, ₹3,000 in all.' Meera Iyer 98765 00013, ₹1,800 for Sep 2026, paid on 6 Sep 2026 · UPI, 'Upload: new-students-september.xlsx · Maybe: Meera Iyer', with a Choose the student box, Assign and Delete. Below, Mrs Sharma, ₹1,200, note 'No name'.](images/feature-guide/unassigned-payments.png)
 
 Each one shows the name (and phone) **as written in the file**, the amount, the month it's for,
 the day it was paid, how, any note, which file it came from, and *Maybe: …* when some students
@@ -1895,12 +1912,14 @@ come back, use **Mark as coming again** instead: it does this for you.)
 
 ### Moving to a new laptop
 
-1. On the old laptop, click **Download everything** at the bottom of the side menu. Copy the file
-   from *Downloads* to a USB stick (or email it to yourself).
+1. On the old laptop, go to **Students** and click **Download everything** (it's also at the
+   bottom of the side menu). Copy the file from *Downloads* to a USB stick (or email it to
+   yourself). Don't change it.
 2. Install Scrappy Records on the new laptop.
 3. Go to **Students** → **Upload Excel**, and choose the file.
-4. Every student shows as **New**. Click **Add**. Every student, fee (months away included),
-   payment and unassigned payment is back, and the Dashboard shows the same numbers.
+4. Every student shows as **New**, even two with the same name, and every payment as **Will be
+   added**. Click **Add**. Every student, fee (months away included), payment and unassigned
+   payment is back, and the Dashboard shows the same numbers for every month.
 
 (Copying the backup file instead also works: see
 [backups](runbooks/backup-and-restore.md#moving-to-a-new-laptop).)
@@ -2023,7 +2042,7 @@ Open their profile and look at **Month by month** to see which month shows as ow
 | Mark as coming again ("Which month are they back from?") | `components/come-back-dialog.tsx`, `pages/student-profile-page.tsx` | `POST /api/students/{id}/return` (`returnStudent`) | `services/students.return_student` | `pages/student-profile-page.test.tsx`, `test_api_fee_schedule.py`, `e2e/fixes.spec.ts` |
 | Delete student | `pages/student-profile-page.tsx`, `components/confirm-dialog.tsx` | `DELETE /api/students/{id}` (`deleteStudent`) | `services/students.delete_student` | `pages/student-profile-page.test.tsx`, `test_api_students.py`, `e2e/records.spec.ts` |
 | Download Excel, Download everything | `components/excel-buttons.tsx`, `lib/downloads.ts`, `components/layout/app-shell.tsx` | `GET /api/export/students.xlsx` (`exportStudents`), `GET /api/export/payments.xlsx` (`exportPayments`), `GET /api/export/everything.xlsx` (`exportEverything`) | `services/exports.py` | `lib/downloads.test.ts`, `test_excel_export.py`, `e2e/excel.spec.ts` |
-| Upload Excel (preview, choices, Add), blank templates | `components/excel-upload-dialog.tsx`, `lib/upload.ts` | `POST /api/import/preview` (`previewImport`), `POST /api/import/commit` (`commitImport`), `GET /api/import/template.xlsx` (`importTemplate`) | `services/spreadsheet.py`, `services/imports.py`, `services/text.py`; `backup.py` (`pre-import`) | `components/excel-upload-dialog.test.tsx`, `test_excel_import.py`, `test_spreadsheet_cells.py`, `test_fuzz_excel.py`, `e2e/excel.spec.ts` |
+| Upload Excel (preview, choices, Add), blank templates | `components/excel-upload-dialog.tsx`, `lib/upload.ts` | `POST /api/import/preview` (`previewImport`), `POST /api/import/commit` (`commitImport`), `GET /api/import/template.xlsx` (`importTemplate`) | `services/spreadsheet.py`, `services/imports.py`, `services/matching.py`, `services/text.py`; `backup.py` (`pre-import`) | `components/excel-upload-dialog.test.tsx`, `test_excel_import.py`, `test_excel_review.py`, `test_spreadsheet_cells.py`, `test_fuzz_excel.py`, `e2e/excel.spec.ts` |
 | Unassigned payments, the Dashboard line | `components/unassigned-payments.tsx`, `components/unassigned-banner.tsx`, `components/student-combobox.tsx` | `GET /api/unassigned-payments` (`listUnassignedPayments`), `POST /api/unassigned-payments/{id}/assign` (`assignUnassignedPayment`), `DELETE /api/unassigned-payments/{id}` (`deleteUnassignedPayment`) | `services/unassigned.py` | `components/unassigned-payments.test.tsx`, `test_unassigned.py`, `test_migration_unassigned.py`, `e2e/excel.spec.ts` |
 
 Test paths without a folder are in `frontend/src/` (`*.tsx`, `*.ts`) or `backend/tests/`

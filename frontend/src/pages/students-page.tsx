@@ -73,6 +73,7 @@ export function StudentsPage() {
             <ExcelButtons
               downloadHref={studentsDownloadUrl(tab, search)}
               onUpload={() => setUploadOpen(true)}
+              everything
             />
           </>
         }

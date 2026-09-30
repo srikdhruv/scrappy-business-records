@@ -47,6 +47,7 @@ import type { Tone } from '@/lib/status'
 import {
   addedSentence,
   emptyChoices,
+  needsChoice,
   paymentKey,
   studentAdded,
   summarize,
@@ -72,8 +73,12 @@ const PAYMENT_STATUS: Record<ImportPaymentPreview['status'], { tone: Tone; label
   follows_student: { tone: 'partial', label: 'Goes with its student' },
   unassigned: { tone: 'muted', label: 'Unassigned' },
   duplicate: { tone: 'muted', label: 'Already exists' },
+  possible_duplicate: { tone: 'partial', label: 'Possible duplicate' },
   problem: { tone: 'owed', label: 'Problem' },
 }
+
+/** The most rows each table shows (a Download everything file can have thousands). */
+const SHOWN_ROWS = 400
 
 // ---- the dialog ----------------------------------------------------------------------------------
 
@@ -131,11 +136,11 @@ export function ExcelUploadDialog({
     try {
       const result = await commitImport.mutateAsync({
         filename: preview.filename,
-        students: preview.students.flatMap((s) =>
-          s.data
-            ? [{ data: s.data, ...(choices.addStudents.has(s.row) ? { add: true } : {}) }]
-            : [],
-        ),
+        students: preview.students.flatMap((s) => {
+          if (!s.data) return []
+          const add = choices.students.get(s.row)
+          return [add === undefined ? { data: s.data } : { data: s.data, add }]
+        }),
         payments: preview.payments.flatMap((p): ImportPaymentDecision[] => {
           if (!p.data) return []
           const choice = choices.payments.get(paymentKey(p))
@@ -144,7 +149,9 @@ export function ExcelUploadDialog({
               { data: p.data, choice: 'student' as const, student_id: Number(choice.slice(8)) },
             ]
           }
-          if (choice === 'skip' || choice === 'unassigned') return [{ data: p.data, choice }]
+          if (choice === 'skip' || choice === 'unassigned' || choice === 'add') {
+            return [{ data: p.data, choice }]
+          }
           // What its status says; the server works that out again for itself.
           return [{ data: p.data, choice: 'auto' as const }]
         }),
@@ -360,24 +367,23 @@ function PreviewBody({
     [preview.students],
   )
 
-  const choosing = (status: string) => status === 'similar' || status === 'needs_student'
   const skipped = (status: string) =>
     status === 'exists' || status === 'duplicate' || status === 'problem'
-  const keep = (status: string) =>
-    filter === 'all' || (filter === 'choose' ? choosing(status) : skipped(status))
-  const students = preview.students.filter((s) => keep(s.status))
-  const payments = preview.payments.filter((p) => keep(p.status))
-  const skippedCount = summary.alreadyHere + summary.problems
+  const keep = (row: { status: string }) =>
+    filter === 'all' || (filter === 'choose' ? needsChoice(row) : skipped(row.status))
+  const studentRows = preview.students.filter(keep)
+  const paymentRows = preview.payments.filter(keep)
+  // A long file (a Download everything one) is shown in part; every row is still handled.
+  const students = studentRows.slice(0, SHOWN_ROWS)
+  const payments = paymentRows.slice(0, SHOWN_ROWS)
+  const skippedCount =
+    preview.students.filter((s) => skipped(s.status)).length +
+    preview.payments.filter((p) => skipped(p.status)).length
 
   const setPayment = (p: ImportPaymentPreview, choice: PaymentChoice) =>
     setChoices((c) => ({ ...c, payments: new Map(c.payments).set(paymentKey(p), choice) }))
   const setStudent = (row: number, add: boolean) =>
-    setChoices((c) => {
-      const next = new Set(c.addStudents)
-      if (add) next.add(row)
-      else next.delete(row)
-      return { ...c, addStudents: next }
-    })
+    setChoices((c) => ({ ...c, students: new Map(c.students).set(row, add) }))
 
   return (
     <div className="min-w-0 space-y-4">
@@ -388,6 +394,12 @@ function PreviewBody({
       >
         {summarySentence(summary)}
       </p>
+      {preview.hidden_sheets.length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          Hidden sheets, not read: {preview.hidden_sheets.map((s) => `“${s}”`).join(', ')}. To add
+          them, show them in Excel first.
+        </p>
+      )}
       {preview.ignored_sheets.length > 0 && (
         <p className="text-sm text-muted-foreground">
           Not read (no student or payment headings found):{' '}
@@ -411,6 +423,7 @@ function PreviewBody({
         {students.length > 0 && (
           <RowTable
             caption={`Students (${preview.students.length})`}
+            more={studentRows.length - students.length}
             headings={['Row', 'Name', 'Phone', 'Monthly fee', 'Joined', 'What happens']}
           >
             {students.map((s) => (
@@ -426,7 +439,7 @@ function PreviewBody({
                   <StatusLine {...STUDENT_STATUS[s.status]} reason={s.reason} />
                   {s.status === 'similar' && (
                     <Select
-                      value={choices.addStudents.has(s.row) ? 'add' : 'skip'}
+                      value={studentAdded(s, choices) ? 'add' : 'skip'}
                       onValueChange={(v) => setStudent(s.row, v === 'add')}
                     >
                       <SelectTrigger
@@ -449,6 +462,7 @@ function PreviewBody({
         {payments.length > 0 && (
           <RowTable
             caption={`Payments (${preview.payments.length})`}
+            more={paymentRows.length - payments.length}
             headings={['Row', 'Student', 'Amount', 'Paid on', 'For month', 'What happens']}
           >
             {payments.map((p) => (
@@ -497,14 +511,27 @@ function PreviewBody({
 function RowTable({
   caption,
   headings,
+  more,
   children,
 }: {
   caption: string
   headings: string[]
+  /** Rows not shown (a long file): they're still added, skipped or kept as listed above. */
+  more: number
   children: ReactNode
 }) {
   return (
     <table className="w-full text-left text-[0.9375rem]">
+      {more > 0 && (
+        <tfoot>
+          <tr>
+            <td colSpan={headings.length} className="px-3 py-3 text-sm text-muted-foreground">
+              …and {more.toLocaleString('en-IN')} more rows, not shown here. They’re handled the
+              same way: the summary above counts them all.
+            </td>
+          </tr>
+        </tfoot>
+      )}
       <caption className="px-3 pt-3 pb-1 text-left text-base font-extrabold">{caption}</caption>
       <thead className="sticky top-0 z-10 bg-card text-sm text-muted-foreground">
         <tr>
@@ -577,6 +604,27 @@ function PaymentWhatHappens({
             ? `To ${student.name} (new, row ${student.row}), since you’re adding them`
             : `Kept as unassigned, unless you add ${student.name} (row ${student.row})`}
         </span>
+      </StatusLine>
+    )
+  }
+  if (p.status === 'duplicate' || p.status === 'possible_duplicate') {
+    return (
+      <StatusLine {...status} reason={p.reason}>
+        <Select
+          value={choice === 'add' ? 'add' : 'skip'}
+          onValueChange={(v) => onChoose(v as PaymentChoice)}
+        >
+          <SelectTrigger
+            className="mt-1 h-9 w-full bg-card"
+            aria-label={`What to do with row ${p.row} (${p.student_text})`}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="skip">Skip</SelectItem>
+            <SelectItem value="add">Add anyway</SelectItem>
+          </SelectContent>
+        </Select>
       </StatusLine>
     )
   }

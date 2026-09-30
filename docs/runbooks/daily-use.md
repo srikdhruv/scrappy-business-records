@@ -145,8 +145,9 @@ For a month off (no fee for one month), see
 - **Download a list:** on **Students** or **Payments**, choose the tab, search or filters you
   want, then click **Download Excel** (under the page title). The file has exactly what the page
   shows, and goes to your *Downloads* folder.
-- **Download everything:** click **Download everything** at the bottom of the side menu. One
-  file with every student, fee and payment. Keep it safe, or use it to move to a new laptop.
+- **Download everything:** click **Download everything** (on the Students page, or at the bottom
+  of the side menu). One file with every student, fee and payment. Keep it safe, or use it to
+  move to a new laptop: uploading it there brings everything back exactly.
 - **Add students or payments from a list:** click **Upload Excel** and choose the file (no list
   yet? click **Download a blank template** in that box and fill it in). The app shows what will
   happen to each row **before saving anything**:
@@ -154,6 +155,8 @@ For a month off (no fee for one month), see
   - For **Looks similar** (same name, different phone), choose **Add as new** only if it's
     really someone else.
   - A payment whose student isn't found is kept as **unassigned** (or choose who paid).
+  - A payment that's already in the app is skipped (**Already exists** or **Possible
+    duplicate**); choose **Add anyway** only if it really was paid twice.
   - Then click **Add**. An upload never changes anything already in the app, and a backup is
     saved first.
 - **Unassigned payments** wait at the top of the **Payments** page (the Dashboard reminds you).

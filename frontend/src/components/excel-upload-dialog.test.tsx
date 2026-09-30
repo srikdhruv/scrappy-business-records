@@ -31,6 +31,7 @@ function student(
     status,
     reason: null,
     student_id: null,
+    add_by_default: false,
     data:
       status === 'problem'
         ? null
@@ -89,6 +90,7 @@ function thePreview(): ImportPreview {
     filename: 'october.xlsx',
     sheets: ['Students', 'Payments'],
     ignored_sheets: ['Notes'],
+    hidden_sheets: [],
     fee_changes: 0,
     current_month: '2026-10',
     students: [
@@ -244,6 +246,70 @@ describe('Upload Excel', () => {
       'href',
       '/api/import/template.xlsx?kind=payments',
     )
+  })
+
+  it('possible duplicates can be added anyway; siblings are added unless skipped', async () => {
+    const ananya = idOf('Ananya Rao')
+    const { commits } = answerPreview(() => ({
+      ...thePreview(),
+      ignored_sheets: [],
+      hidden_sheets: ['Old list'],
+      students: [
+        student(2, 'Tara Iyer', 'new'),
+        student(3, 'Meera Iyer', 'similar', {
+          reason: 'Same phone as Tara Iyer (row 2), perhaps a brother or sister',
+          add_by_default: true,
+        }),
+      ],
+      payments: [
+        payment(2, 'Ananya Rao', 'possible_duplicate', {
+          student_id: ananya,
+          reason: 'Possibly already logged: ₹1,500 paid on 5 Oct 2026 for Oct 2026, by Cash',
+        }),
+        payment(3, 'Ananya Rao', 'duplicate', {
+          student_id: ananya,
+          reason: 'Already logged: ₹1,500 paid on 5 Oct 2026 for Oct 2026',
+        }),
+      ],
+    }))
+    const { user, dialog } = await openUpload('/students')
+    await user.upload(dialog.getByLabelText('Excel file to upload'), file())
+    const summary = await dialog.findByTestId('upload-summary')
+    expect(summary).toHaveTextContent(
+      'Will add 2 students. 1 already exists and will be skipped. 2 need you to choose.',
+    )
+    expect(dialog.getByText(/Hidden sheets, not read: “Old list”/)).toBeInTheDocument()
+    expect(
+      dialog.getByRole('combobox', { name: 'What to do with Meera Iyer (row 3)' }),
+    ).toHaveTextContent('Add as new')
+
+    await user.click(dialog.getByRole('combobox', { name: 'What to do with row 2 (Ananya Rao)' }))
+    await user.click(await screen.findByRole('option', { name: 'Add anyway' }))
+    expect(summary).toHaveTextContent('Will add 2 students and 1 payment.')
+    await user.click(dialog.getByRole('button', { name: 'Add' }))
+    await waitFor(() => expect(commits).toHaveLength(1))
+    expect(commits[0]!.students.map((s) => [s.data.row, s.add])).toEqual([
+      [2, undefined],
+      [3, undefined], // the server adds it by default too
+    ])
+    expect(commits[0]!.payments.map((p) => [p.data.row, p.choice])).toEqual([
+      [2, 'add'],
+      [3, 'auto'],
+    ])
+  })
+
+  it('shows part of a very long file, and says so', async () => {
+    answerPreview(() => ({
+      ...thePreview(),
+      students: [],
+      payments: Array.from({ length: 450 }, (_, i) =>
+        payment(i + 2, 'Ananya Rao', 'ready', { student_id: idOf('Ananya Rao') }),
+      ),
+    }))
+    const { user, dialog } = await openUpload('/payments')
+    await user.upload(dialog.getByLabelText('Excel file to upload'), file())
+    expect(await dialog.findByTestId('upload-summary')).toHaveTextContent('Will add 450 payments.')
+    expect(dialog.getByText(/…and 50 more rows, not shown here/)).toBeInTheDocument()
   })
 
   it('says when there is nothing new to add', async () => {
