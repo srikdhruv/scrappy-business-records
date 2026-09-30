@@ -16,6 +16,7 @@ import type {
   OverpaidItem,
   PaymentMethod,
   SuggestedPayment,
+  Weekday,
   YetToPayItem,
 } from '@/api/types'
 import {
@@ -34,8 +35,24 @@ export interface StudentRow {
   phone: string | null
   guardian_name: string | null
   batch_label: string | null
+  /** The batch they're in (`BatchRow`), or null. */
+  batch_id: number | null
   joined_month: string
   left_month: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** A batch (backend `batches`). `days` is Monday first, as the API sends it. */
+export interface BatchRow {
+  id: number
+  name: string
+  location: string | null
+  days: Weekday[]
+  start_time: string | null
+  end_time: string | null
+  default_fee_paise: number | null
   notes: string | null
   created_at: string
   updated_at: string
@@ -67,6 +84,8 @@ export interface StudentBook {
   student: StudentRow
   fees: FeeChangeRow[]
   payments: PaymentRow[]
+  /** The name of their batch, for the dashboard's lists. */
+  batchName?: string | null
 }
 
 /** Rule 1: active from joined_month up to and including left_month. */
@@ -293,6 +312,7 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
       student_id: student.id,
       student_name: student.name,
       batch_label: student.batch_label,
+      batch_name: book.batchName ?? null,
       phone: student.phone,
     }
 
@@ -342,6 +362,7 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
         student_id: student.id,
         student_name: student.name,
         batch_label: student.batch_label,
+        batch_name: book.batchName ?? null,
         phone: student.phone,
         months: owed,
         total_owed_paise: owed.reduce((sum, m) => sum + m.remaining_paise, 0),

@@ -6,6 +6,8 @@
 import { delay, http, HttpResponse, type JsonBodyType } from 'msw'
 
 import type {
+  BatchCreate,
+  BatchUpdate,
   PaymentCreate,
   PaymentSort,
   PaymentUpdate,
@@ -57,7 +59,14 @@ export function createHandlers(db: MockDb, { latency = 0 }: HandlerOptions = {})
       await wait()
       const url = new URL(request.url)
       const status = (url.searchParams.get('status') ?? 'active') as StudentListFilter
-      return respond(() => db.listStudents(status, url.searchParams.get('q')))
+      return respond(() =>
+        db.listStudents(
+          status,
+          url.searchParams.get('q'),
+          url.searchParams.get('batch'),
+          url.searchParams.get('location'),
+        ),
+      )
     }),
 
     http.post(api('/students'), async ({ request }) => {
@@ -138,6 +147,48 @@ export function createHandlers(db: MockDb, { latency = 0 }: HandlerOptions = {})
     http.get(api('/dashboard'), async ({ request }) => {
       await wait()
       return respond(() => db.dashboard(new URL(request.url).searchParams.get('month')))
+    }),
+
+    http.get(api('/batches'), async () => {
+      await wait()
+      return respond(() => db.listBatches())
+    }),
+
+    http.post(api('/batches'), async ({ request }) => {
+      await wait()
+      const body = (await request.json()) as BatchCreate
+      return respond(() => db.createBatch(body), 201)
+    }),
+
+    http.get(api('/batches/summary'), async ({ request }) => {
+      await wait()
+      return respond(() => db.batchOverview(new URL(request.url).searchParams.get('month')))
+    }),
+
+    http.get(api('/batches/from-labels'), async () => {
+      await wait()
+      return respond(() => db.labelPreview())
+    }),
+
+    http.post(api('/batches/from-labels'), async () => {
+      await wait()
+      return respond(() => db.convertLabels())
+    }),
+
+    http.get(api('/batches/:id'), async ({ params }) => {
+      await wait()
+      return respond(() => db.getBatch(idParam(params.id)))
+    }),
+
+    http.patch(api('/batches/:id'), async ({ params, request }) => {
+      await wait()
+      const body = (await request.json()) as BatchUpdate
+      return respond(() => db.updateBatch(idParam(params.id), body))
+    }),
+
+    http.delete(api('/batches/:id'), async ({ params }) => {
+      await wait()
+      return respond(() => db.deleteBatch(idParam(params.id)), 204)
     }),
   ]
 }

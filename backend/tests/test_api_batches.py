@@ -534,3 +534,10 @@ def test_no_backup_no_change(api: TestClient, monkeypatch: pytest.MonkeyPatch) -
     assert "Couldn't save a backup first" in error(response)[1]
     assert api.get("/api/batches").json() == []
     assert detail_of(api, s["id"])["batch_id"] is None
+
+
+def test_numbers_in_names_sort_as_numbers(api: TestClient) -> None:
+    for name in ("Batch 10", "batch 2", "Batch 1"):
+        make_batch(api, name=name)
+    names = [b["name"] for b in api.get("/api/batches").json()]
+    assert names == ["Batch 1", "batch 2", "Batch 10"]

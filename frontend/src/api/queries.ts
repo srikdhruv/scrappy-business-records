@@ -15,7 +15,13 @@ import {
 
 import { api, unwrap } from './client'
 import type {
+  BatchCreate,
+  BatchOverview,
+  BatchRead,
+  BatchUpdate,
   DashboardResponse,
+  LabelConversion,
+  LabelPreview,
   PaymentCreate,
   PaymentUpdate,
   StudentCreate,
@@ -48,14 +54,21 @@ export const queryKeys = {
     all: ['dashboard'] as const,
     month: (month: string) => ['dashboard', month] as const,
   },
+  batches: {
+    all: ['batches'] as const,
+    list: ['batches', 'list'] as const,
+    overview: (month: string) => ['batches', 'summary', month] as const,
+    labels: ['batches', 'from-labels'] as const,
+  },
 }
 
-/** Refetch everything that a student or payment change can affect. */
+/** Refetch everything that a student, payment or batch change can affect. */
 export function invalidateRecords(queryClient: QueryClient) {
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.students.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.payments.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.batches.all }),
   ])
 }
 
@@ -286,6 +299,73 @@ export function useDeletePayment() {
       unwrap(
         await api.DELETE('/api/payments/{payment_id}', { params: { path: { payment_id: id } } }),
       ),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+// ---- Batches ------------------------------------------------------------------------------------
+
+/** Every batch, sorted by name, with how many students are in it. */
+export function useBatches() {
+  return useQuery({
+    queryKey: queryKeys.batches.list,
+    queryFn: async (): Promise<BatchRead[]> => unwrap(await api.GET('/api/batches')),
+  })
+}
+
+/** Each batch's fees for `month` (the server's current month when undefined). */
+export function useBatchOverview(month: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.batches.overview(month ?? 'current'),
+    queryFn: async (): Promise<BatchOverview> =>
+      unwrap(await api.GET('/api/batches/summary', { params: { query: { month } } })),
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** What "Create batches from existing labels" would do. */
+export function useLabelPreview() {
+  return useQuery({
+    queryKey: queryKeys.batches.labels,
+    queryFn: async (): Promise<LabelPreview> => unwrap(await api.GET('/api/batches/from-labels')),
+  })
+}
+
+export function useCreateBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: BatchCreate): Promise<BatchRead> =>
+      unwrap(await api.POST('/api/batches', { body })),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+export function useUpdateBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: number; body: BatchUpdate }): Promise<BatchRead> =>
+      unwrap(
+        await api.PATCH('/api/batches/{batch_id}', { params: { path: { batch_id: id } }, body }),
+      ),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+/** Delete a batch; its students stay, in no batch. */
+export function useDeleteBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) =>
+      unwrap(await api.DELETE('/api/batches/{batch_id}', { params: { path: { batch_id: id } } })),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+export function useConvertLabels() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (): Promise<LabelConversion> =>
+      unwrap(await api.POST('/api/batches/from-labels')),
     onSuccess: () => invalidateRecords(queryClient),
   })
 }

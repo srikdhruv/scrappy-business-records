@@ -13,6 +13,7 @@ over that batch's students only, so every batch plus "no batch" adds up to the d
 from __future__ import annotations
 
 import datetime as dt
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 
@@ -95,8 +96,11 @@ def batch_read(batch: Batch, counts: tuple[int, int] = (0, 0)) -> BatchRead:
     )
 
 
-def _sort_key(batch: Batch) -> tuple[str, int]:
-    return (fold(batch.name), batch.id)
+def _sort_key(batch: Batch) -> tuple[tuple[tuple[int, int | str], ...], int]:
+    """By name, ignoring capitals and accents, with numbers in number order: "Batch 2" before
+    "Batch 10"."""
+    parts = re.split(r"(\d+)", fold(batch.name))
+    return (tuple((0, int(p)) if p.isdigit() else (1, p) for p in parts if p), batch.id)
 
 
 # --------------------------------------------------------------------------- queries

@@ -1,6 +1,7 @@
 /**
- * Choose a student by typing part of their name. Students who have left are listed last, under
- * "Left", because they sometimes still pay off an old month.
+ * Choose a student by typing part of their name (or their batch). Students who have left are
+ * listed last, under "Left", because they sometimes still pay off an old month. Each shows their
+ * batch, so two students with the same name can be told apart.
  *
  * Keyboard: typing a letter opens the list with that letter searched; arrows and Enter pick.
  * Enter on the closed box submits the form when a student is already chosen, so it can never
@@ -113,9 +114,9 @@ export function StudentCombobox({
       <StudentAvatar name={student.name} size="sm" />
       <span className="min-w-0 flex-1">
         <span className="block truncate font-semibold">{student.name}</span>
-        {student.batch_label && (
+        {(student.batch_name ?? student.batch_label) && (
           <span className="block truncate text-sm text-muted-foreground">
-            {student.batch_label}
+            {student.batch_name ?? student.batch_label}
           </span>
         )}
       </span>
@@ -148,6 +149,11 @@ export function StudentCombobox({
             <span className="flex min-w-0 items-center gap-2.5">
               <StudentAvatar name={selected.name} size="sm" />
               <span className="truncate font-semibold">{selected.name}</span>
+              {(selected.batch_name ?? selected.batch_label) && (
+                <span className="hidden truncate text-sm text-muted-foreground sm:inline">
+                  · {selected.batch_name ?? selected.batch_label}
+                </span>
+              )}
             </span>
           ) : (
             <span className="truncate text-muted-foreground">{placeholder}</span>

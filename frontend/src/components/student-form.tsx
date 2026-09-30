@@ -2,14 +2,19 @@
  * Add a student (S1) or edit one (S2). Changing the fee always asks "from which month?" so that
  * earlier months keep their old fee (PRD ledger rule 7), and says, from their real fee history,
  * how long the new fee lasts (until the next fee change already set, if any).
+ *
+ * The Batch picker puts them in a batch. For a new student, picking one fills in its usual fee
+ * (while the fee box is empty or still holds the last batch's fee). An existing student's fee
+ * never changes by picking a batch: the form says what the batch usually charges instead.
  */
 import { InfoIcon } from 'lucide-react'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
-import { useCreateStudent, useServerMonth, useUpdateStudent } from '@/api/queries'
-import type { StudentDetail, StudentUpdate } from '@/api/types'
+import { useBatches, useCreateStudent, useServerMonth, useUpdateStudent } from '@/api/queries'
+import type { BatchRead, StudentDetail, StudentUpdate } from '@/api/types'
 import { AwayWarning } from '@/components/away-warning'
+import { BatchPicker } from '@/components/batches/batch-picker'
 import { MonthPicker } from '@/components/month-picker'
 import { Button } from '@/components/ui/button'
 import {
@@ -37,7 +42,16 @@ import { amountProblem } from '@/lib/amount'
 import { awayOwedAgain, feeAt, newFeeSentence } from '@/lib/fees'
 
 type Field =
-  'name' | 'fee' | 'feeFrom' | 'joined' | 'left' | 'phone' | 'guardian' | 'batch' | 'notes'
+  | 'name'
+  | 'fee'
+  | 'feeFrom'
+  | 'joined'
+  | 'left'
+  | 'phone'
+  | 'guardian'
+  | 'label'
+  | 'batch'
+  | 'notes'
 
 const SERVER_FIELDS: Record<string, Field> = {
   name: 'name',
@@ -47,7 +61,8 @@ const SERVER_FIELDS: Record<string, Field> = {
   left_month: 'left',
   phone: 'phone',
   guardian_name: 'guardian',
-  batch_label: 'batch',
+  batch_label: 'label',
+  batch_id: 'batch',
   notes: 'notes',
 }
 
@@ -55,12 +70,15 @@ export function StudentFormDialog({
   open,
   onOpenChange,
   student,
+  batchId,
   onSaved,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Edit this student; omit to add a new one. */
   student?: StudentDetail
+  /** For a new student: the batch to put them in (its usual fee is filled in). */
+  batchId?: number | null
   onSaved?: (student: StudentDetail) => void
 }) {
   return (
@@ -69,6 +87,7 @@ export function StudentFormDialog({
         <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
           <StudentForm
             student={student}
+            batchId={batchId ?? null}
             onDone={(saved) => {
               onOpenChange(false)
               if (saved) onSaved?.(saved)
@@ -82,9 +101,11 @@ export function StudentFormDialog({
 
 function StudentForm({
   student,
+  batchId: startBatchId,
   onDone,
 }: {
   student?: StudentDetail
+  batchId: number | null
   onDone: (saved?: StudentDetail) => void
 }) {
   const editing = student !== undefined
@@ -112,7 +133,26 @@ function StudentForm({
   const [awayConfirmed, setAwayConfirmed] = useState(false)
   const [phone, setPhone] = useState(student?.phone ?? '')
   const [guardian, setGuardian] = useState(student?.guardian_name ?? '')
-  const [batch, setBatch] = useState(student?.batch_label ?? '')
+  const [label, setLabel] = useState(student?.batch_label ?? '')
+  const { data: batches } = useBatches()
+  const [batchId, setBatchId] = useState<number | null>(student ? student.batch_id : startBatchId)
+  const batch = batches?.find((b) => b.id === batchId)
+  // The fee last filled in from a batch, so picking another batch replaces it, but never a fee
+  // someone typed.
+  const [prefilled, setPrefilled] = useState<string | null>(null)
+  const prefill = (b: BatchRead | undefined) => {
+    if (editing || !b || b.default_fee_paise === null) return
+    if (fee.trim() !== '' && fee !== prefilled) return
+    const value = paiseToRupeesInput(b.default_fee_paise)
+    setFee(value)
+    setPrefilled(value)
+  }
+  // Opened from a batch's "+ Add student": fill in its fee once the batches have loaded.
+  const [startPrefilled, setStartPrefilled] = useState(false)
+  if (!startPrefilled && batch && !editing) {
+    setStartPrefilled(true)
+    prefill(batch)
+  }
   const [notes, setNotes] = useState(student?.notes ?? '')
   const [submitted, setSubmitted] = useState(false)
   const [serverErrors, setServerErrors] = useState<Partial<Record<Field, string>>>({})
@@ -173,7 +213,8 @@ function StudentForm({
         if ((guardian.trim() || null) !== student.guardian_name) {
           body.guardian_name = guardian.trim() || null
         }
-        if ((batch.trim() || null) !== student.batch_label) body.batch_label = batch.trim() || null
+        if ((label.trim() || null) !== student.batch_label) body.batch_label = label.trim() || null
+        if (batchId !== student.batch_id) body.batch_id = batchId
         if ((notes.trim() || null) !== student.notes) body.notes = notes.trim() || null
         if (joined !== student.joined_month) body.joined_month = joined
         if (left !== student.left_month) body.left_month = left
@@ -190,7 +231,7 @@ function StudentForm({
           joined_month: joined!,
           phone: phone.trim() || null,
           guardian_name: guardian.trim() || null,
-          batch_label: batch.trim() || null,
+          batch_id: batchId,
           notes: notes.trim() || null,
         })
         toast.success(`${saved.name} added`, {
@@ -242,6 +283,27 @@ function StudentForm({
         />
       </FormField>
 
+      <FormField
+        id="student-batch"
+        label="Batch"
+        optional
+        error={errors.batch}
+        errorId={errorId('batch')}
+        help={batchHelp(batch, editing, feePaise)}
+      >
+        <BatchPicker
+          id="student-batch"
+          value={batchId}
+          onChange={(b) => {
+            setBatchId(b?.id ?? null)
+            clearServer('batch')
+            prefill(b ?? undefined)
+          }}
+          invalid={Boolean(errors.batch)}
+          aria-describedby={errorId('batch') ?? 'student-batch-help'}
+        />
+      </FormField>
+
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField id="student-fee" label="Monthly fee" error={errors.fee} errorId={errorId('fee')}>
           <div className="relative">
@@ -260,6 +322,7 @@ function StudentForm({
               onChange={(e) => {
                 setFee(e.target.value)
                 setFeeEdited(true)
+                setPrefilled(null)
                 clearServer('fee')
               }}
               aria-invalid={Boolean(errors.fee) || undefined}
@@ -362,15 +425,23 @@ function StudentForm({
         </FormField>
       </div>
 
-      <FormField id="student-batch" label="Class or batch" optional error={errors.batch}>
-        <Input
-          id="student-batch"
-          autoComplete="off"
-          placeholder="e.g. Tue/Thu 5pm – Indiranagar"
-          value={batch}
-          onChange={(e) => setBatch(e.target.value)}
-        />
-      </FormField>
+      {student?.batch_label && (
+        <FormField
+          id="student-label"
+          label="Old class label"
+          optional
+          error={errors.label}
+          help="What was typed before batches. It’s kept as it was; the batch above is what counts."
+        >
+          <Input
+            id="student-label"
+            autoComplete="off"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            aria-describedby="student-label-help"
+          />
+        </FormField>
+      )}
 
       {editing && (
         <FormField
@@ -436,7 +507,22 @@ function StudentForm({
   )
 }
 
-function FormField({
+/** Under the Batch picker: what the batch usually charges, when that isn't their fee. */
+function batchHelp(
+  batch: BatchRead | undefined,
+  editing: boolean,
+  feePaise: number | null,
+): string | undefined {
+  if (!batch || batch.default_fee_paise === null || feePaise === batch.default_fee_paise) {
+    return undefined
+  }
+  const usual = formatRupees(batch.default_fee_paise)
+  return editing
+    ? `${batch.name} usually charges ${usual}. Their own fee stays as it is unless you change it.`
+    : `${batch.name} usually charges ${usual}.`
+}
+
+export function FormField({
   id,
   label,
   optional,
