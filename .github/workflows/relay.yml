@@ -1,0 +1,82 @@
+# Tests and deploys the feedback relay (relay/, a Cloudflare Worker).
+# This workflow is NOT a required check: it only runs when relay/ changes, and the deploy step
+# skips itself (with a notice, never a failure) until the relay is set up.
+# Setup: docs/runbooks/feedback-relay-setup.md
+name: "Relay (feedback Worker)"
+
+on:
+  pull_request:
+    paths:
+      - 'relay/**'
+      - '.github/workflows/relay.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'relay/**'
+      - '.github/workflows/relay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: relay-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: '24'
+  # Pinned so a deploy never picks up a surprise Wrangler release.
+  WRANGLER_VERSION: '4.145.0'
+
+jobs:
+  test:
+    name: Relay tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: relay
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: relay/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests
+        run: npm test
+
+  deploy:
+    name: Deploy relay
+    needs: test
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: relay
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the relay is set up
+        id: ready
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::Feedback relay not deployed: the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repo secrets aren't set yet. See docs/runbooks/feedback-relay-setup.md."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          elif grep -q 'REPLACE_WITH_KV_NAMESPACE_ID' wrangler.toml; then
+            echo "::notice::Feedback relay not deployed: relay/wrangler.toml still has REPLACE_WITH_KV_NAMESPACE_ID. See docs/runbooks/feedback-relay-setup.md (step 7)."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v7
+        if: steps.ready.outputs.ok == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Deploy
+        if: steps.ready.outputs.ok == 'true'
+        run: npx --yes wrangler@${{ env.WRANGLER_VERSION }} deploy

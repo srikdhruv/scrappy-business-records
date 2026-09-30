@@ -31,7 +31,7 @@ make setup
 | `make fmt` | `ruff format`, `ruff check --fix`, Prettier and `eslint --fix` |
 | `make gen-api` | Regenerate `frontend/src/api/schema.d.ts` from the backend's OpenAPI. No server needed: it runs `python -m app.openapi_dump` |
 | `make build` | Build the UI into `backend/app/static/` |
-| `make run` | Serve the production build from :8765 with `python -m app`, as the user's laptop does. Uses `./.devdata/` |
+| `make run` | Serve the production build from :8765 with `python -m app`, as the user's laptop does. Uses `./.devdata/`. Feedback isn't sent unless you pass a relay: `SCRAPPY_FEEDBACK_URL=https://…/feedback make run` |
 | `make package` | `make build`, then the self-contained bundle zip for this OS in `dist/` (`scripts/build_bundle.py`), which is then unpacked and self-tested. Add `--platform windows-x64` when running the script directly to cross-build the Windows zip (no self-test) |
 | `make db-reset` | Delete `./.devdata/` |
 | `make clean` | Remove build outputs and caches |
@@ -63,9 +63,11 @@ backend/
                      students.py, payments.py, dashboard.py, report.py: the database work
                      routers call; report_xlsx.py: the report as an Excel file (openpyxl);
                      bounds.py (input limits), text.py (case- and accent-insensitive matching)
-    routers/         health, students, payments, dashboard, report
+    routers/         health, students, payments, dashboard, report, about, feedback
     migrations/      Alembic env.py and versions/ (ships inside the package)
     static/          Built UI (git-ignored; `make build`)
+    diagnostics.py   What feedback carries: install ID, redacted server.log tail, environment
+    feedback_sender.py  Sends saved feedback to the relay in the background (ADR 0005)
     launcher.py      Desktop-shortcut entry point: health check, start the server, open the browser
     backup.py        Daily / pre-update / pre-migration backups, also `python -m app.backup`
     logs.py          Rotating logs/server.log (set up first thing by `python -m app`)
@@ -87,14 +89,19 @@ frontend/src/
   lib/search.ts      The student search both lists use (words in any order, accents, phones)
   lib/fees.ts        Reading a fee history: the fee in a month, and "until …" sentences
   lib/report.ts      The monthly report's statuses, filters, sorting and totals row
+  lib/diagnostics.ts Recent-errors ring buffer and browser details, for feedback
+  lib/screenshot.ts  The picture of the page for feedback (html-to-image, bundled)
   mocks/             The mock API (MSW) for `make dev-mock` and the tests. Never in the build
   index.css          Theme tokens (CSS variables) and Tailwind setup
   styles/            theme.test.ts checks the text contrast of the theme tokens
   test/              Vitest setup and render helpers
 frontend/scripts/
   feature-guide-screenshots.mjs  `make guide-screenshots`: the feature guide's pictures
+relay/               The feedback relay: a Cloudflare Worker (TypeScript) with its own tests
+                     (`cd relay && npm ci && npm test`) and workflow (.github/workflows/relay.yml,
+                     not a required check). Setup: runbooks/feedback-relay-setup.md
 scripts/
-  build_bundle.py    `make package`: the self-contained zip, self-tested
+  build_bundle.py    `make package`: the self-contained zip (with BUILD_ID), self-tested
   shrink_screenshots.py  256-colour PNGs for the pictures in docs/
   guide_server.py    The real app with the date frozen, for `make guide-screenshots`
   make_icon.py       Draws the app icon (scrappy.ico / scrappy.png) at build time
@@ -176,7 +183,9 @@ advance, Enter after clicking Cash, the Students search, the amount cap and the 
 `e2e/report.spec.ts` covers the monthly report: opening it from the dashboard, filtering and
 searching, the Excel download (read back with openpyxl through `uv run`), the print layout
 (print media emulated) and the wide table at 1280 and 800 px.
-Each test sets up its own students through the API, relative to
+`e2e/feedback.spec.ts` sends feedback with a picture to a fake relay (`e2e/fake-relay.mjs`, a
+second web server in `playwright.config.ts`, which also points `SCRAPPY_FEEDBACK_URL` at it), and
+checks what arrived. Each test sets up its own students through the API, relative to
 the server's current month. The first run needs a browser: `cd frontend && npx playwright install
 chromium`. CI's `e2e` job runs the same thing, with the browser cached.
 

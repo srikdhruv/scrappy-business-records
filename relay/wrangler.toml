@@ -1,0 +1,16 @@
+# Cloudflare Worker that files Scrappy Records feedback as GitHub issues.
+# Setup: docs/runbooks/feedback-relay-setup.md. No secrets here: GITHUB_TOKEN is a Worker secret
+# (`npx wrangler secret put GITHUB_TOKEN`).
+name = "scrappy-feedback"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[vars]
+FEEDBACK_REPO = "srikdhruv/scrappy-records-feedback"
+CODE_REPO = "srikdhruv/scrappy-business-records"
+
+# Replace the id with the one printed by `npx wrangler kv namespace create FEEDBACK_KV`.
+[[kv_namespaces]]
+binding = "FEEDBACK_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"

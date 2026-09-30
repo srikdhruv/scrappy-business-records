@@ -39,5 +39,8 @@ double-click. Their data must persist between sessions and must never leave the 
 ## Consequences
 
 - There is zero network exposure, and no auth is needed.
+- The app makes no outbound calls at runtime, with one exception added later at the owner's
+  request: feedback she chooses to send goes to the feedback relay
+  ([ADR 0005](0005-feedback-is-the-only-outbound-call.md)). Nothing else, and never the data.
 - Port 8765 must be free. A conflict is handled with a clear message (see troubleshooting).
 - A future "phone on home Wi-Fi" feature would need binding to the LAN and adding a PIN.

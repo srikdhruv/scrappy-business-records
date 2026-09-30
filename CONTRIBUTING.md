@@ -91,7 +91,10 @@ must never describe something that isn't built, or miss something that is.
    - Every release's data must upgrade intact: `backend/tests/test_release_upgrades.py`
      upgrades a sample database from every release. After releasing vX, run
      `python3 scripts/make_release_fixture.py vX` and commit the result via a PR.
-3. **Local only.** The server binds to `127.0.0.1`. No telemetry, no external calls at runtime.
+3. **Local only.** The server binds to `127.0.0.1`. No telemetry, no external calls at runtime,
+   with one exception the owner asked for: feedback she chooses to send goes to the feedback
+   relay, and only feedback ([ADR 0005](docs/adr/0005-feedback-is-the-only-outbound-call.md)).
+   Adding any other outbound call needs a new ADR.
 4. **Thin MVP.** New ideas go into [future-features.md](docs/product/future-features.md) first.
 
 ## Code conventions

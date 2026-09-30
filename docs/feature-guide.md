@@ -3,7 +3,8 @@
 Scrappy Records is a small, private app for anyone who runs classes, such as dance, music or
 tuition, and collects a monthly fee. It answers one question at a glance: **who has paid for
 which month, and who is still left to pay?** Everything stays on your own laptop, and it works
-without the internet.
+without the internet. The only thing that ever leaves the laptop is feedback you choose to
+send (see [Settings and feedback](#settings-and-feedback)).
 
 ## How to use this guide
 
@@ -27,11 +28,12 @@ without the internet.
 6. [Students page](#students-page)
 7. [New student and Edit student](#new-student-and-edit-student)
 8. [Student profile](#student-profile)
-9. [What the words and colours mean](#what-the-words-and-colours-mean)
-10. [Everyday situations](#everyday-situations)
-11. [Your data and safety](#your-data-and-safety)
-12. [For developers: feature map](#for-developers-feature-map)
-13. [Keeping this guide up to date](#keeping-this-guide-up-to-date)
+9. [Settings and feedback](#settings-and-feedback)
+10. [What the words and colours mean](#what-the-words-and-colours-mean)
+11. [Everyday situations](#everyday-situations)
+12. [Your data and safety](#your-data-and-safety)
+13. [For developers: feature map](#for-developers-feature-map)
+14. [Keeping this guide up to date](#keeping-this-guide-up-to-date)
 
 ---
 
@@ -51,7 +53,7 @@ your home folder. The app opens in your web browser within a few seconds, always
 Dashboard. No black window appears: the app runs quietly in the background until you switch
 the laptop off.
 
-<img src="images/feature-guide/sidebar.png" alt="The side menu: the Scrappy Records name at the top, then Dashboard, Payments and Students, and at the bottom a green shield with 'Your records stay on this laptop and are backed up every day' and 'Version 0.1.0'." width="180" align="right">
+<img src="images/feature-guide/sidebar.png" alt="The side menu: the Scrappy Records name at the top, then Dashboard, Payments and Students, and at the bottom a green shield with 'Your records stay on this laptop and are backed up every day', then a gear button 'Settings' and 'Version 0.1.0'." width="180" align="right">
 
 **The side menu** runs down the left of every page:
 
@@ -59,11 +61,14 @@ the laptop off.
 - **Dashboard**, **Payments** and **Students**: the three pages. The page you're on is shown
   as a white, raised button.
 - At the bottom: *"Your records stay on this laptop and are backed up every day."*
-- Under that, **the version**, for example *Version 0.1.0*. Whoever looks after the app may
+- Under that, the **⚙ Settings** button (a gear), with **Send feedback** and **About** in it.
+  See [Settings and feedback](#settings-and-feedback).
+- Next to it, **the version**, for example *Version 0.1.0*. Whoever looks after the app may
   ask you for it.
 
 On a narrow window (for example, if you drag the browser to half the screen), the menu moves to
-a bar across the top, and the backup line and version are hidden. Everything else still works.
+a bar across the top, and the backup line and version are hidden. The gear button sits in that
+bar, next to the name. Everything else still works.
 
 <br clear="right">
 
@@ -1402,6 +1407,107 @@ until December 2026, then ₹1,000"*, and the Students page shows *No fee* with 
 
 ---
 
+## Settings and feedback
+
+### What it's for
+
+Telling the developer about a problem, an idea or a question, straight from the app, with a
+picture of the screen you're looking at. And finding out which version you have and where your
+records are kept.
+
+### What you'll see
+
+<img src="images/feature-guide/settings-menu.png" alt="The gear button 'Settings' at the bottom of the side menu, open, with two choices above it: 'Send feedback' and 'About'." width="250" align="right">
+
+**The ⚙ Settings button** is at the bottom of the side menu, on every page (in the top bar on a
+narrow window). Click it for a small menu:
+
+- **Send feedback**: write to the developer.
+- **About**: the version, and where your records and backups are.
+
+More settings will go in this menu later.
+
+<br clear="right">
+
+**Send feedback** opens this window, over the page you were on:
+
+![The Send feedback window: Type with Problem (chosen), Idea and Question; a Message box with 'The total for Arjun Menon looks wrong after I logged his payment.'; a small picture of the Dashboard behind it, with a ticked box 'Include a picture of this screen' and the note 'The picture may show student names and amounts. It goes only to the developer's private feedback inbox.'; a folded 'What gets sent'; and Cancel and Send buttons.](images/feature-guide/feedback.png)
+
+- **Type**: **Problem** (something is wrong), **Idea** (something that would help) or
+  **Question**. Problem is chosen to start with.
+- **Message**: what you want to say. It can't be empty.
+- **A small picture of the screen** you were on (not of this window), taken as the window
+  opens. The box **Include a picture of this screen** is ticked to start with. The picture may
+  show student names and amounts, so untick it if you'd rather not send it. It only ever goes
+  to the developer's private feedback inbox.
+- **What gets sent**: click it to see the full list, in plain words:
+
+  ![The open 'What gets sent' list: your message and its type; the picture of this screen, if the box is ticked; the date and time; the app's version and build; the page you're on; the last problems the app noticed and the last lines of its log file; your computer's system, browser and screen size; a random number for this copy of the app, which doesn't say who you are; never your records file, backups or downloads. Below: It's saved on this laptop first, and sent when the internet is on.](images/feature-guide/feedback-what-gets-sent.png)
+
+After **Send**, the window says one of:
+
+- **Sent ✓** *Thank you! The developer has it.* It reached the feedback inbox.
+- **Saved** *— it'll be sent automatically when you're online.* The laptop is offline (or the
+  inbox didn't answer in time). It's kept on the laptop and goes by itself: the app tries again
+  every so often while it's open, and every time it starts. You don't need to do anything.
+- **Saved on this laptop, but the feedback inbox didn't accept it.** Rare: tell the developer
+  another way.
+
+**About** shows the **Version** (for example 0.1.0), the **Build** (a code that tells the
+developer exactly which copy of the app this is), where **Your records**, the **Daily backups**
+and the **Log files** are on this laptop, and, if any is waiting, how many feedback messages
+haven't been sent yet.
+
+### What you can do
+
+**Send feedback**
+1. Go to the page the feedback is about (for example the student's profile).
+2. Click **⚙ Settings** at the bottom left, then **Send feedback**.
+3. Choose **Problem**, **Idea** or **Question**, and write what happened or what you'd like.
+4. Leave **Include a picture of this screen** ticked, or untick it.
+5. Click **Send**. Close the window when it says **Sent ✓** or **Saved**.
+
+**See your version, or where your records are**
+1. Click **⚙ Settings**, then **About**.
+
+### Good to know
+
+- Nothing else ever leaves the laptop: never your records file, the backups or anything you
+  download. Feedback is the one exception, and only when you click **Send**.
+- If the picture can't be taken, the window says so and the message is sent without it.
+- Clicking **Send** twice sends it once.
+- The first version with this window may say **Saved** until the developer switches on the
+  feedback inbox; what you saved is sent then, by itself.
+
+<details><summary>For developers</summary>
+
+- **Components:** `frontend/src/components/settings-menu.tsx` (the gear and its menu, both
+  layouts; `SettingsDialogs` renders the dialogs once), `components/feedback-dialog.tsx`,
+  `components/about-dialog.tsx`, in `components/layout/app-shell.tsx`.
+- **Picture:** `src/lib/screenshot.ts` draws `#root` (the dialog is a portal outside it) with
+  `html-to-image`, bundled, and makes a JPEG of at most 1.4 MB (quality, then size, lowered to
+  fit). A page taller than 2,400 px is cropped around where you are.
+- **Recent errors:** `src/lib/diagnostics.ts`: a ring buffer of the last 20 script errors,
+  unhandled rejections and failed API calls (method, path and status only; `api/client.ts`
+  middleware), plus local time, time zone, language, user agent, screen and window size and
+  the UI's build (`__UI_BUILD__`, `vite.config.ts`).
+- **Outcome:** `src/lib/feedback.ts` (`feedbackOutcome`): Sent, or Saved when this copy doesn't
+  send, a first try failed, or 15 s have passed.
+- **API:** `POST /api/feedback` (`createFeedback`, idempotent on `id`), `GET
+  /api/feedback/{feedback_id}` (`getFeedback`, polled every second), `GET /api/about`
+  (`getAbout`). See [data model](data-model.md#feedback).
+- **Backend:** `services/feedback.py` (saving, what's sent), `app/diagnostics.py` (install ID,
+  redacted log tail, environment), `app/feedback_sender.py` (the background sender),
+  [ADR 0005](adr/0005-feedback-is-the-only-outbound-call.md). The relay is `relay/`
+  ([setup](runbooks/feedback-relay-setup.md)).
+- **Tests:** `components/feedback-dialog.test.tsx`, `lib/diagnostics.test.ts`,
+  `lib/feedback.test.ts`, `backend/tests/test_feedback.py`, `e2e/feedback.spec.ts` (against a
+  fake relay, `e2e/fake-relay.mjs`), `relay/test/relay.test.ts`.
+
+</details>
+
+---
+
 ## What the words and colours mean
 
 The same word always has the same colour, everywhere in the app.
@@ -1436,6 +1542,9 @@ The same word always has the same colour, everywhere in the app.
 | **Leaving after …** | Grey | Profile label; under *Member for* | They've been marked as leaving, and that last month hasn't passed yet. They still show as Active |
 | **New this month** | — (plain text) | Students page *Member for*; profile *Joined* ("new this month") | They joined this month |
 | **Starts …** | — (plain text) | Students page *Member for*; profile *Joined* | They join in a later month |
+| **Sent ✓** | Green tick | The Send feedback window | Your feedback reached the developer's private feedback inbox |
+| **Saved** (feedback) | Marigold | The Send feedback window; About ("waiting to be sent") | Your feedback is kept on this laptop and will be sent by itself when the internet is on |
+| **Build** | — (a code) | About | Which exact copy of the app this is, so the developer can find the code it runs |
 
 **The colours themselves:** green for paid, amber for partly paid, a soft muted red for owed,
 teal for extra or ahead, and grey for anything not due. Marigold is the app's own colour, used
@@ -1636,6 +1745,19 @@ December, away"*); the month then keeps showing as owed.
 (This is for a break while they're still coming. For someone who was marked as **left** and has
 come back, use **Mark as coming again** instead: it does this for you.)
 
+### Something looks wrong — tell the developer
+
+1. Stay on the page where it looks wrong (for example the student's profile, or the Dashboard
+   month).
+2. Click **⚙ Settings** at the bottom left, then **Send feedback**.
+3. Leave **Problem** chosen. Write what you did and what you expected to see, for example
+   *"I logged ₹1,500 for Ananya for October but she still shows Owes."*
+4. Keep **Include a picture of this screen** ticked, so the developer sees what you see.
+5. Click **Send**. **Sent ✓** means it arrived; **Saved** means it'll go by itself once the
+   laptop is online. Either way, you're done.
+
+For an idea or a question, choose **Idea** or **Question** instead.
+
 ### It says someone owes but I know they paid
 
 Open their profile and look at **Month by month** to see which month shows as owed, then:
@@ -1660,10 +1782,15 @@ Open their profile and look at **Month by month** to see which month shows as ow
 ## Your data and safety
 
 - **Everything stays on this laptop.** Your records are kept in one file on the laptop itself
-  (the [backups page](runbooks/backup-and-restore.md) says where). Nothing is sent anywhere, and
-  no account is needed.
+  (**⚙ Settings → About** and the [backups page](runbooks/backup-and-restore.md) say where).
+  Nothing is sent anywhere, and no account is needed.
+- **The one exception: feedback you send.** When you click **Send** in **Send feedback**, your
+  message, and the picture of the screen if you leave it ticked, go to the developer's private
+  feedback inbox, with the details listed under *What gets sent* (the version, the page, recent
+  errors, the computer's system). Never your records file, backups or downloads. See
+  [Settings and feedback](#settings-and-feedback).
 - **It works offline.** After installing, the app never needs the internet. Only installing
-  and updating download something.
+  and updating download something, and feedback waits on the laptop until you're online.
 - **Automatic backups.** A copy is saved every day to **Documents\ScrappyRecords Backups**
   (Documents/ScrappyRecords Backups on a Mac), and the last 30 days are kept. Another copy is
   saved before every update and before the app upgrades its records to a new layout. Those are
@@ -1717,10 +1844,11 @@ Open their profile and look at **Month by month** to see which month shows as ow
 | Mark as left / staying | `components/mark-left-dialog.tsx`, `pages/student-profile-page.tsx` | `PATCH /api/students/{id}` (`updateStudent`) | `services/students.update_student`; `ledger.has_left` | `pages/student-profile-page.test.tsx`, `test_api_students.py`, `e2e/records.spec.ts` |
 | Mark as coming again ("Which month are they back from?") | `components/come-back-dialog.tsx`, `pages/student-profile-page.tsx` | `POST /api/students/{id}/return` (`returnStudent`) | `services/students.return_student` | `pages/student-profile-page.test.tsx`, `test_api_fee_schedule.py`, `e2e/fixes.spec.ts` |
 | Delete student | `pages/student-profile-page.tsx`, `components/confirm-dialog.tsx` | `DELETE /api/students/{id}` (`deleteStudent`) | `services/students.delete_student` | `pages/student-profile-page.test.tsx`, `test_api_students.py`, `e2e/records.spec.ts` |
+| Settings menu, Send feedback, About | `components/settings-menu.tsx`, `components/feedback-dialog.tsx`, `components/about-dialog.tsx`, `lib/diagnostics.ts`, `lib/screenshot.ts`, `lib/feedback.ts` | `POST /api/feedback` (`createFeedback`), `GET /api/feedback/{feedback_id}` (`getFeedback`), `GET /api/about` (`getAbout`) | `services/feedback.py`, `diagnostics.py`, `feedback_sender.py`; relay in `relay/` | `components/feedback-dialog.test.tsx`, `lib/diagnostics.test.ts`, `lib/feedback.test.ts`, `test_feedback.py`, `e2e/feedback.spec.ts`, `relay/test/relay.test.ts` |
 
 Test paths without a folder are in `frontend/src/` (`*.tsx`, `*.ts`) or `backend/tests/`
 (`test_*.py`); end-to-end tests are in `frontend/e2e/` (`records.spec.ts`, `fixes.spec.ts`,
-`credit.spec.ts` and `report.spec.ts`).
+`credit.spec.ts`, `report.spec.ts` and `feedback.spec.ts`).
 
 ### How a number is calculated: "Still due"
 

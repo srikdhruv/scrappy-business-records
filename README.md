@@ -9,7 +9,9 @@ needed once installed.
 - **Students:** add, edit and archive students, each with a profile and their full payment history.
 - **Payments:** log a payment for a student and month; see, sort and fix every payment.
 
-Everything is stored on the laptop itself and backed up automatically every day.
+Everything is stored on the laptop itself and backed up automatically every day. The only
+thing that ever leaves it is feedback the owner chooses to send from **⚙ Settings → Send
+feedback** ([ADR 0005](docs/adr/0005-feedback-is-the-only-outbound-call.md)).
 
 ---
 

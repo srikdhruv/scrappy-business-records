@@ -140,6 +140,20 @@ For a month off (no fee for one month), see
 - **Student added by mistake:** open their profile and click **Delete**. This also deletes their
   payments, and the app will ask you to confirm first.
 
+## Something looks wrong, or you have an idea
+
+Tell the developer from inside the app:
+
+1. Stay on the page it's about.
+2. Click **⚙ Settings** at the bottom left, then **Send feedback**.
+3. Choose **Problem**, **Idea** or **Question**, and write what happened or what you'd like.
+4. Leave **Include a picture of this screen** ticked (it may show names and amounts; it only
+   goes to the developer's private feedback inbox), or untick it.
+5. Click **Send**. **Sent ✓** means it arrived. **Saved** means the laptop is offline: it goes by
+   itself later.
+
+**⚙ Settings → About** shows your version and where your records and backups are.
+
 ## If the app says "Can't reach Scrappy Records"
 
 Close the browser tab and open **Scrappy Records** again from the Desktop. See
@@ -148,7 +162,8 @@ Close the browser tab and open **Scrappy Records** again from the Desktop. See
 ## Is my data safe?
 
 Yes.
-- Everything stays on this laptop.
+- Everything stays on this laptop. Only feedback you choose to send leaves it, and never
+  your records file or backups.
 - Once a day a copy is saved in `Documents\ScrappyRecords Backups`. The last 30 days are
   kept.
 - See [backups](backup-and-restore.md).

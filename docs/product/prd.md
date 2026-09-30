@@ -331,7 +331,10 @@ accounted for.
 - **Install:** a stock Windows 10 (21H2+) or 11 laptop with no Python, Node, git or Docker. No
   admin rights needed.
 - **Offline:** after install, no internet is needed.
-- **Privacy:** data never leaves the laptop. The server listens on `127.0.0.1` only.
+- **Privacy:** data never leaves the laptop. The server listens on `127.0.0.1` only. The one
+  exception is feedback the owner chooses to send (Settings → Send feedback): her message, a
+  picture of the screen if she leaves it ticked, and details about the app, never the records
+  file or backups ([ADR 0005](../adr/0005-feedback-is-the-only-outbound-call.md)).
 - **Durability:**
   - A daily backup is kept in *Documents*, for 30 days.
   - A backup is taken before every update and every schema migration.

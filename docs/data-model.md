@@ -60,6 +60,30 @@ still owed, or credit) is worked out every time and never stored: see
 | `note` | TEXT NULL | |
 | `created_at`, `updated_at` | DATETIME | |
 
+### `feedback`
+In-app feedback (Settings → Send feedback), saved here first and then sent to the feedback
+relay by the server ([ADR 0005](adr/0005-feedback-is-the-only-outbound-call.md)). Not the
+owner's records: nothing in the ledger reads it. Added by migration `0003` (a new table only).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT(36) PK | A UUID made by the dialog when it opens: the idempotency key here and at the relay |
+| `created_at` | DATETIME | UTC, set by the database |
+| `category` | TEXT NOT NULL | `problem`, `idea` or `question` (CHECK) |
+| `message` | TEXT NOT NULL | What the owner wrote; not blank (CHECK) |
+| `route` | TEXT NULL | The page and its query, e.g. `/payments?month=2026-09` |
+| `diagnostics` | TEXT NOT NULL | JSON, see [Feedback](#feedback) below. Default `{}` |
+| `screenshot_file` | TEXT NULL | The picture's file name in `<data folder>/feedback/` (`<id>.jpg` or `.png`) |
+| `status` | TEXT NOT NULL | `pending` (default), `sent` or `failed` (CHECK) |
+| `attempts` | INTEGER NOT NULL | How many times sending was tried (default 0, ≥ 0) |
+| `last_error` | TEXT NULL | Why the last try failed, in words |
+| `sent_at` | DATETIME NULL | UTC |
+| `remote_ref` | TEXT NULL | The issue's URL in the private feedback repo |
+
+Index: `feedback(status)`. The **picture is a file, not a column**, so the daily backups (30 of
+them) stay small; it only exists until the feedback is sent, then it's deleted (the relay has
+it). If it's gone before then, the rest is sent without it.
+
 ### Database safeguards
 
 The database itself rejects bad rows, as a last line of defence behind the API's validation:
@@ -100,6 +124,9 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 | `GET /payments?student_id=&month=&q=&sort=paid_on\|for_month\|amount\|student\|method&order=asc\|desc` | List, including `student_name` and where each payment's money went (`paid_direct_paise`, `extra_sent[]`, `extra_unused_paise`; see [Credit allocation](#credit-allocation)). Always three queries (students, fee changes, payments), however many rows. `month` matches `for_month`; `q` matches the student's name or the note, ignoring case and accents ("emile" finds "Émile"). `sort=student` sorts by name ignoring case and accents; `method` sorts `cash`, `other`, `upi`. Ties go to the latest `paid_on`, then the newest entry |
 | `POST /payments` | Create. Body: `student_id`, `amount_paise`, `paid_on`, `for_month`, `method`, `note?`. 404 if the student doesn't exist. Any `for_month` within the [limits](#limits) is accepted, even one the student isn't active in (all of it is then extra, and pays the oldest month owed). Answers with the `PaymentRead`, including where its money went |
 | `GET /payments/{id}` · `PATCH /payments/{id}` · `DELETE /payments/{id}` | `PATCH` may move a payment to another student (404 if that student doesn't exist). An edit or delete changes where that payment's extra goes at once (nothing is stored) |
+| `GET /about` | Settings → About: `AboutResponse` (`version`, `build_id`, `data_dir`, `backup_dir`, `log_dir`, `feedback_sending`, `feedback_waiting`) |
+| `POST /feedback` | Save feedback (`FeedbackCreate`), answer 201 with `FeedbackRead` at once, and wake the sender. Idempotent: the same `id` again answers with the row already saved, unchanged. See [Feedback](#feedback) |
+| `GET /feedback/{feedback_id}` | `FeedbackRead`: whether it has been sent yet (the dialog polls it). 404 if unknown; 422 if not a UUID |
 | `GET /dashboard?month=YYYY-MM` | See the PRD's "Dashboard for a selected month M" section. Returns `month`, `current_month`, `summary`, `yet_to_pay[]`, `backlog[]`, `overpaid[]` (months holding credit) and `credit_moves[]` |
 | `GET /report?month=YYYY-MM` | The monthly report: one `ReportRow` per student relevant to the month, and `totals`. See [Monthly report](#monthly-report). `month` defaults to the current month |
 | `GET /report.xlsx?month=YYYY-MM&status=&q=&sort=&order=` | The report as the page shows it, as an Excel file (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`), a download named `scrappy-records-report-YYYY-MM.xlsx`. `status` is a `ReportFilter` (default `all`), `q` the search (as `lib/search.ts`: name, class or phone), `sort` a `ReportSort` and `order` `asc`/`desc` (ties keep the usual order): `services/report.shown`, the same rules as `frontend/src/lib/report.ts`. A title row (with the filter, search and sort in words), the date, frozen bold headings with Excel's filter buttons, one row per student in the screen's column order (money in rupees with the Indian-grouping formats `RUPEES` / `RUPEES_PAISE`), a bold totals row of `SUBTOTAL(109, …)` formulas, and a Collected line (a formula); A4 landscape, one page wide, when printed from Excel. `services/report_xlsx.py` (openpyxl) |
@@ -135,6 +162,10 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 | `SuggestedPayment` | `for_month` (nullable), `amount_paise` (nullable), `reason` |
 | `StudentReturn` (request) | `from_month`, `monthly_fee_paise` (optional) |
 | `HealthResponse` | `app`, `version`, `status` |
+| `AboutResponse` | `version`, `build_id` (the git commit the app was built from, or `unknown`), `data_dir`, `backup_dir` (the fallback `data/backups` if Documents couldn't be used), `log_dir`, `feedback_sending` (a relay URL is set), `feedback_waiting` (pending count) |
+| `FeedbackCreate` (request) | `id` (UUID, optional: made by the server if absent), `category`, `message` (1–5,000 characters after trimming; "Please write a message"), `route` (≤ 500, cut), `client` (`FeedbackClientInfo`), `screenshot` (base64 or a `data:` URL of a JPEG or PNG, ≤ 1,400,000 bytes; else 422 "The picture of the screen is too big to send" / "couldn't be read"; `null` for none) |
+| `FeedbackClientInfo` | `local_time`, `timezone`, `language`, `user_agent`, `screen`, `window`, `ui_build`, `errors[]` (`FeedbackClientError`: `at`, `kind`, `message`; the last 20 kept). Best effort: too-long text is cut and unsavable characters become `?`, never a 422 |
+| `FeedbackRead` | `id`, `category`, `status`, `created_at`, `sent_at`, `attempts`, `sending` (this copy is trying to send it) |
 
 **Enums.**
 - `MonthStatus`: `paid`, `partial`, `unpaid`, `overpaid`, `not_applicable`, from what pays the
@@ -156,6 +187,8 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 - `SuggestionReason`: `owed`, `next_unpaid`, `all_paid`.
 - `PaymentMethod`: `upi`, `cash`, `other`.
 - `FeeKind`: `fee`, `away`.
+- `FeedbackCategory`: `problem`, `idea`, `question`. `FeedbackStatus`: `pending`, `sent`,
+  `failed`.
 
 **Lists.** `GET /students` and `GET /payments` return plain JSON arrays, **unpaginated**: at
 this scale (thousands of payments at most) one response is small and fast. Students are sorted by
@@ -406,3 +439,31 @@ always reconciles with the dashboard and the profiles (`tests/test_report.py`
   extra_unused + covered_by_credit` = Σ `paid_direct + covered_by_credit`.
 - **`checks`:** each payment logged for M with `ledger.needs_check` (pays 4 or more months
   ahead, or has money kept as credit), as the dashboard's `payment_needs_check`.
+
+## Feedback
+
+What **Send feedback** stores and sends ([ADR 0005](adr/0005-feedback-is-the-only-outbound-call.md),
+[architecture](architecture.md#feedback)).
+
+**`diagnostics`** (JSON text in the `feedback` row), assembled when it's saved:
+
+| Key | From | What |
+|---|---|---|
+| `install_id` | server | A random UUID for this copy of the app, made once in `<data folder>/install-id` |
+| `server` | server | `app_version`, `build_id`, `os`, `machine`, `python`, `db_revision`, `server_time` (local, with offset), `server_timezone` |
+| `client` | browser | `FeedbackClientInfo`: local time, time zone, language, user agent, screen and window size, the UI's build, and its last 20 errors (script errors, unhandled rejections, failed API calls as "GET /api/students → 500": method, path and status, no query or body) |
+| `log_tail` | server | The last 200 lines of `server.log` (reaching into `server.log.1` after a rotation), each ≤ 500 characters, ≤ 64 KB in all. The home folder is shortened to `~`, and `[parameters: …]` in database errors becomes `[parameters: hidden]` |
+
+Never included: the database, its rows, backups or exports. `tests/test_feedback.py` stores
+distinctive names, phones, notes and amounts, logs a database error carrying them, and checks
+none appears in the stored diagnostics or in what is sent.
+
+**What the relay receives** (`services/feedback.relay_payload`, JSON, `POST` to
+`config.feedback_url()`): `schema` (1), `id`, `install_id`, `category`, `message`, `created_at`
+(UTC, `Z`), `local_time`, `app_version`, `build_id`, `route`, `environment` (`os`, `machine`,
+`python`, `db_revision`, `server_timezone`, `browser`, `screen`, `window`, `timezone`,
+`language`, `ui_build`), `errors[]`, `log_tail`, `screenshot` (`{content_type, data_base64}` or
+`null`). The biggest possible one fits the relay's 2 MiB limit (tested). The relay answers
+`201`/`200 {status: "created", issue_url}` (a retry of the same `id` gets the same URL), `400`,
+`403` (blocked) or `413` (never retried: `failed`), or `429`/`5xx` (retried later). The relay's
+own checks are in `relay/src/validate.ts`.
