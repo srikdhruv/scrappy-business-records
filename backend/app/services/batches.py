@@ -25,13 +25,17 @@ from app import backup
 from app.db import lock_for_writing
 from app.errors import not_found, unprocessable
 from app.models import WEEKDAYS, Batch, FeeKind, Student
-from app.months import format_month, parse_month
+from app.months import add_months, format_month, parse_month
 from app.schemas import (
     BatchCreate,
     BatchOverview,
     BatchRead,
     BatchSummary,
     BatchUpdate,
+    FeeChangeRead,
+    FeePlan,
+    FeePlanStatus,
+    FeePlanStudent,
     LabelConversion,
     LabelGroup,
     LabelPreview,
@@ -42,6 +46,7 @@ from app.services.bounds import latest_month, valid_id
 from app.services.students import (
     LEDGER_ROWS,
     all_students,
+    check_batch,
     same_text_key,
     set_fee_from,
     to_record,
@@ -221,6 +226,7 @@ def update_batch(
             body.default_fee_paise,
             parse_month(body.apply_fee.from_month),
             body.apply_fee.student_ids,
+            body.apply_fee.confirm_planned,
             current_month,
         )
 
@@ -233,67 +239,233 @@ def update_batch(
     return get_batch(session, batch.id, current_month)
 
 
-def _apply_fee(
-    session: Session,
-    batch: Batch,
-    fee: int,
-    from_month: dt.date,
-    student_ids: list[int],
-    current_month: dt.date,
-) -> None:
-    """Charge `fee` from `from_month` to each of these students of the batch, with the same
-    rule as changing a fee in Edit (`students.set_fee_from`): earlier months keep their fee,
-    and the new one lasts until the next fee change already set, if any.
-
-    - Someone who joins after `from_month` gets it from their joining month.
-    - Someone who leaves before `from_month` is left alone (they owe nothing then).
-    - If `from_month` falls in their months away (after leaving and coming back), it starts
-      from the month they came back, so no month away becomes owed.
-
-    422 if a student isn't in this batch (moved in another window) or the month is too late.
-    """
+def _too_late(from_month: dt.date, current_month: dt.date, loc: list[str]) -> None:
     latest = latest_month(current_month)
     if from_month > latest:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=[
                 {
-                    "loc": ["body", "apply_fee", "from_month"],
+                    "loc": loc,
                     "msg": f"The month the new fee starts can't be later than {latest:%B %Y} "
                     "(two years from now)",
                     "type": "value_error",
                 }
             ],
         )
-    for student_id in dict.fromkeys(student_ids):
-        student = (
-            session.get(Student, student_id, options=LEDGER_ROWS, populate_existing=True)
-            if valid_id(student_id)
-            else None
+
+
+@dataclass
+class _Plan:
+    """What charging a batch's new usual fee from a month would do to one student. The one
+    rule behind both the preview (`fee_plan`) and the change itself (`_apply_fee`)."""
+
+    student: Student
+    start: dt.date | None  # the month their new fee would start; None: not affected
+    status: FeePlanStatus
+    current_fee: int
+    due_months: int  # months already due (up to the current month) whose fee would change
+    due_change_paise: int  # how much more (or, below 0, less) those months would then owe
+
+    @property
+    def selectable(self) -> bool:
+        return self.status in (FeePlanStatus.usual, FeePlanStatus.own_fee, FeePlanStatus.planned)
+
+
+def _planned_changes(student: Student, current_month: dt.date) -> list[dt.date]:
+    """Fee changes set for a month that hasn't started yet (never the first fee, the one they
+    join on): a raise, a discount, a month off, or the months away of a return still to come."""
+    rows = sorted(student.fee_changes, key=lambda f: f.effective_month)
+    return [f.effective_month for f in rows[1:] if f.effective_month > current_month]
+
+
+def _start_month(student: Student, from_month: dt.date) -> dt.date | None:
+    """The month the new fee would start for them: `from_month`, or their joining month if
+    later, or the month they came back if `from_month` falls in their months away. None if
+    they leave before it."""
+    month = max(from_month, student.joined_month)
+    if student.left_month is not None and month > student.left_month:
+        return None
+    rows = sorted(student.fee_changes, key=lambda f: f.effective_month)
+    in_effect = [f for f in rows if f.effective_month <= month]
+    if in_effect and in_effect[-1].kind is FeeKind.away:
+        return next(
+            (
+                f.effective_month
+                for f in rows
+                if f.effective_month > month and f.kind is FeeKind.fee
+            ),
+            None,  # away with no way back: never happens, since a return ends a gap
         )
-        if student is None or student.batch_id != batch.id:
+    return month
+
+
+def _plans(
+    batch: Batch, fee: int, from_month: dt.date, students: list[Student], current_month: dt.date
+) -> tuple[list[_Plan], int | None]:
+    """Every student of the batch who hasn't left, and what the new fee would do to them, and
+    the fee counted as "the usual one": the batch's old usual fee, or if it had none, the fee
+    most of them pay (none on a tie).
+
+    - `not_affected`: they leave before the new fee would start.
+    - `already`: they'd already pay it then, and nothing is planned: nothing changes.
+    - `planned`: a fee change is set for a month still to come. The new fee would end at it,
+      or replace it: only with their own tick (`confirm_planned`).
+    - `usual`: they pay the usual fee now (ticked at first).
+    - `own_fee`: they pay something else (a discount, a free place): not ticked at first.
+    """
+    members = [s for s in students if s.batch_id == batch.id and not _has_left(s, current_month)]
+    records = {s.id: to_record(s) for s in members}
+    current = {s.id: ledger.current_fee(records[s.id], current_month) for s in members}
+    usual = batch.default_fee_paise
+    if usual is None and members:
+        counts = Counter(current.values()).most_common()
+        if len(counts) == 1 or counts[0][1] > counts[1][1]:
+            usual = counts[0][0]
+    plans: list[_Plan] = []
+    for s in sorted(members, key=lambda s: (fold(s.name), s.id)):
+        record = records[s.id]
+        start = _start_month(s, from_month)
+        due_months = due_change = 0
+        if start is None:
+            status_ = FeePlanStatus.not_affected
+        else:
+            later = [f.effective_month for f in record.fee_changes if f.effective_month > start]
+            until = min(later) if later else None
+            m = start
+            while m <= current_month and (until is None or m < until):
+                if record.is_active(m) and record.fee_in_effect(m) != fee:
+                    due_months += 1
+                    due_change += fee - record.fee_in_effect(m)
+                m = add_months(m, 1)
+            if _planned_changes(s, current_month):
+                status_ = FeePlanStatus.planned
+            elif record.fee_in_effect(start) == fee:
+                status_ = FeePlanStatus.already
+            elif usual is not None and current[s.id] == usual:
+                status_ = FeePlanStatus.usual
+            else:
+                status_ = FeePlanStatus.own_fee
+        plans.append(_Plan(s, start, status_, current[s.id], due_months, due_change))
+    return plans, usual
+
+
+def _has_left(student: Student, current_month: dt.date) -> bool:
+    return student.left_month is not None and student.left_month < current_month
+
+
+def fee_plan(
+    session: Session, batch_id: int, fee: int, from_month: dt.date, current_month: dt.date
+) -> FeePlan:
+    """The preview for "Also charge the new usual fee to its students": each student of the
+    batch who hasn't left, what would happen to them, and whether they're ticked at first."""
+    batch = _get_row(session, batch_id)
+    _too_late(from_month, current_month, ["query", "from_month"])
+    students = list(
+        session.scalars(select(Student).where(Student.batch_id == batch.id).options(*LEDGER_ROWS))
+    )
+    plans, usual = _plans(batch, fee, from_month, students, current_month)
+    return FeePlan(
+        batch_id=batch.id,
+        fee_paise=fee,
+        from_month=format_month(from_month),
+        current_month=format_month(current_month),
+        usual_fee_paise=usual,
+        students=[
+            FeePlanStudent(
+                student_id=p.student.id,
+                student_name=p.student.name,
+                current_fee_paise=p.current_fee,
+                start_month=format_month(p.start) if p.start else None,
+                status=p.status,
+                selected=p.status is FeePlanStatus.usual,
+                due_months=p.due_months,
+                due_change_paise=p.due_change_paise,
+                fee_history=[
+                    FeeChangeRead(
+                        id=f.id,
+                        effective_month=format_month(f.effective_month),
+                        amount_paise=f.amount_paise,
+                        kind=f.kind,
+                    )
+                    for f in sorted(p.student.fee_changes, key=lambda f: f.effective_month)
+                ],
+            )
+            for p in plans
+        ],
+    )
+
+
+def _apply_fee(
+    session: Session,
+    batch: Batch,
+    fee: int,
+    from_month: dt.date,
+    student_ids: list[int],
+    confirm_planned: list[int],
+    current_month: dt.date,
+) -> None:
+    """Charge `fee` to each of these students of the batch, from the month `fee_plan` says
+    (`_start_month`), with the same rule as changing a fee in Edit (`students.set_fee_from`):
+    earlier months keep their fee, and the new one lasts until the next fee change already set.
+
+    Students who leave before it, or already pay it, are left as they are. A student with a fee
+    change planned for a later month is only changed if they're also in `confirm_planned` (the
+    owner ticked them after reading what it does): otherwise 422, and nothing is saved.
+    422 too if a student isn't in this batch (moved in another window) or the month is too late.
+    """
+    _too_late(from_month, current_month, ["body", "apply_fee", "from_month"])
+    wanted = list(dict.fromkeys(student_ids))
+    students = [
+        session.get(Student, sid, options=LEDGER_ROWS, populate_existing=True)
+        if valid_id(sid)
+        else None
+        for sid in wanted
+    ]
+    if any(s is None or s.batch_id != batch.id for s in students):
+        raise unprocessable(
+            "Some of those students aren't in this batch any more. Close this and try again.",
+            field="apply_fee",
+        )
+    plans, _ = _plans(batch, fee, from_month, students, current_month)  # type: ignore[arg-type]
+    confirmed = set(confirm_planned)
+    for plan in plans:
+        if plan.status is FeePlanStatus.planned and plan.student.id not in confirmed:
+            first = _planned_changes(plan.student, current_month)[0]
             raise unprocessable(
-                "Some of those students aren't in this batch any more. Close this and try again.",
+                f"{plan.student.name} has a fee change planned for {first:%B %Y}. Tick them "
+                "only if the new fee should apply to them anyway.",
                 field="apply_fee",
             )
-        month = max(from_month, student.joined_month)
-        if student.left_month is not None and month > student.left_month:
-            continue
-        rows = sorted(student.fee_changes, key=lambda f: f.effective_month)
-        in_effect = [f for f in rows if f.effective_month <= month]
-        if in_effect and in_effect[-1].kind is FeeKind.away:
-            back = next(
-                (
-                    f.effective_month
-                    for f in rows
-                    if f.effective_month > month and f.kind is FeeKind.fee
-                ),
-                None,
+    for plan in plans:
+        if plan.selectable and plan.start is not None:
+            set_fee_from(session, plan.student, plan.start, fee)
+
+
+def move_students(session: Session, student_ids: list[int], batch_id: int | None) -> int:
+    """Put these students in one batch (or none), all at once. Nothing else about them
+    changes: not their fee, not their label. 422 if the batch or a student doesn't exist."""
+    lock_for_writing(session)
+    check_batch(session, batch_id)
+    wanted = list(dict.fromkeys(student_ids))
+    found = (
+        list(
+            session.scalars(
+                select(Student).where(Student.id.in_([i for i in wanted if valid_id(i)]))
             )
-            if back is None:
-                continue  # away with no way back: never happens, since a return ends a gap
-            month = back
-        set_fee_from(session, student, month, fee)
+        )
+        if wanted
+        else []
+    )
+    if len(found) != len(wanted):
+        raise unprocessable(
+            "Some of those students don't exist any more. Reload the page and try again.",
+            field="student_ids",
+        )
+    for student in found:
+        student.batch_id = batch_id
+    session.commit()
+    return len(found)
 
 
 def delete_batch(session: Session, batch_id: int) -> None:
@@ -344,7 +516,7 @@ def _label_groups(session: Session) -> list[_Group]:
     return sorted(groups, key=lambda g: (fold(g.name), g.key))
 
 
-def label_preview(session: Session) -> LabelPreview:
+def label_preview(session: Session, current_month: dt.date) -> LabelPreview:
     groups = _label_groups(session)
     return LabelPreview(
         groups=[
@@ -353,6 +525,8 @@ def label_preview(session: Session) -> LabelPreview:
                 labels=g.spellings,
                 student_count=len(g.students),
                 student_names=[s.name for s in g.students],
+                left_student_names=[s.name for s in g.students if _has_left(s, current_month)],
+                active_student_count=sum(1 for s in g.students if not _has_left(s, current_month)),
                 existing_batch_id=g.existing.id if g.existing else None,
             )
             for g in groups

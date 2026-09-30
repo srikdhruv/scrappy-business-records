@@ -34,6 +34,8 @@ FIELDS = [
     "end_time",
     "default_fee_paise",
     "apply_fee",
+    "student_ids",
+    "confirm_planned",
 ]
 
 scalars = st.one_of(
@@ -85,10 +87,25 @@ routes = st.sampled_from(
         ("get", "/api/batches/{id}"),
         ("patch", "/api/batches/{id}"),
         ("delete", "/api/batches/{id}"),
+        ("get", "/api/batches/{id}/fee-plan"),
+        ("post", "/api/batches/move"),
     ]
 )
 params = st.dictionaries(
-    st.sampled_from(["month", "q", "sort", "order", "student_id", "status", "batch", "location"]),
+    st.sampled_from(
+        [
+            "month",
+            "q",
+            "sort",
+            "order",
+            "student_id",
+            "status",
+            "batch",
+            "location",
+            "fee_paise",
+            "from_month",
+        ]
+    ),
     st.one_of(st.text(max_size=12), st.integers(-(2**70), 2**70).map(str)),
     max_size=4,
 )
@@ -172,7 +189,11 @@ def test_no_500_from_applying_a_batch_fee(
     _seed(api)
     body = {
         "default_fee_paise": fee,
-        "apply_fee": {"from_month": from_month, "student_ids": student_ids},
+        "apply_fee": {
+            "from_month": from_month,
+            "student_ids": student_ids,
+            "confirm_planned": student_ids,
+        },
     }
     for target in (batch_id, 1):
         response = api.request(

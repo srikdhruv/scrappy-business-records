@@ -7,14 +7,18 @@ from app.clock import CurrentMonthDep
 from app.db import SessionDep
 from app.months import parse_month
 from app.schemas import (
+    MAX_AMOUNT_PAISE,
     BatchCreate,
     BatchOverview,
     BatchRead,
     BatchUpdate,
     ErrorResponse,
+    FeePlan,
     LabelConversion,
     LabelPreview,
     Month,
+    MoveResult,
+    MoveStudents,
 )
 from app.services import batches as service
 
@@ -53,9 +57,15 @@ def get_overview(
 
 
 @router.get("/from-labels", response_model=LabelPreview, operation_id="previewLabelConversion")
-def preview_labels(session: SessionDep) -> LabelPreview:
+def preview_labels(session: SessionDep, current: CurrentMonthDep) -> LabelPreview:
     """What "Create batches from existing labels" would do. Changes nothing."""
-    return service.label_preview(session)
+    return service.label_preview(session, current)
+
+
+@router.post("/move", response_model=MoveResult, operation_id="moveStudents")
+def move_students(body: MoveStudents, session: SessionDep) -> MoveResult:
+    """Put these students in a batch (or none), all at once. Their fees don't change."""
+    return MoveResult(moved=service.move_students(session, body.student_ids, body.batch_id))
 
 
 @router.post("/from-labels", response_model=LabelConversion, operation_id="convertLabels")
@@ -68,6 +78,24 @@ def convert_labels(session: SessionDep) -> LabelConversion:
 @router.get("/{batch_id}", response_model=BatchRead, responses=NOT_FOUND, operation_id="getBatch")
 def get_batch(batch_id: int, session: SessionDep, current: CurrentMonthDep) -> BatchRead:
     return service.get_batch(session, batch_id, current)
+
+
+@router.get(
+    "/{batch_id}/fee-plan",
+    response_model=FeePlan,
+    responses=NOT_FOUND,
+    operation_id="getFeePlan",
+)
+def get_fee_plan(
+    batch_id: int,
+    session: SessionDep,
+    current: CurrentMonthDep,
+    fee_paise: int = Query(ge=0, le=MAX_AMOUNT_PAISE, description="The new usual fee."),
+    from_month: Month = Query(description="The first month of the new fee."),
+) -> FeePlan:
+    """What "Also charge the new usual fee" would do to each student of the batch, and who is
+    ticked at first. Changes nothing; `PATCH` with `apply_fee` uses the same rule."""
+    return service.fee_plan(session, batch_id, fee_paise, parse_month(from_month), current)
 
 
 @router.patch(

@@ -33,6 +33,8 @@ EXPECTED_OPERATIONS = {
     ("get", "/api/batches/{batch_id}"): "getBatch",
     ("patch", "/api/batches/{batch_id}"): "updateBatch",
     ("delete", "/api/batches/{batch_id}"): "deleteBatch",
+    ("get", "/api/batches/{batch_id}/fee-plan"): "getFeePlan",
+    ("post", "/api/batches/move"): "moveStudents",
     ("get", "/api/report"): "getReport",
     ("get", "/api/report.xlsx"): "downloadReport",
 }

@@ -455,7 +455,7 @@ def test_label_preview_groups_ignoring_capitals_and_spaces(api: TestClient) -> N
     make_student(api, name="Ananya Rao", batch_label="Tue/Thu 5pm")
     make_student(api, name="Kabir Mehta", batch_label="tue/thu  5PM")
     make_student(api, name="Meera Iyer", batch_label=" Tue/Thu 5pm ")
-    make_student(api, name="Diya Nair", batch_label="Sat 10am")
+    make_student(api, name="Diya Nair", batch_label="Sat 10am", left_month="2026-03")
     make_student(api, name="Rohan Desai")  # no label
     placed = make_batch(api, name="Sunday")
     make_student(api, name="Arjun Menon", batch_label="Sat 10am", batch_id=placed["id"])
@@ -467,6 +467,8 @@ def test_label_preview_groups_ignoring_capitals_and_spaces(api: TestClient) -> N
                 "labels": ["Sat 10am"],
                 "student_count": 1,
                 "student_names": ["Diya Nair"],
+                "left_student_names": ["Diya Nair"],  # left in March: nobody is coming now
+                "active_student_count": 0,
                 "existing_batch_id": None,
             },
             {
@@ -474,6 +476,8 @@ def test_label_preview_groups_ignoring_capitals_and_spaces(api: TestClient) -> N
                 "labels": ["Tue/Thu 5pm", "tue/thu 5PM"],
                 "student_count": 3,
                 "student_names": ["Ananya Rao", "Kabir Mehta", "Meera Iyer"],
+                "left_student_names": [],
+                "active_student_count": 3,
                 "existing_batch_id": None,
             },
         ],
@@ -553,3 +557,220 @@ def test_numbers_in_names_sort_as_numbers(api: TestClient) -> None:
         make_batch(api, name=name)
     names = [b["name"] for b in api.get("/api/batches").json()]
     assert names == ["Batch 1", "batch 2", "Batch 10"]
+
+
+# --------------------------------------------------------------------------- the fee plan
+
+
+def _plan(api: TestClient, batch_id: int, fee: int, from_month: str) -> dict[str, Json]:
+    response = api.get(
+        f"/api/batches/{batch_id}/fee-plan", params={"fee_paise": fee, "from_month": from_month}
+    )
+    assert response.status_code == 200, response.text
+    return {s["student_name"]: s for s in response.json()["students"]}
+
+
+def _apply(api: TestClient, batch_id: int, fee: int, from_month: str, ids: list[int], **extra: Any):
+    return api.patch(
+        f"/api/batches/{batch_id}",
+        json={
+            "default_fee_paise": fee,
+            "apply_fee": {"from_month": from_month, "student_ids": ids, **extra},
+        },
+    )
+
+
+def test_a_planned_later_discount_is_never_wiped_without_its_own_tick(api: TestClient) -> None:
+    """A discount already set for September. Charging the new fee from July would end at it;
+    from October it would replace it. Either way, only if that student is ticked for it."""
+    batch = make_batch(api, default_fee_paise=150000)
+    s = make_student(api, batch_id=batch["id"])
+    discount = api.patch(
+        f"/api/students/{s['id']}",
+        json={"monthly_fee_paise": 100000, "fee_effective_month": "2026-09"},
+    )
+    assert discount.status_code == 200
+    before = fees_of(api, s["id"])
+
+    for start in ("2026-07", "2026-10"):  # before the discount starts, and after
+        plan = _plan(api, batch["id"], 180000, start)["Ananya Rao"]
+        assert (plan["status"], plan["selected"]) == ("planned", False)
+        response = _apply(api, batch["id"], 180000, start, [s["id"]])
+        assert error(response) == (
+            ["body", "apply_fee"],
+            "Ananya Rao has a fee change planned for September 2026. Tick them only if the new "
+            "fee should apply to them anyway.",
+        )
+        assert fees_of(api, s["id"]) == before  # nothing saved, not even the batch's fee
+        assert api.get(f"/api/batches/{batch['id']}").json()["default_fee_paise"] == 150000
+
+    # Ticked for it, from July: the new fee lasts until the discount, which stays.
+    ok = _apply(api, batch["id"], 180000, "2026-07", [s["id"]], confirm_planned=[s["id"]])
+    assert ok.status_code == 200, ok.text
+    assert fees_of(api, s["id"]) == [
+        ("2026-01", 150000, "fee"),
+        ("2026-07", 180000, "fee"),
+        ("2026-09", 100000, "fee"),
+    ]
+
+
+def test_ticked_after_a_planned_change_it_takes_over_from_then(api: TestClient) -> None:
+    batch = make_batch(api, default_fee_paise=150000)
+    s = make_student(api, batch_id=batch["id"])
+    api.patch(
+        f"/api/students/{s['id']}",
+        json={"monthly_fee_paise": 100000, "fee_effective_month": "2026-08"},
+    )
+    ok = _apply(api, batch["id"], 180000, "2026-10", [s["id"]], confirm_planned=[s["id"]])
+    assert ok.status_code == 200, ok.text
+    assert fees_of(api, s["id"]) == [
+        ("2026-01", 150000, "fee"),
+        ("2026-08", 100000, "fee"),  # the discount, as planned, for August and September
+        ("2026-10", 180000, "fee"),
+    ]
+
+
+def test_the_plan_ticks_only_those_on_the_usual_fee(api: TestClient) -> None:
+    batch = make_batch(api, default_fee_paise=150000)
+    b = batch["id"]
+    make_student(api, name="Ananya Rao", batch_id=b)
+    make_student(api, name="Kabir Mehta", batch_id=b, monthly_fee_paise=120000)
+    make_student(api, name="Meera Iyer", batch_id=b, monthly_fee_paise=180000)
+    make_student(api, name="Rohan Desai", batch_id=b, left_month="2026-06")  # leaves in June
+    make_student(api, name="Diya Nair", batch_id=b, left_month="2026-02")  # has left
+    make_student(api, name="Arjun Menon", batch_id=b, joined_month="2026-09")
+    plan = _plan(api, b, 180000, "2026-07")
+    assert {name: (p["status"], p["selected"], p["start_month"]) for name, p in plan.items()} == {
+        "Ananya Rao": ("usual", True, "2026-07"),
+        "Arjun Menon": ("usual", True, "2026-09"),  # from the month they join
+        "Kabir Mehta": ("own_fee", False, "2026-07"),
+        "Meera Iyer": ("already", False, "2026-07"),
+        "Rohan Desai": ("not_affected", False, None),  # gone before July
+    }  # Diya has left: not listed at all
+    assert plan["Kabir Mehta"]["current_fee_paise"] == 120000
+
+
+def test_with_no_usual_fee_the_most_common_one_counts(api: TestClient) -> None:
+    batch = make_batch(api)  # made from labels, say: no usual fee
+    b = batch["id"]
+    for name in ("Ananya Rao", "Kabir Mehta"):
+        make_student(api, name=name, batch_id=b, monthly_fee_paise=150000)
+    make_student(api, name="Meera Iyer", batch_id=b, monthly_fee_paise=100000)  # a discount
+    response = api.get(
+        f"/api/batches/{b}/fee-plan", params={"fee_paise": 180000, "from_month": "2026-07"}
+    )
+    body = response.json()
+    assert body["usual_fee_paise"] == 150000
+    selected = {s["student_name"]: s["selected"] for s in body["students"]}
+    assert selected == {"Ananya Rao": True, "Kabir Mehta": True, "Meera Iyer": False}
+
+    # A tie: nobody is ticked at first.
+    make_student(api, name="Diya Nair", batch_id=b, monthly_fee_paise=100000)
+    body = api.get(
+        f"/api/batches/{b}/fee-plan", params={"fee_paise": 180000, "from_month": "2026-07"}
+    ).json()
+    assert body["usual_fee_paise"] is None
+    assert not any(s["selected"] for s in body["students"])
+
+
+def test_the_plan_says_what_months_already_due_would_owe(api: TestClient) -> None:
+    batch = make_batch(api, default_fee_paise=150000)
+    make_student(api, name="Ananya Rao", batch_id=batch["id"], joined_month="2026-05")
+    plan = _plan(api, batch["id"], 180000, "2026-04")["Ananya Rao"]  # April: before joining
+    # May and June (the current month) are due: ₹300 more each.
+    assert (plan["start_month"], plan["due_months"], plan["due_change_paise"]) == (
+        "2026-05",
+        2,
+        60000,
+    )
+    later = _plan(api, batch["id"], 180000, "2026-07")["Ananya Rao"]
+    assert (later["due_months"], later["due_change_paise"]) == (0, 0)
+
+
+def test_the_plan_and_the_change_agree(api: TestClient) -> None:
+    """Applying exactly what the plan ticks (and the planned ones) starts each student's new fee
+    in the month the plan said, and leaves everyone else alone."""
+    batch = make_batch(api, default_fee_paise=150000)
+    b = batch["id"]
+    ids = {
+        "Ananya Rao": make_student(api, name="Ananya Rao", batch_id=b)["id"],
+        "Kabir Mehta": make_student(api, name="Kabir Mehta", batch_id=b, monthly_fee_paise=90000)[
+            "id"
+        ],
+        "Arjun Menon": make_student(api, name="Arjun Menon", batch_id=b, joined_month="2026-09")[
+            "id"
+        ],
+        "Rohan Desai": make_student(api, name="Rohan Desai", batch_id=b, left_month="2026-06")[
+            "id"
+        ],
+    }
+    away = make_student(api, name="Diya Nair", batch_id=b, joined_month="2026-01")
+    ids["Diya Nair"] = away["id"]
+    api.patch(f"/api/students/{away['id']}", json={"left_month": "2026-02"})
+    assert api.post(f"/api/students/{away['id']}/return", json={"from_month": "2026-08"}).is_success
+    plan = _plan(api, b, 180000, "2026-07")
+    assert plan["Diya Nair"]["status"] == "planned"  # coming back in August: planned
+    assert plan["Diya Nair"]["start_month"] == "2026-08"  # July is a month away
+    before = {name: fees_of(api, sid) for name, sid in ids.items()}
+    chosen = [ids[n] for n, p in plan.items() if p["selected"] or p["status"] == "planned"]
+    planned = [ids[n] for n, p in plan.items() if p["status"] == "planned"]
+    ok = _apply(api, b, 180000, "2026-07", [*chosen, ids["Rohan Desai"]], confirm_planned=planned)
+    assert ok.status_code == 200, ok.text
+    for name, sid in ids.items():
+        after = fees_of(api, sid)
+        p = plan[name]
+        if p["selected"] or p["status"] == "planned":
+            assert (p["start_month"], 180000, "fee") in after, name
+        else:
+            assert after == before[name], name
+
+
+def test_the_plan_is_checked(api: TestClient) -> None:
+    batch = make_batch(api)
+    url = f"/api/batches/{batch['id']}/fee-plan"
+    assert api.get(url, params={"fee_paise": 1, "from_month": "2029-01"}).status_code == 422
+    assert api.get(url, params={"fee_paise": -1, "from_month": "2026-07"}).status_code == 422
+    assert api.get(url, params={"fee_paise": 1}).status_code == 422
+    assert (
+        api.get(
+            "/api/batches/999/fee-plan", params={"fee_paise": 1, "from_month": "2026-07"}
+        ).status_code
+        == 404
+    )
+
+
+# --------------------------------------------------------------------------- moving many
+
+
+def test_moving_many_students_at_once(api: TestClient) -> None:
+    a = make_batch(api, name="Mon/Wed")
+    b = make_batch(api, name="Sat")
+    s1 = make_student(api, name="Ananya Rao", batch_label="old")
+    s2 = make_student(api, name="Kabir Mehta", batch_id=a["id"], monthly_fee_paise=90000)
+    before = {s["id"]: fees_of(api, s["id"]) for s in (s1, s2)}
+    response = api.post(
+        "/api/batches/move", json={"student_ids": [s1["id"], s2["id"]], "batch_id": b["id"]}
+    )
+    assert response.status_code == 200 and response.json() == {"moved": 2}
+    for s in (s1, s2):
+        after = detail_of(api, s["id"])
+        assert after["batch_id"] == b["id"]
+        assert fees_of(api, s["id"]) == before[s["id"]]  # fees don't change
+    assert detail_of(api, s1["id"])["batch_label"] == "old"
+    out = api.post("/api/batches/move", json={"student_ids": [s1["id"]], "batch_id": None})
+    assert out.json() == {"moved": 1} and detail_of(api, s1["id"])["batch_id"] is None
+
+
+def test_moving_is_all_or_nothing(api: TestClient) -> None:
+    a = make_batch(api)
+    s = make_student(api)
+    missing = api.post(
+        "/api/batches/move", json={"student_ids": [s["id"], 999], "batch_id": a["id"]}
+    )
+    assert error(missing)[0] == ["body", "student_ids"]
+    assert detail_of(api, s["id"])["batch_id"] is None
+    no_batch = api.post("/api/batches/move", json={"student_ids": [s["id"]], "batch_id": 999})
+    assert error(no_batch)[0] == ["body", "batch_id"]
+    assert (
+        api.post("/api/batches/move", json={"student_ids": [], "batch_id": None}).status_code == 422
+    )

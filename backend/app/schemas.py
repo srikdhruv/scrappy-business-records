@@ -51,12 +51,17 @@ __all__ = [
     "ExtraSent",
     "FeeChangeRead",
     "FeeKind",
+    "FeePlan",
+    "FeePlanStatus",
+    "FeePlanStudent",
     "HealthResponse",
     "LabelConversion",
     "LabelGroup",
     "LabelPreview",
     "LedgerMonth",
     "MonthStatus",
+    "MoveResult",
+    "MoveStudents",
     "NoFeeReason",
     "OverpaidItem",
     "PaymentCreate",
@@ -1023,7 +1028,13 @@ class ApplyBatchFee(_Model):
     student_ids: list[Annotated[int, Field(gt=0, strict=True)]] = Field(
         max_length=5000,
         description="The students to charge it to: all must be in this batch. The UI lists "
-        "them first, so exactly those change.",
+        "them first (GET /batches/{id}/fee-plan), so exactly those change.",
+    )
+    confirm_planned: list[Annotated[int, Field(gt=0, strict=True)]] = Field(
+        default_factory=list,
+        max_length=5000,
+        description="Of student_ids, those with a fee change planned for a later month that "
+        "the owner ticked anyway. Any other student with one is a 422.",
     )
 
 
@@ -1124,6 +1135,12 @@ class LabelGroup(_ReadModel):
     labels: list[str] = Field(description="Every spelling found, most used first.")
     student_count: int = Field(ge=1)
     student_names: list[str] = Field(description="Sorted by name.")
+    left_student_names: list[str] = Field(
+        description="Those of student_names whose last month has passed (they have left)."
+    )
+    active_student_count: int = Field(
+        ge=0, description="Those still coming. 0: the batch would have nobody coming now."
+    )
     existing_batch_id: int | None = Field(
         description="A batch with this name already exists, so they go into it."
     )
@@ -1144,3 +1161,69 @@ class LabelConversion(_ReadModel):
     backup_file: str | None = Field(
         description="The backup taken first (a file name), or null if nothing needed doing."
     )
+
+
+class FeePlanStatus(enum.StrEnum):
+    """What "Also charge the new usual fee" would do to one student (`GET /batches/{id}/fee-plan`).
+
+    - `usual`: pays the usual fee now (the batch's old one, or the most common one if it had
+      none): ticked at first.
+    - `own_fee`: pays a fee of their own (a discount, a free place): not ticked at first.
+    - `planned`: a fee change is set for a later month; the new fee would end at it, or replace
+      it. Not ticked at first, and only changed with `confirm_planned`.
+    - `already`: they'd already pay it from that month: nothing changes.
+    - `not_affected`: they leave before it would start: nothing changes.
+    """
+
+    usual = "usual"
+    own_fee = "own_fee"
+    planned = "planned"
+    already = "already"
+    not_affected = "not_affected"
+
+
+class FeePlanStudent(_ReadModel):
+    student_id: int
+    student_name: str
+    current_fee_paise: NonNegativePaise = Field(description="Their fee this month.")
+    start_month: Month | None = Field(
+        description="The month the new fee would start for them (their joining month if later; "
+        "the month they came back if the chosen month is one of their months away). Null if "
+        "they leave before it."
+    )
+    status: FeePlanStatus
+    selected: bool = Field(description="Ticked at first (status `usual`).")
+    due_months: int = Field(
+        ge=0, description="Months already due (up to the current month) whose fee would change."
+    )
+    due_change_paise: SignedPaise = Field(
+        description="How much more those months would owe in total (less, if below 0)."
+    )
+    fee_history: list[FeeChangeRead] = Field(
+        description="Their fee changes, oldest first, so the UI can say how long it would last."
+    )
+
+
+class FeePlan(_ReadModel):
+    batch_id: int
+    fee_paise: NonNegativePaise
+    from_month: Month
+    current_month: Month
+    usual_fee_paise: NonNegativePaise | None = Field(
+        description="The fee counted as the usual one: the batch's usual fee, or if it has "
+        "none, the fee most of its students pay (null on a tie)."
+    )
+    students: list[FeePlanStudent] = Field(description="Everyone in it who hasn't left, A to Z.")
+
+
+class MoveStudents(_Model):
+    """Put students in a batch (or none) at once. Their fees don't change."""
+
+    student_ids: list[Annotated[int, Field(gt=0, strict=True)]] = Field(
+        min_length=1, max_length=5000
+    )
+    batch_id: BatchId | None = Field(description="The batch, or null for no batch.")
+
+
+class MoveResult(_ReadModel):
+    moved: int = Field(ge=0)
