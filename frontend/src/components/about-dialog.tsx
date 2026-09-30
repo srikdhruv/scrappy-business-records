@@ -125,13 +125,20 @@ export function AboutDialog({
             <Row label="Log files">
               <span className="font-mono text-sm">{data.log_dir}</span>
             </Row>
-            {data.feedback_waiting > 0 && (
+            {!data.feedback_sending ? (
               <Row label="Feedback">
-                {plural(data.feedback_waiting, 'message')} waiting to be sent.{' '}
-                {data.feedback_sending
-                  ? 'It goes by itself when the internet is on.'
-                  : 'It goes once a version that sends feedback is installed.'}
+                Sending feedback isn’t switched on in this version yet.
+                {data.feedback_waiting > 0
+                  ? ` ${plural(data.feedback_waiting, 'message')} saved on this laptop can’t be sent yet — please also tell the developer another way.`
+                  : ' Feedback you write is saved on this laptop, but can’t be sent yet.'}
               </Row>
+            ) : (
+              data.feedback_waiting > 0 && (
+                <Row label="Feedback">
+                  {plural(data.feedback_waiting, 'message')} waiting to be sent. It goes by itself
+                  when the internet is on.
+                </Row>
+              )
             )}
           </dl>
         )}

@@ -58,7 +58,8 @@ def test_query_count_does_not_grow_with_rows(api: TestClient, url: str) -> None:
     assert response.status_code == 200
     assert len(response.json()) > 0
     assert len(large) == len(small), large
-    assert len(large) <= 3
+    # Students, fee changes, payments; the report also sums the month's unassigned payments.
+    assert len(large) <= (4 if url.startswith("/api/report") else 3)
 
 
 def test_single_rows_and_writes_use_few_queries(api: TestClient) -> None:

@@ -41,7 +41,10 @@ def test_a_second_server_exits_cleanly_without_touching_the_database(scrappy_hom
             env={**os.environ, "SCRAPPY_PORT": "1"},  # would fail to bind if it got that far
             stdin=subprocess.DEVNULL,
             capture_output=True,
-            timeout=60,
+            # Starting Python and importing the app can be slow on a busy machine (CI, or the
+            # whole suite running at once). The server only needs to start and see the lock:
+            # allow plenty of time rather than kill it half-way and fail for no real reason.
+            timeout=300,
             check=False,
         )
     finally:

@@ -11,9 +11,10 @@ from __future__ import annotations
 import datetime as dt
 import re
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import FeeKind, Student
+from app.models import FeeKind, Student, UnassignedPayment
 from app.months import format_month, parse_month
 from app.schemas import (
     NoFeeReason,
@@ -122,12 +123,20 @@ def get_report(
     by_id = {s.id: s for s in students}
     report = ledger.build_report((to_record(s) for s in students), month, current_month)
     rows = [_row(by_id[r.student.id], r, current_month) for r in report.rows]
+    # Payments from an upload with no student yet: counted nowhere, so the report says so.
+    count, paise = session.execute(
+        select(func.count(), func.coalesce(func.sum(UnassignedPayment.amount_paise), 0)).where(
+            UnassignedPayment.for_month == month
+        )
+    ).one()
     return ReportResponse(
         month=format_month(report.month),
         current_month=format_month(current_month),
         today=today,
         rows=rows,
         totals=totals(rows),
+        unassigned_count=count,
+        unassigned_paise=paise,
     )
 
 

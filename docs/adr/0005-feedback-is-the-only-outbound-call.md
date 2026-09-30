@@ -24,8 +24,9 @@ feedback may show students and amounts, and the laptop may be offline.
    release information from GitHub, was added later by [ADR 0006](0006-in-app-update.md).)
 2. **Only feedback goes out.** The sender reads only the `feedback` table: the owner's message,
    the picture of the screen if she left it ticked, and diagnostics about the app (version,
-   build ID, a random install ID, the page, recent errors, the last 200 lines of the server log
-   with the home folder and database values hidden, OS, browser and screen size). Never the
+   build ID, a random install ID, the page's path, recent errors, the last warnings and errors
+   of the server log with the user's name, home folder and values hidden, OS, browser and
+   screen size). Never the
    database file, backups or exports. `backend/tests/test_feedback.py` checks that stored
    names, phones, notes and amounts don't appear in what is sent.
 3. **Sent by the server, not the browser**, to one address: `FEEDBACK_URL` in

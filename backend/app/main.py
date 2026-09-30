@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app import __version__, backup, config, errors, feedback_sender, migrate, updater
 from app.db import dispose_engines
+from app.limits import COMMIT_BODY_LIMIT, BodyLimit
 from app.routers import api_router
 
 log = logging.getLogger("scrappy")
@@ -100,6 +101,7 @@ def create_app(static_dir: Path | None = None) -> FastAPI:
     )
     app.add_exception_handler(RequestValidationError, errors.validation_error_handler)
     app.add_exception_handler(IntegrityError, errors.integrity_error_handler)
+    app.add_middleware(BodyLimit, paths=("/api/import/commit",), limit=COMMIT_BODY_LIMIT)
     app.include_router(api_router)
     _add_spa(app, static_dir or config.static_dir())
     return app

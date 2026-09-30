@@ -36,6 +36,7 @@ import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
 import { StatusPill } from '@/components/status'
 import { StudentAvatar } from '@/components/student-avatar'
 import { StudentFormDialog } from '@/components/student-form'
+import { UnassignedBanner } from '@/components/unassigned-banner'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDate, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
@@ -93,6 +94,8 @@ export function DashboardPage() {
           )
         }
       />
+
+      <UnassignedBanner />
 
       {firstRun ? (
         <FirstRun onAdd={() => setNewStudentOpen(true)} />
@@ -628,6 +631,16 @@ function FirstRun({ onAdd }: { onAdd: () => void }) {
         Add each student with their monthly fee. Then, whenever someone pays you, click{' '}
         <strong className="text-foreground">Log payment</strong>, and this page will show who is
         still left to pay.
+        <p className="mt-3 text-sm">
+          Have them in Excel already, or moving from another laptop? Go to{' '}
+          <Link
+            to="/students"
+            className="font-bold text-primary-strong underline-offset-4 hover:underline"
+          >
+            Students
+          </Link>{' '}
+          and click <strong className="text-foreground">Upload Excel</strong>.
+        </p>
       </EmptyState>
     </Panel>
   )

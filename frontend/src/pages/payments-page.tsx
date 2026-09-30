@@ -3,17 +3,21 @@
  * fix mistakes with Edit or Delete. Filters live in the address bar, so Back keeps them.
  */
 import { ReceiptIndianRupeeIcon, SearchIcon, XIcon } from 'lucide-react'
+import type { SortingState } from '@tanstack/react-table'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
 import { usePayments } from '@/api/queries'
 import type { PaymentMethod } from '@/api/types'
+import { ExcelButtons } from '@/components/excel-buttons'
+import { ExcelUploadDialog } from '@/components/excel-upload-dialog'
 import { PageHeader } from '@/components/layout/page-header'
 import { MonthPicker } from '@/components/month-picker'
 import { Panel } from '@/components/panel'
 import { PaymentsTable } from '@/components/payments-table'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
 import { StudentCombobox } from '@/components/student-combobox'
+import { UnassignedPayments } from '@/components/unassigned-payments'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -23,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { paymentsDownloadUrl } from '@/lib/downloads'
 import { METHOD_LABELS } from '@/lib/labels'
 import { cn } from '@/lib/utils'
 
@@ -52,6 +57,8 @@ export function PaymentsPage() {
   // still start with a search (?q=...).
   const [search, setSearch] = useState(() => params.get('q') ?? '')
   const q = useDebouncedValue(search.trim(), 250)
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'paid_on', desc: true }])
+  const [uploadOpen, setUploadOpen] = useState(false)
 
   function update(changes: Record<string, string | null>) {
     setParams(
@@ -84,8 +91,25 @@ export function PaymentsPage() {
     <>
       <PageHeader
         title="Payments"
-        description="Every payment you’ve logged. Click a column heading to sort."
+        description={
+          <>
+            <p>Every payment you’ve logged. Click a column heading to sort.</p>
+            {/* Download: the payments shown below, with these filters, in this order. */}
+            <ExcelButtons
+              downloadHref={paymentsDownloadUrl({
+                studentId,
+                month,
+                q,
+                method,
+                sort: sorting[0],
+              })}
+              onUpload={() => setUploadOpen(true)}
+            />
+          </>
+        }
       />
+
+      <UnassignedPayments />
 
       <Panel bodyClassName="pt-0">
         <div
@@ -165,6 +189,8 @@ export function PaymentsPage() {
             <PaymentsTable
               payments={shown}
               month={month}
+              sorting={sorting}
+              onSortingChange={setSorting}
               empty={
                 filtered ? (
                   <EmptyState
@@ -190,6 +216,8 @@ export function PaymentsPage() {
           </div>
         )}
       </Panel>
+
+      <ExcelUploadDialog open={uploadOpen} onOpenChange={setUploadOpen} kind="payments" />
     </>
   )
 }

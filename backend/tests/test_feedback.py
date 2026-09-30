@@ -276,14 +276,14 @@ def test_diagnostics_have_version_build_install_and_log(
     diag = json.loads(row(body["id"]).diagnostics)
     assert diag["server"]["app_version"] == __version__
     assert diag["server"]["build_id"] == app_package.build_id()
-    assert diag["server"]["db_revision"] == "0003"
+    assert diag["server"]["db_revision"] == "0005"
     assert diag["install_id"] == config.install_id_file().read_text().strip()
     assert "a line only the log has" in diag["log_tail"]
     payload = service.relay_payload(row(body["id"]))
     assert payload["app_version"] == __version__
     assert payload["build_id"] == app_package.build_id()
     assert payload["install_id"] == diag["install_id"]
-    assert payload["route"] == "/payments?month=2026-06"
+    assert payload["route"] == "/payments"  # the path only: a query could hold a name
     assert payload["local_time"] == "2026-06-15T15:45:00+05:30"
     assert payload["environment"]["browser"].startswith("Mozilla")
     assert payload["environment"]["screen"] == "1440x900"
@@ -301,22 +301,74 @@ def test_install_id_is_made_once(client: TestClient) -> None:
     assert diagnostics.install_id() == replaced
 
 
-def test_log_tail_is_the_last_200_lines_redacted(client: TestClient) -> None:
+def _record(level: str, name: str, message: str, n: int = 0) -> str:
+    return f"2026-06-15 10:{n // 60:02d}:{n % 60:02d},000 {level:<7} [4242] {name}: {message}"
+
+
+def test_log_tail_keeps_the_last_200_lines_worth_sending(client: TestClient) -> None:
     home = str(Path.home())
     log_file = logs.log_file()
-    old = [f"old line {i}" for i in range(50)]
+    old = [_record("WARNING", "scrappy", f"old warning {i}", i) for i in range(50)]
     log_file.with_name("server.log.1").write_text("\n".join(old) + "\n", encoding="utf-8")
-    lines = [f"line {i} in {home}/Documents" for i in range(180)]
-    lines.append("x" * 2000)
+    lines = []
+    for i in range(180):
+        lines.append(_record("INFO", "scrappy", f"note {i} in {home}/Documents", i))
+        lines.append(_record("INFO", "alembic.runtime.migration", f"chatter {i}", i))
+    lines.append(_record("ERROR", "scrappy", "x" * 2000))
+    lines.append(_record("ERROR", "uvicorn.error", "Exception in ASGI application"))
+    lines.append("Traceback (most recent call last):")
+    lines.append(f'  File "{home}/app/x.py", line 3, in f')
     lines.append("sqlite3.IntegrityError [parameters: ('Ananya Rao', '98765 43210')]")
+    lines.append("ValueError: invalid literal for int() with base 10: 'Kabir Mehta'")
     log_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     tail = diagnostics.log_tail().split("\n")
     assert len(tail) == 200
-    assert tail[0] == "old line 32"  # 18 from the rotated file, then all 182 current lines
-    assert tail[18] == "line 0 in ~/Documents"
-    assert home not in "\n".join(tail)
-    assert len(tail[-2]) == 501  # 500 characters and "…"
-    assert tail[-1] == "sqlite3.IntegrityError [parameters: hidden]"
+    joined = "\n".join(tail)
+    assert "chatter" not in joined  # other libraries' INFO lines are left out
+    assert tail[0].endswith("old warning 36")  # 14 from the rotated file, then 186 current
+    assert tail[14].endswith("scrappy: note 0 in ~/Documents")
+    assert home not in joined
+    assert len(tail[-6]) == 501  # 500 characters and "…"
+    assert tail[-3] == '  File "~/app/x.py", line 3, in f'  # paths in tracebacks stay
+    assert tail[-2] == "sqlite3.IntegrityError [parameters: hidden]"
+    assert tail[-1] == "ValueError: invalid literal for int() with base 10: '…'"
+    assert "Ananya" not in joined and "Kabir" not in joined
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (r"C:\Users\Ananya Rao\AppData\Local", r"~\AppData\Local"),
+        (r"C:\\Users\\Ananya Rao\\AppData", r"~\\AppData"),  # escaped, as in a repr
+        ("C:/Users/Ananya Rao/AppData", "~/AppData"),
+        ("c:\\users\\ANANYA RAO\\x", "~\\x"),  # any letter case
+        ("file:///C:/Users/Ananya%20Rao/Documents", "file:///~/Documents"),
+        ("C%3A%5CUsers%5CAnanya%20Rao%5CDocuments", "~%5CDocuments"),
+        (r"C:\Users\ANANYA~1\AppData", r"C:\Users\<user>\AppData"),  # 8.3 short name
+        (r"D:\Users\Kabir Mehta\x", r"D:\Users\<user>\x"),  # someone else's folder
+        ("/Users/kabir/Library", "/Users/<user>/Library"),
+        ("/home/kabir/.cache", "/home/<user>/.cache"),
+        ("%2FUsers%2Fkabir%2Fx", "%2FUsers%2F<user>%2Fx"),
+        ("Signed in as Ananya Rao today", "Signed in as <user> today"),
+        ("Users and home stay as words", "Users and home stay as words"),
+    ],
+)
+def test_redact_hides_the_user_in_every_form(
+    text: str, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pathlib import PureWindowsPath
+
+    monkeypatch.setattr(diagnostics.Path, "home", lambda: PureWindowsPath(r"C:\Users\Ananya Rao"))
+    monkeypatch.setenv("USERNAME", "Ananya Rao")
+    monkeypatch.setenv("USER", "")
+    monkeypatch.setenv("LOGNAME", "")
+    assert diagnostics.redact(text) == expected
+
+
+def test_redact_this_laptops_home() -> None:
+    home = str(Path.home())
+    for form in (home, home.replace("/", "\\"), home.upper(), home.replace("/", "%2F")):
+        assert diagnostics.redact(f"at {form}/x").startswith("at ~"), form
 
 
 def test_log_tail_without_a_log(client: TestClient) -> None:
@@ -389,7 +441,28 @@ def test_biggest_payload_fits_the_relay_limit(client: TestClient) -> None:
     assert client.post("/api/feedback", json=body).status_code == 201
     payload = service.relay_payload(row(body["id"]))
     size = len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
-    assert size <= 2 * 1024 * 1024, size
+    assert size <= service.PAYLOAD_MAX_BYTES < 2 * 1024 * 1024, size
+    assert payload["screenshot"] is not None  # the picture and message still go
+
+
+def test_payload_is_trimmed_to_fit_log_first(client: TestClient, server_log: Path) -> None:
+    body = feedback_body(client={"errors": [{"message": "m" * 900}] * 20})
+    for i in range(300):
+        logging.getLogger("scrappy").warning("line %d %s", i, "w" * 400)
+    client.post("/api/feedback", json=body)
+    saved = row(body["id"])
+    full = service.relay_payload(saved)
+    assert full["log_tail"].count("\n") > 100
+    small = service.relay_payload(saved, max_bytes=30_000)
+    assert len(json.dumps(small).encode()) <= 30_000
+    assert small["screenshot"] is not None and small["errors"]  # the log went first
+    assert small["log_tail"] == "" or full["log_tail"].endswith(small["log_tail"])
+    tiny = service.relay_payload(saved, max_bytes=5_000)
+    assert tiny["errors"] == [] and tiny["log_tail"] == ""
+    assert tiny["message"] == body["message"]
+    slim = service.relay_payload(saved, slim=True)
+    assert slim["screenshot"] is None
+    assert slim["log_tail"].count("\n") < service.SLIM_LOG_LINES
 
 
 # --------------------------------------------------------------------------- sending
@@ -404,6 +477,11 @@ def test_post_feedback_outcomes(relay: FakeRelay) -> None:
         (400, {"status": "invalid", "error": "message must be 1-5000 characters"}, {}),
         (403, {"status": "blocked"}, {}),
         (200, {"status": "created"}, {}),  # no issue_url: odd, try again later
+        (413, {"status": "too_large"}, {}),
+        (404, {"error": "not found"}, {}),  # a wrong address, or a proxy: not the relay's no
+        (403, {"message": "Forbidden"}, {}),  # a firewall's page
+        (409, {"status": "in_progress"}, {"Retry-After": "60"}),
+        (503, {"status": "misconfigured"}, {}),
     ]
     assert post_feedback(relay.url, payload, 5) == SendResult(
         "sent", issue_url="https://github.com/e/f/issues/1"
@@ -412,9 +490,15 @@ def test_post_feedback_outcomes(relay: FakeRelay) -> None:
     limited = post_feedback(relay.url, payload, 5)
     assert (limited.outcome, limited.retry_after) == ("retry", 120.0)
     invalid = post_feedback(relay.url, payload, 5)
-    assert invalid.outcome == "rejected"
+    assert invalid.outcome == "final"
     assert "message must be 1-5000 characters" in invalid.error
-    assert post_feedback(relay.url, payload, 5).outcome == "rejected"
+    assert post_feedback(relay.url, payload, 5).outcome == "final"
+    assert post_feedback(relay.url, payload, 5).outcome == "retry"
+    assert post_feedback(relay.url, payload, 5).outcome == "too_large"
+    assert post_feedback(relay.url, payload, 5).outcome == "retry"
+    assert post_feedback(relay.url, payload, 5).outcome == "retry"
+    busy = post_feedback(relay.url, payload, 5)
+    assert (busy.outcome, busy.retry_after) == ("retry", 60.0)
     assert post_feedback(relay.url, payload, 5).outcome == "retry"
 
 
@@ -423,6 +507,7 @@ def test_post_feedback_offline_and_timeout(relay: FakeRelay) -> None:
     offline = post_feedback(closed, {}, 2)
     assert offline.outcome == "retry"
     assert offline.error.startswith("Couldn't reach the feedback inbox")
+    assert offline.reached is False
     relay.delay = 1.5
     assert post_feedback(relay.url, {}, 0.3).outcome == "retry"
 
@@ -484,6 +569,7 @@ def test_sender_backs_off_exponentially(client: TestClient, relay: FakeRelay) ->
 def test_backoff_is_capped_and_honours_retry_after() -> None:
     sender = sender_for("http://127.0.0.1:1/feedback")
     assert sender.delay(30) == feedback_sender.MAX_DELAY
+    assert sender.delay(300, feedback_sender.MAX_DELAY_ERROR) == feedback_sender.MAX_DELAY_ERROR
     sender.jitter = lambda: 0.0
     assert sender.delay(1) == pytest.approx(24.0)
     sender.jitter = lambda: 1.0
@@ -510,6 +596,22 @@ def test_new_feedback_tries_again_at_once(client: TestClient, relay: FakeRelay) 
     assert sender.run_once() == 1
 
 
+def test_errors_back_off_to_a_day_offline_to_an_hour(client: TestClient, relay: FakeRelay) -> None:
+    client.post("/api/feedback", json=feedback_body())
+    clock = Clock()
+    sender = sender_for(relay.url, clock)
+    relay.answers = [(404, {"error": "not found"}, {})] * 20
+    for _ in range(20):
+        sender.run_once()
+        clock.now = sender.paused_until
+    assert sender.delay(sender.failures, feedback_sender.MAX_DELAY_ERROR) == 86_400.0
+    assert row(relay.received[0]["id"]).status == FeedbackStatus.pending  # never final
+    offline = sender_for(relay.url.rsplit(":", 1)[0] + ":9/feedback", Clock())
+    offline.failures = 19
+    offline.run_once()
+    assert offline.paused_until - offline.clock() == feedback_sender.MAX_DELAY
+
+
 def test_offline_keeps_it_waiting(client: TestClient, relay: FakeRelay) -> None:
     body = feedback_body()
     client.post("/api/feedback", json=body)
@@ -534,6 +636,26 @@ def test_turned_down_is_failed_and_not_retried(client: TestClient, relay: FakeRe
     assert statuses == {FeedbackStatus.failed, FeedbackStatus.sent}
     assert sender.run_once() == 0
     assert len(relay.received) == 2
+    # Neither picture is kept: one was sent, the other can never be.
+    assert list(config.feedback_dir().glob("*.jpg")) == []
+
+
+def test_too_large_tries_once_slim_then_gives_up(client: TestClient, relay: FakeRelay) -> None:
+    body = feedback_body()
+    client.post("/api/feedback", json=body)
+    relay.answers = [(413, {"status": "too_large"}, {})]
+    assert sender_for(relay.url).run_once() == 1
+    first, second = relay.received
+    assert first["screenshot"] is not None and second["screenshot"] is None
+    assert row(body["id"]).status == FeedbackStatus.sent
+
+    other = feedback_body()
+    client.post("/api/feedback", json=other)
+    relay.answers = [(413, {"status": "too_large"}, {})] * 2
+    assert sender_for(relay.url).run_once() == 0
+    saved = row(other["id"])
+    assert saved.status == FeedbackStatus.failed
+    assert not (config.feedback_dir() / f"{other['id']}.jpg").exists()
 
 
 def test_the_least_tried_goes_first(client: TestClient, relay: FakeRelay) -> None:
@@ -579,6 +701,12 @@ def test_a_missing_picture_still_sends(client: TestClient, relay: FakeRelay) -> 
     (config.feedback_dir() / f"{body['id']}.jpg").unlink()
     assert sender_for(relay.url).run_once() == 1
     assert relay.received[0]["screenshot"] is None
+
+
+def test_route_is_the_path_only(client: TestClient) -> None:
+    body = feedback_body(route="/students?q=Ananya%20Rao#top")
+    client.post("/api/feedback", json=body)
+    assert row(body["id"]).route == "/students"
 
 
 def test_running_app_sends_in_the_background(
@@ -659,12 +787,13 @@ def test_feedback_on_upgraded_v0_1_0_data() -> None:
     shutil.copyfile(source, config.db_path())
 
     def records(db: Path) -> list[tuple[Any, ...]]:
-        with sqlite3.connect(db) as conn:
-            return [
-                row
-                for table in ("students", "fee_changes", "payments")
-                for row in conn.execute(f"SELECT * FROM {table} ORDER BY id")
-            ]
+        """Every value v0.1.0 stored (later columns, like students.uid, aren't compared)."""
+        rows: list[tuple[Any, ...]] = []
+        with sqlite3.connect(source) as old, sqlite3.connect(db) as conn:
+            for table in ("students", "fee_changes", "payments"):
+                columns = ", ".join(r[1] for r in old.execute(f"PRAGMA table_info({table})"))
+                rows += conn.execute(f"SELECT {columns} FROM {table} ORDER BY id").fetchall()
+        return rows
 
     before = records(source)
     with TestClient(create_app()) as c:
@@ -673,7 +802,7 @@ def test_feedback_on_upgraded_v0_1_0_data() -> None:
     dispose_engines()
     assert records(config.db_path()) == before
     with sqlite3.connect(config.db_path()) as conn:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchone() == ("0003",)
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchone() == ("0005",)
         assert conn.execute("SELECT count(*) FROM feedback").fetchone() == (1,)
 
 

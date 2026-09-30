@@ -62,7 +62,7 @@ test('send feedback with a picture of the screen: it reaches the relay', async (
   const [feedback] = sent
   expect(feedback!.message).toBe(message)
   expect(feedback!.category).toBe('problem')
-  expect(feedback!.route).toBe(`/payments?month=${month}`)
+  expect(feedback!.route).toBe('/payments') // the path only, never the query
   expect(feedback!.app_version).toBe(health.version)
   expect(feedback!.build_id).toBe(about.build_id)
   expect(feedback!.build_id).toMatch(/^[0-9a-f]{40}(-dirty)?$|^unknown$/)
@@ -73,7 +73,7 @@ test('send feedback with a picture of the screen: it reaches the relay', async (
   const picture = Buffer.from(feedback!.screenshot!.data_base64, 'base64')
   expect(picture.subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]))
   expect(picture.length).toBeGreaterThan(5_000)
-  expect(picture.length).toBeLessThanOrEqual(1_400_000)
+  expect(picture.length).toBeLessThanOrEqual(700_000)
 
   // The server keeps it as sent.
   const status = await request.get(`/api/feedback/${feedback!.id}`)

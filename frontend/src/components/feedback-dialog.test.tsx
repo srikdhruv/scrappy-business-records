@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 
@@ -83,7 +83,7 @@ describe('Send feedback', () => {
     expect(body).toMatchObject({
       category: 'idea',
       message: 'Show last month too',
-      route: '/payments?month=2026-10',
+      route: '/payments', // the path only: never a search or filter
       screenshot: PICTURE,
     })
     expect(body.id).toMatch(/^[0-9a-f-]{36}$/)
@@ -179,6 +179,93 @@ describe('Send feedback', () => {
     expect(dialog.getByText(/Never/).closest('li')).toHaveTextContent(
       'Never your records file, backups or downloads.',
     )
+  })
+})
+
+describe('the picture', () => {
+  it('can be seen bigger, and smaller again', async () => {
+    const { user, dialog } = await openFeedback()
+    await dialog.findByRole('img', { name: 'Picture of this screen' })
+    await user.click(dialog.getByRole('button', { name: 'See the picture bigger' }))
+    expect(dialog.getByRole('img', { name: 'The picture of this screen, bigger' })).toHaveAttribute(
+      'src',
+      PICTURE,
+    )
+    await user.click(dialog.getAllByRole('button', { name: 'Make the picture smaller' })[0]!)
+    expect(dialog.queryByRole('img', { name: 'The picture of this screen, bigger' })).toBeNull()
+  })
+
+  it('is taken with a time limit', async () => {
+    await openFeedback()
+    expect(captureScreen).toHaveBeenCalledWith({ timeoutMs: 10_000 })
+  })
+})
+
+describe('when this copy can’t send feedback', () => {
+  const aboutOff = () =>
+    server.use(
+      http.get('*/api/about', () =>
+        HttpResponse.json({
+          version: '0.1.0',
+          build_id: 'unknown',
+          data_dir: 'd',
+          backup_dir: 'b',
+          log_dir: 'l',
+          feedback_sending: false,
+          feedback_waiting: 1,
+        }),
+      ),
+      http.get('*/api/feedback/:id', ({ params }) =>
+        HttpResponse.json({
+          id: String(params.id),
+          category: 'problem',
+          status: 'pending',
+          created_at: '2026-10-15T10:00:00Z',
+          sent_at: null,
+          attempts: 0,
+          sending: false,
+        }),
+      ),
+    )
+
+  it('says so before she types, and after saving asks her to tell the developer another way', async () => {
+    aboutOff()
+    const { user, dialog } = await openFeedback()
+    expect(await dialog.findByRole('note')).toHaveTextContent(
+      'Sending feedback isn’t switched on in this version yet.',
+    )
+    await dialog.findByRole('img', { name: 'Picture of this screen' })
+    await user.type(dialog.getByLabelText('Message'), 'It broke')
+    await user.click(dialog.getByRole('button', { name: 'Send' }))
+    expect(await screen.findByText('Saved on this laptop.')).toBeInTheDocument()
+    expect(
+      screen.getByText(/can’t be sent yet — please also tell the developer another way/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/sent automatically/)).toBeNull()
+  })
+
+  it('About says so too', async () => {
+    aboutOff()
+    const user = userEvent.setup()
+    renderApp('/')
+    await user.click(screen.getAllByRole('button', { name: 'Settings' })[0]!)
+    await user.click(await screen.findByRole('menuitem', { name: 'About' }))
+    const dialog = await findDialog('About Scrappy Records')
+    expect(
+      await dialog.findByText(/Sending feedback isn’t switched on in this version yet/),
+    ).toHaveTextContent('1 message saved on this laptop can’t be sent yet')
+  })
+})
+
+describe('Settings menu', () => {
+  it('has Your data → Download everything', async () => {
+    const user = userEvent.setup()
+    renderApp('/')
+    await user.click(screen.getAllByRole('button', { name: 'Settings' })[0]!)
+    const item = await screen.findByRole('menuitem', { name: 'Download everything' })
+    expect(item).toHaveAttribute('href', '/api/export/everything.xlsx')
+    expect(item).toHaveAttribute('download')
+    expect(within(screen.getByRole('menu')).getByText('Your data')).toBeInTheDocument()
   })
 })
 

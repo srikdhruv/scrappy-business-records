@@ -19,6 +19,9 @@ import type {
   DashboardResponse,
   FeedbackCreate,
   FeedbackRead,
+  ImportCommit,
+  ImportPreview,
+  ImportResult,
   PaymentCreate,
   ReportResponse,
   PaymentUpdate,
@@ -60,6 +63,7 @@ export const queryKeys = {
     all: ['report'] as const,
     month: (month: string) => ['report', month] as const,
   },
+  unassigned: ['unassigned-payments'] as const,
 }
 
 /** Refetch everything that a student or payment change can affect. */
@@ -69,6 +73,7 @@ export function invalidateRecords(queryClient: QueryClient) {
     queryClient.invalidateQueries({ queryKey: queryKeys.payments.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.report.all }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.unassigned }),
   ])
 }
 
@@ -391,5 +396,79 @@ export function useStartUpdate() {
         await api.POST('/api/update/start', { body: { version }, headers: APP_REQUEST_HEADERS }),
       ),
     onSuccess: (info) => queryClient.setQueryData(queryKeys.update, info),
+  })
+}
+
+// ---- Unassigned payments ------------------------------------------------------------------------
+
+/** Uploaded payments whose student couldn't be matched, oldest paid first. */
+export function useUnassignedPayments() {
+  return useQuery({
+    queryKey: queryKeys.unassigned,
+    queryFn: async () => unwrap(await api.GET('/api/unassigned-payments')),
+  })
+}
+
+/** Give an unassigned payment to a student: it becomes one of their payments. */
+export function useAssignUnassigned() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, studentId }: { id: number; studentId: number }) =>
+      unwrap(
+        await api.POST('/api/unassigned-payments/{unassigned_id}/assign', {
+          params: { path: { unassigned_id: id } },
+          body: { student_id: studentId },
+        }),
+      ),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+export function useDeleteUnassigned() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) =>
+      unwrap(
+        await api.DELETE('/api/unassigned-payments/{unassigned_id}', {
+          params: { path: { unassigned_id: id } },
+        }),
+      ),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+// ---- Excel upload -------------------------------------------------------------------------------
+
+/** A file the owner chose, read once: Add sends these very bytes, never the file again. */
+export interface ChosenFile {
+  name: string
+  bytes: ArrayBuffer
+}
+
+export const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+/** Read an Excel file and say what adding it would do. Saves nothing. */
+export function usePreviewImport() {
+  return useMutation({
+    mutationFn: async (file: ChosenFile): Promise<ImportPreview> =>
+      unwrap(
+        await api.POST('/api/import/preview', {
+          params: { query: { filename: file.name } },
+          // The file itself is the body, as it is (not JSON).
+          body: file.bytes as unknown as string,
+          bodySerializer: (body: unknown) => body as BodyInit,
+          headers: { 'Content-Type': XLSX_TYPE },
+        }),
+      ),
+  })
+}
+
+/** Add what the preview showed, with the owner's choices. Everything is checked again. */
+export function useCommitImport() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: ImportCommit): Promise<ImportResult> =>
+      unwrap(await api.POST('/api/import/commit', { body })),
+    onSuccess: () => invalidateRecords(queryClient),
   })
 }

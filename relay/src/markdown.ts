@@ -12,10 +12,12 @@ export function neutraliseMentions(text: string): string {
   return text.replace(/@/g, "@​");
 }
 
-/** The message as Markdown: mentions neutralised, and no raw HTML (an unclosed
- * "<!--" would otherwise hide the rest of the issue). Line breaks are kept. */
-function messageMarkdown(text: string): string {
-  return neutraliseMentions(text.replace(/&/g, "&amp;").replace(/</g, "&lt;"));
+/** The message as Markdown: mentions neutralised; no raw HTML (an unclosed "<!--" would
+ * otherwise hide the rest of the issue); no images or links (`!`, `[`, `]` escaped, and `\`
+ * so a typed backslash can't undo that). Other formatting and line breaks are kept. */
+export function messageMarkdown(text: string): string {
+  const escaped = text.replace(/[\\![\]]/g, (c) => `\\${c}`);
+  return neutraliseMentions(escaped.replace(/&/g, "&amp;").replace(/</g, "&lt;"));
 }
 
 /** Text safe inside one table cell or list item: one line, Markdown punctuation escaped. */

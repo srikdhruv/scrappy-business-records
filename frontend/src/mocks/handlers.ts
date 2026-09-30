@@ -156,6 +156,55 @@ export function createHandlers(db: MockDb, { latency = 0, updateVersion }: Handl
       return respond(() => db.deletePayment(idParam(params.id)), 204)
     }),
 
+    http.get(api('/unassigned-payments'), async () => {
+      await wait()
+      return respond(() => db.listUnassigned())
+    }),
+
+    http.post(api('/unassigned-payments/:id/assign'), async ({ params, request }) => {
+      await wait()
+      const body = (await request.json()) as { student_id: number }
+      return respond(() => db.assignUnassigned(idParam(params.id), body.student_id), 201)
+    }),
+
+    http.delete(api('/unassigned-payments/:id'), async ({ params }) => {
+      await wait()
+      return respond(() => db.deleteUnassigned(idParam(params.id)), 204)
+    }),
+
+    // The demo can't read Excel files; tests answer this themselves (`server.use`).
+    http.post(api('/import/preview'), async () => {
+      await wait()
+      return HttpResponse.json(
+        {
+          detail: [
+            {
+              loc: ['body'],
+              msg: 'The demo can’t read Excel files. Try it in the real app.',
+              type: 'value_error',
+            },
+          ],
+        },
+        { status: 422 },
+      )
+    }),
+
+    http.post(api('/import/commit'), async () => {
+      await wait()
+      return HttpResponse.json(
+        {
+          detail: [
+            {
+              loc: ['body'],
+              msg: 'The demo can’t read Excel files. Try it in the real app.',
+              type: 'value_error',
+            },
+          ],
+        },
+        { status: 422 },
+      )
+    }),
+
     http.get(api('/dashboard'), async ({ request }) => {
       await wait()
       return respond(() => db.dashboard(new URL(request.url).searchParams.get('month')))

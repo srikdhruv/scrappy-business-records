@@ -33,6 +33,15 @@ EXPECTED_OPERATIONS = {
     ("get", "/api/update"): "getUpdate",
     ("post", "/api/update/check"): "checkForUpdate",
     ("post", "/api/update/start"): "startUpdate",
+    ("get", "/api/export/students.xlsx"): "exportStudents",
+    ("get", "/api/export/payments.xlsx"): "exportPayments",
+    ("get", "/api/export/everything.xlsx"): "exportEverything",
+    ("get", "/api/import/template.xlsx"): "importTemplate",
+    ("post", "/api/import/preview"): "previewImport",
+    ("post", "/api/import/commit"): "commitImport",
+    ("get", "/api/unassigned-payments"): "listUnassignedPayments",
+    ("post", "/api/unassigned-payments/{unassigned_id}/assign"): "assignUnassignedPayment",
+    ("delete", "/api/unassigned-payments/{unassigned_id}"): "deleteUnassignedPayment",
 }
 
 
@@ -66,12 +75,7 @@ def test_422_uses_validation_shape_and_404_uses_error_response(client: TestClien
     schema = client.get("/api/openapi.json").json()
     for path, ops in schema["paths"].items():
         for method, op in ops.items():
-            no_input = {
-                ("get", "/api/about"),
-                ("get", "/api/update"),
-                ("post", "/api/update/check"),
-            }
-            if (method, path) in no_input:
+            if not op.get("parameters") and "requestBody" not in op:
                 continue  # takes no input, so it can't fail validation
             ref = op["responses"]["422"]["content"]["application/json"]["schema"]["$ref"]
             assert ref.endswith("/HTTPValidationError"), (method, path)
