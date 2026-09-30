@@ -1,6 +1,9 @@
 /**
  * The Dashboard answers "who is left to pay?" for one month (PRD D1–D5): a summary, the Yet to
  * pay list with a one-click Log payment, earlier months still owed, and overpayments.
+ *
+ * "This month" is the server's (`current_month` in the response), never the browser's clock.
+ * A month after it isn't due yet, so it is shown calmly: nothing is "owed" or red there.
  */
 import {
   CalendarCheckIcon,
@@ -22,31 +25,36 @@ import { PageHeader } from '@/components/layout/page-header'
 import { useLogPayment } from '@/components/log-payment'
 import { Panel } from '@/components/panel'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
-import { CreditNote, StatusPill } from '@/components/status'
-import { TONE_TEXT } from '@/lib/status'
+import { ExtraPaidNote, StatusPill } from '@/components/status'
 import { StudentAvatar } from '@/components/student-avatar'
 import { StudentFormDialog } from '@/components/student-form'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { addMonths, currentMonth, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
+import { addMonths, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
 import { plural } from '@/lib/labels'
+import { TONE_TEXT } from '@/lib/status'
 import { cn } from '@/lib/utils'
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/
 
+const monthName = (month: string) => formatMonth(month).split(' ')[0] ?? month
+
 export function DashboardPage() {
-  const now = currentMonth()
   const [params, setParams] = useSearchParams()
   const requested = params.get('month')
-  const month = requested && MONTH_RE.test(requested) ? requested : now
-  const setMonth = (m: string) => setParams(m === now ? {} : { month: m }, { replace: true })
+  // No month in the address: ask the server for its current month.
+  const chosen = requested && MONTH_RE.test(requested) ? requested : undefined
 
   const students = useStudents('all')
-  const dashboard = useDashboard(month)
+  const dashboard = useDashboard(chosen)
   const [newStudentOpen, setNewStudentOpen] = useState(false)
 
+  const data = dashboard.data
+  const now = data?.current_month
+  const month = chosen ?? data?.month
+  const setMonth = (m: string) => setParams(m === now ? {} : { month: m }, { replace: true })
+
   const firstRun = students.data !== undefined && students.data.length === 0
-  const monthName = formatMonth(month).split(' ')[0]
 
   return (
     <>
@@ -54,11 +62,15 @@ export function DashboardPage() {
         eyebrow="Dashboard"
         title={<MonthSwitcher month={month} onChange={setMonth} />}
         description={
-          month === now ? (
+          !month || !now ? (
+            ' '
+          ) : month === now ? (
             'Who has paid this month, and who hasn’t yet.'
           ) : (
             <span className="inline-flex flex-wrap items-center gap-x-2">
-              {month < now ? 'Looking back at an earlier month.' : 'Looking ahead.'}
+              {month < now
+                ? 'Looking back at an earlier month.'
+                : `Looking ahead: ${monthName(month)} isn’t due yet.`}
               <button
                 type="button"
                 onClick={() => setMonth(now)}
@@ -73,24 +85,24 @@ export function DashboardPage() {
 
       {firstRun ? (
         <FirstRun onAdd={() => setNewStudentOpen(true)} />
-      ) : dashboard.error && !dashboard.data ? (
+      ) : dashboard.error && !data ? (
         <ErrorState error={dashboard.error} onRetry={() => void dashboard.refetch()} />
-      ) : !dashboard.data ? (
+      ) : !data ? (
         <DashboardSkeleton />
       ) : (
         <div
           className={cn(
-            'space-y-6 transition-opacity',
+            'min-w-0 space-y-6 transition-opacity',
             dashboard.isPlaceholderData && 'opacity-60',
           )}
           aria-busy={dashboard.isPlaceholderData}
         >
-          <SummaryCards data={dashboard.data} monthName={monthName ?? ''} />
-          <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
-            <YetToPay data={dashboard.data} />
-            <div className="grid gap-6">
-              <Backlog items={dashboard.data.backlog} month={month} />
-              <Overpaid items={dashboard.data.overpaid} />
+          <SummaryCards data={data} />
+          <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
+            <YetToPay data={data} />
+            <div className="grid min-w-0 grid-cols-1 gap-6">
+              <Backlog items={data.backlog} overpaid={data.overpaid} month={data.month} />
+              <Overpaid items={data.overpaid} />
             </div>
           </div>
         </div>
@@ -101,7 +113,20 @@ export function DashboardPage() {
   )
 }
 
-function MonthSwitcher({ month, onChange }: { month: string; onChange: (m: string) => void }) {
+function MonthSwitcher({
+  month,
+  onChange,
+}: {
+  month: string | undefined
+  onChange: (m: string) => void
+}) {
+  if (!month) {
+    return (
+      <div className="flex h-10 items-center" aria-busy="true" aria-label="Loading">
+        <Skeleton className="h-9 w-64" />
+      </div>
+    )
+  }
   const prev = addMonths(month, -1)
   const next = addMonths(month, 1)
   return (
@@ -152,14 +177,21 @@ function SummaryCard({
   children?: ReactNode
 }) {
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-border/80 bg-card p-5 shadow-soft">
+    <div className="flex min-w-0 flex-col gap-3 rounded-2xl border border-border/80 bg-card p-5 shadow-soft">
       <div className="flex items-center justify-between gap-3">
         <p className="text-base font-bold text-muted-foreground">{label}</p>
-        <span className={cn('flex size-9 items-center justify-center rounded-xl', iconClass)}>
+        <span
+          className={cn('flex size-9 shrink-0 items-center justify-center rounded-xl', iconClass)}
+        >
           <Icon className="size-5" aria-hidden />
         </span>
       </div>
-      <p className={cn('text-3xl font-extrabold tracking-tight tabular-nums', valueClass)}>
+      <p
+        className={cn(
+          'text-3xl font-extrabold tracking-tight wrap-anywhere tabular-nums',
+          valueClass,
+        )}
+      >
         {value}
       </p>
       {children && <div className="text-sm text-muted-foreground">{children}</div>}
@@ -167,8 +199,10 @@ function SummaryCard({
   )
 }
 
-function SummaryCards({ data, monthName }: { data: DashboardResponse; monthName: string }) {
+function SummaryCards({ data }: { data: DashboardResponse }) {
   const s = data.summary
+  const name = monthName(data.month)
+  const ahead = data.month > data.current_month
   const percent =
     s.expected_paise > 0
       ? Math.min(100, Math.round((s.collected_paise / s.expected_paise) * 100))
@@ -182,40 +216,51 @@ function SummaryCards({ data, monthName }: { data: DashboardResponse; monthName:
         icon={CalendarCheckIcon}
         iconClass="bg-primary/25 text-primary-strong"
       >
-        From {plural(s.active_student_count, 'student')} in {monthName}
+        From {plural(s.active_student_count, 'student')} in {name}
       </SummaryCard>
       <SummaryCard
-        label="Collected"
+        label={ahead ? 'Paid ahead' : 'Collected'}
         value={formatRupees(s.collected_paise)}
         icon={WalletIcon}
-        iconClass="bg-paid-soft text-paid"
+        iconClass={ahead ? 'bg-credit-soft text-credit' : 'bg-paid-soft text-paid'}
       >
         <div
           className="mb-2 h-2 overflow-hidden rounded-full bg-muted"
           role="progressbar"
-          aria-label="Collected so far"
+          aria-label={ahead ? 'Paid ahead so far' : 'Collected so far'}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={percent}
         >
           <div
-            className="h-full rounded-full bg-paid transition-all"
+            className={cn('h-full rounded-full transition-all', ahead ? 'bg-credit' : 'bg-paid')}
             style={{ width: `${percent}%` }}
           />
         </div>
         {percent}% of what’s expected
       </SummaryCard>
+      {ahead ? (
+        <SummaryCard
+          label="Not due yet"
+          value={formatRupees(s.still_due_paise)}
+          icon={HandCoinsIcon}
+          iconClass="bg-muted text-muted-foreground"
+        >
+          Due in {name}
+        </SummaryCard>
+      ) : (
+        <SummaryCard
+          label="Still due"
+          value={formatRupees(s.still_due_paise)}
+          icon={HandCoinsIcon}
+          iconClass={s.still_due_paise > 0 ? 'bg-owed-soft text-owed' : 'bg-paid-soft text-paid'}
+          valueClass={s.still_due_paise > 0 ? 'text-owed' : 'text-paid'}
+        >
+          {s.still_due_paise > 0 ? `Left to collect for ${name}` : 'Nothing left to collect'}
+        </SummaryCard>
+      )}
       <SummaryCard
-        label="Still due"
-        value={formatRupees(s.still_due_paise)}
-        icon={HandCoinsIcon}
-        iconClass={s.still_due_paise > 0 ? 'bg-owed-soft text-owed' : 'bg-paid-soft text-paid'}
-        valueClass={s.still_due_paise > 0 ? 'text-owed' : 'text-paid'}
-      >
-        {s.still_due_paise > 0 ? `Left to collect for ${monthName}` : 'Nothing left to collect'}
-      </SummaryCard>
-      <SummaryCard
-        label="Not fully paid"
+        label={ahead ? 'Not paid ahead' : 'Not fully paid'}
         value={
           <>
             {s.not_fully_paid_count}
@@ -225,12 +270,20 @@ function SummaryCards({ data, monthName }: { data: DashboardResponse; monthName:
           </>
         }
         icon={UsersIcon}
-        iconClass={allPaid ? 'bg-paid-soft text-paid' : 'bg-partial-soft text-partial'}
-        valueClass={allPaid ? 'text-paid' : undefined}
+        iconClass={
+          ahead
+            ? 'bg-muted text-muted-foreground'
+            : allPaid
+              ? 'bg-paid-soft text-paid'
+              : 'bg-partial-soft text-partial'
+        }
+        valueClass={allPaid && !ahead ? 'text-paid' : undefined}
       >
-        {allPaid
-          ? 'Everyone has paid'
-          : `${s.not_fully_paid_count === 1 ? 'Student' : 'Students'} to follow up with`}
+        {ahead
+          ? 'Nothing to follow up yet'
+          : allPaid
+            ? 'Everyone has paid'
+            : `${s.not_fully_paid_count === 1 ? 'Student' : 'Students'} to follow up with`}
       </SummaryCard>
     </div>
   )
@@ -238,23 +291,35 @@ function SummaryCards({ data, monthName }: { data: DashboardResponse; monthName:
 
 // ---- Yet to pay ---------------------------------------------------------------------------------
 
+/** "Paid ₹1,500 extra in Feb" when the overpaid month is known, else "₹1,500 paid extra". */
+function extraMonth(overpaid: OverpaidItem[], studentId: number): string | undefined {
+  const months = overpaid.filter((o) => o.student_id === studentId)
+  return months.length === 1 ? months[0]!.month : undefined
+}
+
 function YetToPay({ data }: { data: DashboardResponse }) {
   const { openLogPayment } = useLogPayment()
   const items = data.yet_to_pay
-  const monthName = formatMonth(data.month).split(' ')[0]
+  const name = monthName(data.month)
+  const ahead = data.month > data.current_month
 
   return (
     <Panel
-      title="Yet to pay"
+      className="min-w-0"
+      title={ahead ? 'Not paid ahead yet' : 'Yet to pay'}
       count={items.length}
       description={
-        items.length > 0
-          ? `${formatRupees(data.summary.still_due_paise)} still to come for ${formatMonth(data.month)}`
-          : undefined
+        items.length === 0
+          ? undefined
+          : ahead
+            ? `${name} isn’t due yet. These students haven’t paid for it ahead of time.`
+            : `${formatRupees(data.summary.still_due_paise)} still to come for ${formatMonth(data.month)}`
       }
     >
       {data.summary.active_student_count === 0 ? (
-        <EmptyState title={`No students were coming in ${formatMonth(data.month)}.`} />
+        <EmptyState
+          title={`No students ${ahead ? 'are' : 'were'} coming in ${formatMonth(data.month)}.`}
+        />
       ) : items.length === 0 ? (
         <EmptyState
           icon={
@@ -262,7 +327,7 @@ function YetToPay({ data }: { data: DashboardResponse }) {
               🎉
             </span>
           }
-          title={`Everyone’s paid for ${monthName}!`}
+          title={ahead ? `Everyone’s paid ahead for ${name}!` : `Everyone’s paid for ${name}!`}
           className="py-14"
         >
           {formatRupees(data.summary.collected_paise)} collected from{' '}
@@ -274,6 +339,8 @@ function YetToPay({ data }: { data: DashboardResponse }) {
             <YetToPayRow
               key={item.student_id}
               item={item}
+              ahead={ahead}
+              extraIn={extraMonth(data.overpaid, item.student_id)}
               onLog={() =>
                 openLogPayment({
                   studentId: item.student_id,
@@ -289,32 +356,50 @@ function YetToPay({ data }: { data: DashboardResponse }) {
   )
 }
 
-function YetToPayRow({ item, onLog }: { item: YetToPayItem; onLog: () => void }) {
+function YetToPayRow({
+  item,
+  ahead,
+  extraIn,
+  onLog,
+}: {
+  item: YetToPayItem
+  ahead: boolean
+  extraIn?: string
+  onLog: () => void
+}) {
   const partial = item.status === 'partial'
   return (
     <li className="flex flex-wrap items-center gap-x-4 gap-y-3 px-6 py-4 transition-colors hover:bg-muted/30">
       <StudentAvatar name={item.student_name} />
       <div className="min-w-0 flex-1 basis-48">
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
           <Link
             to={`/students/${item.student_id}`}
-            className="rounded text-base font-bold outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="max-w-full truncate rounded text-base font-bold outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             {item.student_name}
           </Link>
-          <StatusPill tone={partial ? 'partial' : 'owed'} className="h-6 px-2.5 text-xs">
-            {partial ? 'Partial' : 'Unpaid'}
-          </StatusPill>
-          {(item.credit_paise ?? 0) > 0 && <CreditNote paise={item.credit_paise!} />}
+          {ahead ? (
+            <StatusPill tone={partial ? 'credit' : 'muted'} className="h-6 px-2.5 text-xs">
+              {partial ? 'Part paid ahead' : 'Not due yet'}
+            </StatusPill>
+          ) : (
+            <StatusPill tone={partial ? 'partial' : 'owed'} className="h-6 px-2.5 text-xs">
+              {partial ? 'Partial' : 'Unpaid'}
+            </StatusPill>
+          )}
+          {item.credit_paise > 0 && <ExtraPaidNote paise={item.credit_paise} month={extraIn} />}
         </div>
         {item.batch_label && (
           <p className="truncate text-sm text-muted-foreground">{item.batch_label}</p>
         )}
       </div>
-      <div className="w-40 text-right">
+      <div className="min-w-36 text-right">
         <p className="text-lg leading-tight font-extrabold tabular-nums">
           {formatRupees(item.remaining_paise)}
-          <span className="ml-1 text-sm font-semibold text-muted-foreground">left</span>
+          <span className="ml-1 text-sm font-semibold text-muted-foreground">
+            {ahead ? 'due' : 'left'}
+          </span>
         </p>
         <p className="text-sm text-muted-foreground tabular-nums">
           {partial
@@ -325,7 +410,7 @@ function YetToPayRow({ item, onLog }: { item: YetToPayItem; onLog: () => void })
       <Button
         variant="outline"
         onClick={onLog}
-        className="border-primary/60 bg-primary/10 hover:bg-primary/25"
+        className="shrink-0 border-primary/60 bg-primary/10 hover:bg-primary/25"
         aria-label={`Log payment for ${item.student_name}`}
       >
         Log payment
@@ -336,10 +421,19 @@ function YetToPayRow({ item, onLog }: { item: YetToPayItem; onLog: () => void })
 
 // ---- Backlog ------------------------------------------------------------------------------------
 
-function Backlog({ items, month }: { items: BacklogItem[]; month: string }) {
+function Backlog({
+  items,
+  overpaid,
+  month,
+}: {
+  items: BacklogItem[]
+  overpaid: OverpaidItem[]
+  month: string
+}) {
   const total = items.reduce((sum, item) => sum + item.total_owed_paise, 0)
   return (
     <Panel
+      className="min-w-0"
       title="Earlier months still owed"
       count={items.length}
       description={
@@ -359,13 +453,10 @@ function Backlog({ items, month }: { items: BacklogItem[]; month: string }) {
                 className="block px-6 py-4 transition-colors outline-none hover:bg-muted/30 focus-visible:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
                 aria-label={`${item.student_name} owes ${formatRupees(item.total_owed_paise)} from ${plural(item.months.length, 'earlier month')}. Open profile.`}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <StudentAvatar name={item.student_name} size="sm" />
-                  <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                    <span className="truncate font-bold">{item.student_name}</span>
-                    {(item.credit_paise ?? 0) > 0 && <CreditNote paise={item.credit_paise!} />}
-                  </span>
-                  <span className={cn('font-extrabold tabular-nums', TONE_TEXT.owed)}>
+                  <span className="min-w-0 flex-1 truncate font-bold">{item.student_name}</span>
+                  <span className={cn('shrink-0 font-extrabold tabular-nums', TONE_TEXT.owed)}>
                     {formatRupees(item.total_owed_paise)}
                   </span>
                 </div>
@@ -385,6 +476,12 @@ function Backlog({ items, month }: { items: BacklogItem[]; month: string }) {
                       {m.status === 'partial' && ' · part paid'}
                     </span>
                   ))}
+                  {item.credit_paise > 0 && (
+                    <ExtraPaidNote
+                      paise={item.credit_paise}
+                      month={extraMonth(overpaid, item.student_id)}
+                    />
+                  )}
                 </div>
               </Link>
             </li>
@@ -399,7 +496,7 @@ function Backlog({ items, month }: { items: BacklogItem[]; month: string }) {
 
 function Overpaid({ items }: { items: OverpaidItem[] }) {
   return (
-    <Panel title="Paid too much" count={items.length}>
+    <Panel className="min-w-0" title="Paid too much" count={items.length}>
       {items.length === 0 ? (
         <QuietEmpty>No one has paid more than their fee.</QuietEmpty>
       ) : (
@@ -408,7 +505,7 @@ function Overpaid({ items }: { items: OverpaidItem[] }) {
             <li key={`${item.student_id}-${item.month}`}>
               <Link
                 to={`/students/${item.student_id}`}
-                className="flex items-center gap-3 px-6 py-3.5 transition-colors outline-none hover:bg-muted/30 focus-visible:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
+                className="flex min-w-0 items-center gap-3 px-6 py-3.5 transition-colors outline-none hover:bg-muted/30 focus-visible:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
               >
                 <StudentAvatar name={item.student_name} size="sm" />
                 <span className="min-w-0 flex-1">
@@ -419,7 +516,10 @@ function Overpaid({ items }: { items: OverpaidItem[] }) {
                   </span>
                 </span>
                 <span
-                  className={cn('font-extrabold whitespace-nowrap tabular-nums', TONE_TEXT.credit)}
+                  className={cn(
+                    'shrink-0 font-extrabold whitespace-nowrap tabular-nums',
+                    TONE_TEXT.credit,
+                  )}
                 >
                   +{formatRupees(item.excess_paise)}
                 </span>
@@ -435,7 +535,7 @@ function Overpaid({ items }: { items: OverpaidItem[] }) {
 function QuietEmpty({ children }: { children: ReactNode }) {
   return (
     <p className="flex items-center gap-2 border-t border-border/70 px-6 py-5 text-base text-muted-foreground">
-      <CheckCircle2Icon className="size-5 text-paid" aria-hidden />
+      <CheckCircle2Icon className="size-5 shrink-0 text-paid" aria-hidden />
       {children}
     </p>
   )

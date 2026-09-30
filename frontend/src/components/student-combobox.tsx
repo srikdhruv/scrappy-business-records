@@ -1,11 +1,16 @@
 /**
  * Choose a student by typing part of their name. Students who have left are listed last, under
  * "Left", because they sometimes still pay off an old month.
+ *
+ * Keyboard: typing a letter opens the list with that letter searched; arrows and Enter pick.
+ * Enter on the closed box submits the form when a student is already chosen, so it can never
+ * silently switch to someone else. When the list opens it starts on the chosen student.
  */
 import { ChevronsUpDownIcon } from 'lucide-react'
-import { useRef, useState, type KeyboardEvent } from 'react'
+import { useId, useRef, useState, type KeyboardEvent } from 'react'
 
 import { useStudents } from '@/api/queries'
+import type { StudentRead } from '@/api/types'
 import { StudentAvatar } from '@/components/student-avatar'
 import { Button } from '@/components/ui/button'
 import {
@@ -26,8 +31,11 @@ function containsWords(value: string, search: string, keywords?: string[]): numb
   return words.every((word) => haystack.includes(word)) ? 1 : 0
 }
 
+const itemValue = (student: StudentRead) => `${student.name} #${student.id}`
+
 export function StudentCombobox({
   id,
+  label,
   value,
   onChange,
   placeholder = 'Choose a student',
@@ -35,9 +43,10 @@ export function StudentCombobox({
   invalid,
   className,
   'aria-describedby': describedBy,
-  'aria-label': ariaLabel,
 }: {
   id?: string
+  /** What the box is for ("Student", "Filter by student"). Read out together with the choice. */
+  label: string
   value: number | null
   onChange: (studentId: number | null) => void
   placeholder?: string
@@ -46,7 +55,6 @@ export function StudentCombobox({
   invalid?: boolean
   className?: string
   'aria-describedby'?: string
-  'aria-label'?: string
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -55,6 +63,9 @@ export function StudentCombobox({
   const active = students.filter((s) => s.is_active)
   const left = students.filter((s) => !s.is_active)
 
+  const autoId = useId()
+  const buttonId = id ?? `${autoId}-button`
+  const labelId = `${autoId}-label`
   const openedByTyping = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -66,19 +77,23 @@ export function StudentCombobox({
     setOpen(next)
   }
 
-  // Typing a letter on the closed box opens it and starts the search with that letter.
-  // Keys that arrive before focus has moved into the search box (fast typists) are added to the
-  // search, and Enter waits for the list instead of closing it again.
   const onTriggerKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key.length === 1 && /\S/.test(event.key) && !event.metaKey && !event.ctrlKey) {
+      // A letter opens the list and searches for it. Keys that arrive before focus has moved
+      // into the search box (fast typists) are added to the search.
       event.preventDefault()
       const key = event.key
       const append = openedByTyping.current
       openedByTyping.current = true
       setSearch((s) => (append ? s + key : key))
       setOpen(true)
-    } else if (event.key === 'Enter' && (open || openedByTyping.current)) {
-      event.preventDefault()
+    } else if (event.key === 'Enter') {
+      if (open || openedByTyping.current) {
+        event.preventDefault() // the list is opening: let it take the Enter
+      } else if (selected && event.currentTarget.form) {
+        event.preventDefault()
+        event.currentTarget.form.requestSubmit()
+      }
     }
   }
 
@@ -87,10 +102,10 @@ export function StudentCombobox({
     onOpenChange(false)
   }
 
-  const renderItem = (student: (typeof students)[number]) => (
+  const renderItem = (student: StudentRead) => (
     <CommandItem
       key={student.id}
-      value={`${student.name} #${student.id}`}
+      value={itemValue(student)}
       keywords={student.batch_label ? [student.batch_label] : undefined}
       data-checked={student.id === value}
       onSelect={() => choose(student.id)}
@@ -109,19 +124,23 @@ export function StudentCombobox({
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
+      {/* Read as "Student: Ananya Rao", the label and the current choice. */}
+      <span id={labelId} className="sr-only">
+        {label}: {selected?.name ?? placeholder}
+      </span>
       <PopoverTrigger asChild>
         <Button
-          id={id}
+          id={buttonId}
           type="button"
           variant="outline"
           role="combobox"
           aria-expanded={open}
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
-          aria-label={ariaLabel}
+          aria-labelledby={labelId}
           onKeyDown={onTriggerKeyDown}
           className={cn(
-            'h-12 w-full justify-between bg-card px-3 font-normal hover:bg-card',
+            'h-12 w-full min-w-0 justify-between bg-card px-3 font-normal hover:bg-card',
             className,
           )}
         >
@@ -131,7 +150,7 @@ export function StudentCombobox({
               <span className="truncate font-semibold">{selected.name}</span>
             </span>
           ) : (
-            <span className="text-muted-foreground">{placeholder}</span>
+            <span className="truncate text-muted-foreground">{placeholder}</span>
           )}
           <ChevronsUpDownIcon className="size-5 text-muted-foreground" aria-hidden />
         </Button>
@@ -148,7 +167,8 @@ export function StudentCombobox({
           input?.setSelectionRange(input.value.length, input.value.length)
         }}
       >
-        <Command filter={containsWords}>
+        {/* Starts on the chosen student, so Enter right away keeps the same one. */}
+        <Command filter={containsWords} defaultValue={selected ? itemValue(selected) : undefined}>
           <CommandInput
             ref={inputRef}
             placeholder="Type a name…"

@@ -49,11 +49,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { errorMessage, fieldErrors } from '@/lib/errors'
+import { amountProblem } from '@/lib/amount'
 import {
   addMonths,
-  currentMonth,
+  formatDate,
   formatMonth,
   formatRupees,
+  MONTHS_AHEAD,
   paiseToRupeesInput,
   rupeesToPaise,
   today,
@@ -80,6 +82,17 @@ const LogPaymentContext = createContext<LogPaymentContextValue | null>(null)
 
 export function LogPaymentProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<DialogState>({ open: false, key: 0 })
+  // Undo runs here, not in the form: the form is gone by the time someone clicks Undo.
+  const { mutateAsync: deletePayment } = useDeletePayment()
+  const undo = useCallback(
+    (paymentId: number) => {
+      deletePayment(paymentId).then(
+        () => toast('Payment removed'),
+        (error: unknown) => toast.error(errorMessage(error)),
+      )
+    },
+    [deletePayment],
+  )
 
   const openLogPayment = useCallback((prefill: LogPaymentPrefill = {}) => {
     setState((s) => ({ open: true, key: s.key + 1, mode: 'create', prefill }))
@@ -105,6 +118,7 @@ export function LogPaymentProvider({ children }: { children: ReactNode }) {
               prefill={state.mode === 'create' ? state.prefill : undefined}
               payment={state.mode === 'edit' ? state.payment : undefined}
               onDone={close}
+              onUndo={undo}
             />
           </DialogContent>
         )}
@@ -166,6 +180,9 @@ const SERVER_FIELDS: Record<string, Field> = {
   note: 'note',
 }
 
+/** Amounts this many times the month's fee get a gentle "is this right?" (never blocking). */
+const LARGE_AMOUNT_FACTOR = 3
+
 function validate(values: {
   studentId: number | null
   amount: string
@@ -174,10 +191,8 @@ function validate(values: {
 }): Partial<Record<Field, string>> {
   const errors: Partial<Record<Field, string>> = {}
   if (values.studentId === null) errors.student = 'Choose who paid.'
-  const paise = rupeesToPaise(values.amount, { allowZero: true })
-  if (values.amount.trim() === '') errors.amount = 'Enter the amount.'
-  else if (paise === null) errors.amount = 'Enter an amount like 1500 or 1,500.'
-  else if (paise <= 0) errors.amount = 'The amount must be more than ₹0.'
+  const amount = amountProblem(values.amount)
+  if (amount) errors.amount = amount
   if (!/^\d{4}-\d{2}-\d{2}$/.test(values.paidOn)) errors.paidOn = 'Enter the date they paid.'
   else if (values.paidOn > today()) errors.paidOn = 'This date is in the future.'
   if (!values.forMonth) errors.forMonth = 'Pick the month this payment is for.'
@@ -189,11 +204,14 @@ function PaymentForm({
   prefill,
   payment,
   onDone,
+  onUndo,
 }: {
   mode: 'create' | 'edit'
   prefill?: LogPaymentPrefill
   payment?: PaymentRead
   onDone: () => void
+  /** Deletes a just-saved payment. Lives in the provider, which outlives this form. */
+  onUndo: (paymentId: number) => void
 }) {
   const [studentId, setStudentId] = useState<number | null>(
     payment?.student_id ?? prefill?.studentId ?? null,
@@ -241,7 +259,6 @@ function PaymentForm({
 
   const createPayment = useCreatePayment()
   const updatePayment = useUpdatePayment()
-  const deletePayment = useDeletePayment()
   const saving = createPayment.isPending || updatePayment.isPending
 
   const clientErrors = validate({ studentId, amount, paidOn, forMonth })
@@ -278,14 +295,8 @@ function PaymentForm({
         const created = await createPayment.mutateAsync(body)
         toast.success('Payment saved', {
           description: summary,
-          action: {
-            label: 'Undo',
-            onClick: () =>
-              deletePayment.mutate(created.id, {
-                onSuccess: () => toast('Payment removed'),
-                onError: (error) => toast.error(errorMessage(error)),
-              }),
-          },
+          duration: 10_000, // time to notice a slip and click Undo
+          action: { label: 'Undo', onClick: () => onUndo(created.id) },
         })
       }
       onDone()
@@ -300,21 +311,26 @@ function PaymentForm({
     }
   }
 
-  const monthRow = student.data?.months.find((m) => m.month === forMonth)
-  const now = currentMonth()
+  const info = student.data
+  // The server's month: "now" for every hint here comes from it, never from this laptop's clock.
+  const now = info?.current_month
+  const monthRow = info?.months.find((m) => m.month === forMonth)
   const suggested = mode === 'create' && !suggestion.isFetching ? suggestion.data : undefined
   const hint = (() => {
     if (!suggested) return null
     const m = suggested.for_month
-    if (m === null) return 'All paid up. Nothing is owed right now.'
+    if (suggested.reason === 'all_paid' || m === null) {
+      return 'All paid up. Nothing is owed right now.'
+    }
+    if (suggested.reason === 'next_unpaid') {
+      return forMonth === m ? `All paid up. Next due: ${formatMonth(m)}` : null
+    }
+    // reason "owed": the oldest month still owed.
     if (forMonth === m) {
-      if (m < now) return `Oldest unpaid: ${formatMonth(m)}`
-      if (m > now) return `All paid up. Next due: ${formatMonth(m)}`
-      return `Due now: ${formatMonth(m)}`
+      return m === now ? `Due now: ${formatMonth(m)}` : `Oldest unpaid: ${formatMonth(m)}`
     }
     // Opened for a later month while an older one is still owed: point it out.
-    if (m < now && forMonth !== null && m < forMonth) return `Oldest unpaid: ${formatMonth(m)}`
-    return null
+    return forMonth !== null && m < forMonth ? `Oldest unpaid: ${formatMonth(m)}` : null
   })()
   const switchMonth = suggested?.for_month ?? null
   const canSwitch = hint !== null && switchMonth !== null && forMonth !== switchMonth
@@ -326,6 +342,25 @@ function PaymentForm({
     setMonthEdited(true)
     setAmountEdited(true)
   }
+
+  // Months that make sense for this student: from joining, to leaving (or two years ahead).
+  const latest = now ? addMonths(now, MONTHS_AHEAD) : undefined
+  const monthMin = info?.joined_month ?? '2000-01'
+  const monthMax = info?.left_month && latest && info.left_month < latest ? info.left_month : latest
+
+  // A gentle check for a slipped zero: far more than that month's fee.
+  const amountPaise = rupeesToPaise(amount)
+  const fee = monthRow?.expected_paise ?? info?.monthly_fee_paise ?? 0
+  const looksLarge =
+    amountPaise !== null && fee > 0 && amountPaise >= fee * LARGE_AMOUNT_FACTOR && !errors.amount
+
+  // When editing, show the month as it would be without this payment, so the change is clear.
+  const factsRow =
+    monthRow && payment && mode === 'edit' && payment.for_month === monthRow.month
+      ? withoutPayment(monthRow, payment.amount_paise)
+      : monthRow
+
+  const prefilledStudent = mode === 'edit' || prefill?.studentId !== undefined
 
   return (
     <form onSubmit={onSubmit} noValidate className="grid gap-5">
@@ -348,6 +383,7 @@ function PaymentForm({
         <Label htmlFor="payment-student">Student</Label>
         <StudentCombobox
           id="payment-student"
+          label="Student"
           value={studentId}
           onChange={pickStudent}
           invalid={Boolean(errors.student)}
@@ -371,6 +407,8 @@ function PaymentForm({
               inputMode="decimal"
               autoComplete="off"
               placeholder="0"
+              // The student is already known: start on the amount, so Enter saves.
+              autoFocus={prefilledStudent}
               value={amount}
               onChange={(e) => {
                 setAmount(e.target.value)
@@ -378,24 +416,33 @@ function PaymentForm({
                 setServerErrors((s) => ({ ...s, amount: undefined }))
               }}
               aria-invalid={Boolean(errors.amount) || undefined}
-              aria-describedby={errorId('amount')}
+              aria-describedby={
+                errorId('amount') ?? (looksLarge ? 'payment-amount-check' : undefined)
+              }
               className="h-12 pl-8 text-xl font-bold tabular-nums"
             />
           </div>
           <FieldError id={errorId('amount')} message={errors.amount} />
+          {looksLarge && (
+            <p id="payment-amount-check" className="text-sm font-semibold text-partial">
+              That’s much more than the {formatRupees(fee)} fee. Is it right?
+            </p>
+          )}
         </div>
         <div className="grid content-start gap-2">
           <Label htmlFor="payment-month">For month</Label>
           <MonthPicker
             id="payment-month"
+            label="For month"
+            current={now}
             value={forMonth}
             onChange={(m) => {
               setForMonth(m)
               setMonthEdited(true)
               setServerErrors((s) => ({ ...s, forMonth: undefined }))
             }}
-            min="2000-01"
-            max={addMonths(currentMonth(), 24)}
+            min={monthMin}
+            max={monthMax}
             invalid={Boolean(errors.forMonth)}
             aria-describedby={errorId('forMonth') ?? (hint ? 'payment-month-hint' : undefined)}
             className="h-12"
@@ -404,7 +451,7 @@ function PaymentForm({
         </div>
       </div>
 
-      {(hint || monthRow) && (
+      {(hint || factsRow) && (
         <div
           id="payment-month-hint"
           className="-mt-1 grid gap-1.5 rounded-xl bg-muted/60 px-4 py-3 text-base"
@@ -429,7 +476,13 @@ function PaymentForm({
               )}
             </div>
           )}
-          {monthRow && <MonthFacts row={monthRow} editing={mode === 'edit'} />}
+          {factsRow && (
+            <MonthFacts
+              row={factsRow}
+              excludingThis={mode === 'edit' && factsRow !== monthRow}
+              editing={mode === 'edit'}
+            />
+          )}
         </div>
       )}
 
@@ -473,8 +526,14 @@ function PaymentForm({
               setServerErrors((s) => ({ ...s, paidOn: undefined }))
             }}
             aria-invalid={Boolean(errors.paidOn) || undefined}
-            aria-describedby={errorId('paidOn')}
+            aria-describedby={errorId('paidOn') ?? 'payment-paid-on-text'}
           />
+          {/* The date box follows the laptop's settings; this spells it out unambiguously. */}
+          {!errors.paidOn && /^\d{4}-\d{2}-\d{2}$/.test(paidOn) && (
+            <p id="payment-paid-on-text" className="text-sm text-muted-foreground">
+              {paidOn === today() ? `Today, ${formatDate(paidOn)}` : formatDate(paidOn)}
+            </p>
+          )}
           <FieldError id={errorId('paidOn')} message={errors.paidOn} />
         </div>
         <div className="grid content-start gap-2">
@@ -518,24 +577,45 @@ function FieldError({ id, message }: { id?: string; message?: string }) {
   )
 }
 
+interface FactsRow {
+  month: string
+  expected_paise: number
+  paid_paise: number
+  remaining_paise: number
+}
+
+/** The month as if `amount` hadn't been paid (the payment being edited). */
+function withoutPayment(row: FactsRow, amount: number): FactsRow {
+  const paid = Math.max(0, row.paid_paise - amount)
+  return { ...row, paid_paise: paid, remaining_paise: Math.max(0, row.expected_paise - paid) }
+}
+
 /** What's already recorded for the chosen month, e.g. "September: ₹500 of ₹1,500 paid". */
 function MonthFacts({
   row,
   editing,
+  excludingThis,
 }: {
-  row: { month: string; expected_paise: number; paid_paise: number; remaining_paise: number }
+  row: FactsRow
   editing: boolean
+  excludingThis: boolean
 }) {
   const name = formatMonth(row.month).split(' ')[0]
+  const others = excludingThis ? ' by other payments' : ''
   let text: ReactNode
   if (row.expected_paise === 0) {
-    text = row.paid_paise > 0 ? `${formatRupees(row.paid_paise)} paid, no fee due.` : 'no fee due.'
+    text =
+      row.paid_paise > 0
+        ? `${formatRupees(row.paid_paise)} paid${others}, no fee due.`
+        : 'no fee due.'
   } else if (row.paid_paise === 0) {
-    text = `${formatRupees(row.expected_paise)} due, nothing paid yet.`
+    text = excludingThis
+      ? `${formatRupees(row.expected_paise)} fee, nothing else paid.`
+      : `${formatRupees(row.expected_paise)} due, nothing paid yet.`
   } else if (row.remaining_paise > 0) {
-    text = `${formatRupees(row.paid_paise)} of ${formatRupees(row.expected_paise)} paid, ${formatRupees(row.remaining_paise)} left.`
+    text = `${formatRupees(row.paid_paise)} of ${formatRupees(row.expected_paise)} paid${others}, ${formatRupees(row.remaining_paise)} left.`
   } else if (editing) {
-    text = `${formatRupees(row.paid_paise)} paid of ${formatRupees(row.expected_paise)}.`
+    text = `${formatRupees(row.paid_paise)} of ${formatRupees(row.expected_paise)} paid${others}.`
   } else {
     text = (
       <>

@@ -23,12 +23,15 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { errorMessage, fieldErrors } from '@/lib/errors'
 import {
+  addMonths,
   currentMonth,
   formatMonth,
   formatRupees,
+  MONTHS_AHEAD,
   paiseToRupeesInput,
   rupeesToPaise,
 } from '@/lib/format'
+import { amountProblem } from '@/lib/amount'
 
 type Field =
   'name' | 'fee' | 'feeFrom' | 'joined' | 'left' | 'phone' | 'guardian' | 'batch' | 'notes'
@@ -82,7 +85,8 @@ function StudentForm({
   onDone: (saved?: StudentDetail) => void
 }) {
   const editing = student !== undefined
-  const now = currentMonth()
+  // The server's month when editing (every number is worked out for it); the laptop's for new.
+  const now = student?.current_month ?? currentMonth()
   const [name, setName] = useState(student?.name ?? '')
   const [fee, setFee] = useState(student ? paiseToRupeesInput(student.monthly_fee_paise) : '')
   const [feeFrom, setFeeFrom] = useState<string | null>(
@@ -107,8 +111,8 @@ function StudentForm({
 
   const clientErrors: Partial<Record<Field, string>> = {}
   if (!name.trim()) clientErrors.name = 'Enter their name.'
-  if (fee.trim() === '') clientErrors.fee = 'Enter the monthly fee.'
-  else if (feePaise === null) clientErrors.fee = 'Enter a fee like 1500 or 1,500.'
+  const feeError = amountProblem(fee, { allowZero: true, what: 'monthly fee' })
+  if (feeError) clientErrors.fee = feeError
   if (!joined) clientErrors.joined = 'Pick the month they joined.'
   if (left && joined && left < joined) {
     clientErrors.left = 'This can’t be before the month they joined.'
@@ -238,6 +242,9 @@ function StudentForm({
         >
           <MonthPicker
             id="student-joined"
+            label="Joined in"
+            current={now}
+            max={addMonths(now, MONTHS_AHEAD)}
             value={joined}
             onChange={(m) => {
               setJoined(m)
@@ -259,6 +266,9 @@ function StudentForm({
           >
             <MonthPicker
               id="student-fee-from"
+              label="New fee applies from"
+              current={now}
+              max={addMonths(now, MONTHS_AHEAD)}
               value={feeFrom}
               onChange={(m) => {
                 setFeeFrom(m)
@@ -287,7 +297,7 @@ function StudentForm({
             id="student-phone"
             type="tel"
             autoComplete="off"
-            placeholder="98765 43210"
+            placeholder="90000 00000"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
           />
@@ -328,6 +338,9 @@ function StudentForm({
         >
           <MonthPicker
             id="student-left"
+            label="Left in month"
+            current={now}
+            max={addMonths(now, MONTHS_AHEAD)}
             value={left}
             onChange={(m) => {
               setLeft(m)

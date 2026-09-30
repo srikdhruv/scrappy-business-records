@@ -45,7 +45,40 @@ describe('student profile', () => {
     await user.click(balance.getByRole('button', { name: 'Edit payment' }))
     const dialog = await findDialog('Edit payment')
     expect(dialog.getByLabelText('Amount')).toHaveValue('1500')
-    expect(dialog.getByLabelText('For month')).toHaveTextContent('August 2026')
+    expect(dialog.getByLabelText(/^For month:/)).toHaveTextContent('August 2026')
+  })
+
+  it('calls paying early "paid ahead", not credit', async () => {
+    renderApp(`/students/${idOf('Meera Iyer')}`)
+    const balance = within(await screen.findByRole('region', { name: 'Balance' }))
+    expect(balance.getByText('Paid ahead ₹2,000')).toBeInTheDocument()
+    expect(balance.getByText('Paid ahead to November 2026.')).toBeInTheDocument()
+  })
+
+  it('shows the server’s reason inline when an edit is refused', async () => {
+    const user = userEvent.setup()
+    renderApp(`/students/${idOf('Diya Sharma')}`)
+    await screen.findByRole('heading', { level: 1, name: 'Diya Sharma' })
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+    const dialog = await findDialog('Edit Diya Sharma')
+    // Her fee changed in May 2026; joining after that would lose her first fee.
+    await user.click(dialog.getByLabelText(/^Joined in:/))
+    await user.click(await screen.findByRole('button', { name: 'Next year' }))
+    await user.click(await screen.findByRole('button', { name: 'August 2026' }))
+    await user.click(dialog.getByRole('button', { name: 'Save changes' }))
+    expect(
+      await dialog.findByText(/The joined month can’t be on or after a later fee change/),
+    ).toBeInTheDocument()
+  })
+
+  it('shows what else was paid for the month when editing a payment', async () => {
+    const user = userEvent.setup()
+    renderApp(`/students/${idOf('Ananya Rao')}`)
+    await screen.findByRole('heading', { level: 1, name: 'Ananya Rao' })
+    const payments = within(screen.getByRole('heading', { name: /Payments/ }).closest('section')!)
+    await user.click((await payments.findAllByRole('button', { name: /^Edit payment/ }))[0]!)
+    const dialog = await findDialog('Edit payment')
+    expect(dialog.getByText(/₹1,500 fee, nothing else paid/)).toBeInTheDocument()
   })
 
   it('changes the fee from a chosen month, keeping earlier months', async () => {
@@ -61,7 +94,7 @@ describe('student profile', () => {
     await user.clear(fee)
     await user.type(fee, '1800')
     // Asking "from which month?", defaulting to this month.
-    const from = dialog.getByLabelText('New fee applies from')
+    const from = dialog.getByLabelText(/^New fee applies from:/)
     expect(from).toHaveTextContent('October 2026')
     expect(dialog.getByText(/Earlier months keep the old fee of/)).toHaveTextContent('₹1,500')
 
@@ -89,7 +122,7 @@ describe('student profile', () => {
     await screen.findByRole('heading', { level: 1, name: 'Ananya Rao' })
     await user.click(screen.getByRole('button', { name: 'Mark as left' }))
     const dialog = await findDialog('Mark Ananya Rao as left?')
-    expect(dialog.getByLabelText('Last month they should pay for')).toHaveTextContent(
+    expect(dialog.getByLabelText(/^Last month they should pay for:/)).toHaveTextContent(
       'October 2026',
     )
     await user.click(dialog.getByRole('button', { name: 'Mark as left' }))

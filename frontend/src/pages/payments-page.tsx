@@ -113,7 +113,7 @@ export function PaymentsPage() {
               onChange={(id) => update({ student: id ? String(id) : null })}
               placeholder="All students"
               clearLabel="All students"
-              aria-label="Filter by student"
+              label="Filter by student"
               className="h-11"
             />
           </div>
@@ -123,7 +123,7 @@ export function PaymentsPage() {
               onChange={(m) => update({ month: m })}
               placeholder="All months"
               clearLabel="All months"
-              aria-label="Filter by month"
+              label="Filter by month"
             />
           </div>
           <div className="min-w-36 flex-[1_1_9rem]">

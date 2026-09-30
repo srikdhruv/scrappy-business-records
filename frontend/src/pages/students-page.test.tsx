@@ -17,12 +17,14 @@ describe('students page', () => {
     const rows = await studentRows()
     const kabir = rows.getByRole('link', { name: 'Kabir Mehta' }).closest('tr')!
     expect(within(kabir).getByText('Owes ₹3,000')).toBeInTheDocument()
-    expect(within(kabir).getByText('11 mo')).toBeInTheDocument()
+    // Months from joining to now, both counted (the server's tenure_months).
+    expect(within(kabir).getByText('1 yr')).toBeInTheDocument()
     const ananya = rows.getByRole('link', { name: 'Ananya Rao' }).closest('tr')!
     expect(within(ananya).getByText('Up to date')).toBeInTheDocument()
-    expect(within(ananya).getByText('1 yr 2 mo')).toBeInTheDocument()
+    expect(within(ananya).getByText('1 yr 3 mo')).toBeInTheDocument()
     const meera = rows.getByRole('link', { name: 'Meera Iyer' }).closest('tr')!
-    expect(within(meera).getByText('Credit ₹2,000')).toBeInTheDocument()
+    // She paid November early: that's paying ahead, not credit.
+    expect(within(meera).getByText('Paid ahead ₹2,000')).toBeInTheDocument()
     // Students who left are on the Left tab.
     expect(rows.queryByRole('link', { name: 'Dev Malhotra' })).not.toBeInTheDocument()
   })
@@ -54,12 +56,12 @@ describe('students page', () => {
     await user.click(dialog.getByRole('button', { name: 'Add student' }))
     expect(dialog.getByText('Enter their name.')).toBeInTheDocument()
     expect(dialog.getByText('Enter the monthly fee.')).toBeInTheDocument()
-    expect(dialog.getByLabelText('Joined in')).toHaveTextContent('October 2026')
+    expect(dialog.getByLabelText(/^Joined in:/)).toHaveTextContent('October 2026')
 
     await user.type(dialog.getByLabelText('Name'), 'Ishaan Kapoor')
     await user.type(dialog.getByLabelText('Monthly fee'), '1,600')
     await user.type(dialog.getByLabelText(/Class or batch/), 'Sat 10am – HSR Layout')
-    await user.type(dialog.getByLabelText(/Phone/), '98765 40000{Enter}')
+    await user.type(dialog.getByLabelText(/Phone/), '90000 00099{Enter}')
 
     expect(await screen.findByText('Ishaan Kapoor added')).toBeInTheDocument()
     const rows = await studentRows()
@@ -69,7 +71,7 @@ describe('students page', () => {
     expect(mockDb.students.at(-1)).toMatchObject({
       name: 'Ishaan Kapoor',
       joined_month: '2026-10',
-      phone: '98765 40000',
+      phone: '90000 00099',
       batch_label: 'Sat 10am – HSR Layout',
       guardian_name: null,
     })

@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { errorMessage } from '@/lib/errors'
-import { currentMonth, formatMonth } from '@/lib/format'
+import { addMonths, formatMonth, MONTHS_AHEAD } from '@/lib/format'
 import { firstName } from '@/lib/labels'
 
 export function MarkLeftDialog({
@@ -28,7 +28,7 @@ export function MarkLeftDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const now = currentMonth()
+  const now = student.current_month
   const [month, setMonth] = useState<string | null>(
     student.joined_month > now ? student.joined_month : now,
   )
@@ -68,6 +68,9 @@ export function MarkLeftDialog({
             <Label htmlFor="left-month">Last month they should pay for</Label>
             <MonthPicker
               id="left-month"
+              label="Last month they should pay for"
+              current={now}
+              max={addMonths(now, MONTHS_AHEAD)}
               value={month}
               onChange={setMonth}
               min={student.joined_month}

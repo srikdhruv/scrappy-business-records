@@ -69,9 +69,10 @@ export function useHealth() {
 
 // ---- Dashboard ----------------------------------------------------------------------------------
 
-export function useDashboard(month: string) {
+/** The dashboard for `month`, or for the server's current month when it's undefined. */
+export function useDashboard(month: string | undefined) {
   return useQuery({
-    queryKey: queryKeys.dashboard.month(month),
+    queryKey: queryKeys.dashboard.month(month ?? 'current'),
     queryFn: async (): Promise<DashboardResponse> =>
       unwrap(await api.GET('/api/dashboard', { params: { query: { month } } })),
     placeholderData: keepPreviousData,

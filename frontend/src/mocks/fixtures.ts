@@ -172,7 +172,7 @@ export function buildFixture(specs: StudentSpec[], now: Date = new Date()): Fixt
     students.push({
       id,
       name: spec.name,
-      phone: `98765 ${String(43210 + index).padStart(5, '0')}`,
+      phone: `90000 000${String(index + 1).padStart(2, '0')}`,
       guardian_name: spec.guardian ?? null,
       batch_label: spec.batch ?? null,
       joined_month: joined,

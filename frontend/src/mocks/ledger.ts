@@ -17,7 +17,7 @@ import type {
   SuggestedPayment,
   YetToPayItem,
 } from '@/api/types'
-import { addMonths } from '@/lib/format'
+import { addMonths, MONTHS_AHEAD } from '@/lib/format'
 
 export interface StudentRow {
   id: number
@@ -107,7 +107,7 @@ function monthRange(from: string, to: string): string[] {
 /** One row per month from joined_month to the current month (or the last paid month, if later). */
 export function ledgerMonths(book: StudentBook, now: string): LedgerMonth[] {
   const paid = paidByMonth(book.payments)
-  let last = now
+  let last = now > book.student.joined_month ? now : book.student.joined_month
   for (const m of paid.keys()) if (m > last) last = m
   let first = book.student.joined_month
   for (const m of paid.keys()) if (m < first) first = m
@@ -144,34 +144,61 @@ export function balanceStatus(balancePaise: number): BalanceStatus {
   return 'up_to_date'
 }
 
+export { MONTHS_AHEAD }
+
 /**
- * Prefill for Log payment (PRD ledger rule 9, as in the backend PR): the oldest due month that
- * is Unpaid or Partial, with what's left on it. Otherwise the first month after the current one
- * (within the months they're enrolled for, and at most two years ahead) that isn't fully paid.
- * Otherwise nothing: both values are null.
+ * Prefill for Log payment (PRD ledger rule 9), exactly as `suggest_payment` in
+ * backend/app/services/ledger.py:
+ * 1. `owed`: the oldest due month that is Unpaid or Partial, with what's left on it.
+ * 2. `next_unpaid`: otherwise the first enrolled month after the current one that isn't paid
+ *    (Unpaid, Partial, or a 0 fee with nothing paid); the amount is null for a 0 fee.
+ * 3. `all_paid`: nothing left up to the latest month a payment can be logged for.
  */
 export function suggestPayment(book: StudentBook, now: string): SuggestedPayment {
   const paid = paidByMonth(book.payments)
   const { joined_month, left_month } = book.student
-  const owed = (month: string) => expectedFor(book, month) - (paid.get(month) ?? 0)
-  if (joined_month <= now) {
-    for (const month of monthRange(joined_month, now)) {
-      if (expectedFor(book, month) > 0 && owed(month) > 0) {
-        return { for_month: month, amount_paise: owed(month), reason: 'oldest_unpaid' }
+  const line = (month: string) => {
+    const expected = expectedFor(book, month)
+    const p = paid.get(month) ?? 0
+    return { expected, remaining: Math.max(0, expected - p), status: monthStatus(expected, p) }
+  }
+  const lastDue = left_month !== null && left_month < now ? left_month : now
+  if (joined_month <= lastDue) {
+    for (const month of monthRange(joined_month, lastDue)) {
+      const l = line(month)
+      if (l.status === 'unpaid' || l.status === 'partial') {
+        return { for_month: month, amount_paise: l.remaining, reason: 'owed' }
       }
     }
   }
-  const start = joined_month > now ? joined_month : addMonths(now, 1)
-  let end = addMonths(now, 24)
-  if (left_month !== null && left_month < end) end = left_month
+  const next = addMonths(now, 1)
+  const start = next > joined_month ? next : joined_month
+  let end: string
+  if (left_month !== null) {
+    end = left_month
+  } else {
+    let lastPaid = start
+    for (const m of paid.keys()) if (m > lastPaid) lastPaid = m
+    const after = addMonths(lastPaid, 1)
+    end = after > start ? after : start
+  }
+  const latest = addMonths(now, MONTHS_AHEAD)
+  if (end > latest) end = latest
   if (start <= end) {
     for (const month of monthRange(start, end)) {
-      if (expectedFor(book, month) > 0 && owed(month) > 0) {
-        return { for_month: month, amount_paise: owed(month), reason: 'next_unpaid' }
+      const l = line(month)
+      if (l.status === 'unpaid' || l.status === 'partial' || l.status === 'not_applicable') {
+        return { for_month: month, amount_paise: l.remaining || null, reason: 'next_unpaid' }
       }
     }
   }
   return { for_month: null, amount_paise: null, reason: 'all_paid' }
+}
+
+/** Months they have been a student: joined_month to the current (or left) month, both counted. */
+export function tenureMonths(student: StudentRow, now: string): number {
+  const last = student.left_month !== null && student.left_month < now ? student.left_month : now
+  return student.joined_month <= last ? monthRange(student.joined_month, last).length : 0
 }
 
 /** Money paid in overpaid due months (paid > expected, up to the current month). */
@@ -285,5 +312,5 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
   yetToPay.sort(byName)
   backlog.sort(byName)
   overpaid.sort((a, b) => byName(a, b) || a.month.localeCompare(b.month))
-  return { month, summary, yet_to_pay: yetToPay, backlog, overpaid }
+  return { month, current_month: now, summary, yet_to_pay: yetToPay, backlog, overpaid }
 }

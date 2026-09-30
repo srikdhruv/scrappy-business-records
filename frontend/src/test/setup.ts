@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 
 import { cleanup } from '@testing-library/react'
+import { toast } from 'sonner'
 import { afterAll, afterEach, beforeAll } from 'vitest'
 
 import { server } from '@/mocks/node'
@@ -22,6 +23,7 @@ window.scrollTo = () => {}
 // `mockDb.reset(...)`; see src/test/render.tsx.
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
 afterEach(() => {
+  toast.dismiss() // toasts live in a global store; don't let one test see another's
   cleanup()
   server.resetHandlers()
 })

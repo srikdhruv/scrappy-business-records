@@ -110,7 +110,7 @@ export function PaymentsTable({
             cell: (info) => (
               <Link
                 to={`/students/${info.row.original.student_id}`}
-                className="rounded font-bold outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+                className="inline-block max-w-64 rounded font-bold wrap-break-word whitespace-normal outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
               >
                 {info.getValue()}
               </Link>

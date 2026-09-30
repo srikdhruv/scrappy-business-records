@@ -14,7 +14,7 @@ import type {
   StudentRead,
   StudentUpdate,
 } from '@/api/types'
-import { addMonths, currentMonth, monthsBetween, today } from '@/lib/format'
+import { addMonths, currentMonth, formatMonth, today } from '@/lib/format'
 
 import {
   balance,
@@ -24,7 +24,9 @@ import {
   feeFor,
   isStillActive,
   ledgerMonths,
+  MONTHS_AHEAD,
   suggestPayment,
+  tenureMonths,
   type FeeChangeRow,
   type PaymentRow,
   type StudentBook,
@@ -73,6 +75,24 @@ function blankToNull(value: string | null | undefined): string | null {
 function checkMonth(field: string, value: string | null | undefined) {
   if (value !== null && value !== undefined && !MONTH_RE.test(value)) {
     invalid(field, 'String should match pattern "^\\d{4}-(0[1-9]|1[0-2])$"')
+  }
+}
+
+const MONTH_LABELS: Record<string, string> = {
+  joined_month: 'Joined month',
+  left_month: 'Left month',
+  fee_effective_month: 'The month the new fee starts',
+  for_month: 'Month',
+}
+
+/** At most MONTHS_AHEAD months after the current month (backend `check_month`). */
+function checkNotTooLate(field: string, month: string | null | undefined, now: string) {
+  const latest = addMonths(now, MONTHS_AHEAD)
+  if (month && month > latest) {
+    invalid(
+      field,
+      `${MONTH_LABELS[field]} can’t be later than ${formatMonth(latest)} (two years from now)`,
+    )
   }
 }
 
@@ -135,7 +155,7 @@ export class MockDb {
       balance_paise: bal,
       status: balanceStatus(bal),
       credit_paise: creditPaise(book, now),
-      tenure_months: Math.max(0, monthsBetween(student.joined_month, now)),
+      tenure_months: tenureMonths(student, now),
       current_month: now,
     }
   }
@@ -161,7 +181,11 @@ export class MockDb {
         if (status === 'active' && !isStillActive(s, now)) return false
         if (status === 'left' && isStillActive(s, now)) return false
         if (!needle) return true
-        return [s.name, s.phone, s.guardian_name].some((v) => v?.toLowerCase().includes(needle))
+        const phone = s.phone?.replace(/\s+/g, '')
+        return (
+          [s.name, s.guardian_name].some((v) => v?.toLowerCase().includes(needle)) ||
+          Boolean(phone?.includes(needle.replace(/\s+/g, '')))
+        )
       })
       .toSorted((a, b) => a.name.localeCompare(b.name))
       .map((s) => this.toRead(s))
@@ -173,15 +197,17 @@ export class MockDb {
 
   createStudent(body: StudentCreate): StudentDetail {
     const name = blankToNull(body.name)
-    if (!name) invalid('name', 'Enter a name')
+    if (!name) invalid('name', 'Name is required')
     if (!Number.isInteger(body.monthly_fee_paise) || body.monthly_fee_paise < 0) {
-      invalid('monthly_fee_paise', 'Fee must be 0 or more')
+      invalid('monthly_fee_paise', 'Input should be greater than or equal to 0')
     }
     checkMonth('joined_month', body.joined_month)
     checkMonth('left_month', body.left_month)
     if (body.left_month && body.left_month < body.joined_month) {
-      invalid('left_month', 'Left month cannot be before the joined month')
+      invalid('left_month', 'Left month can’t be before the joined month')
     }
+    checkNotTooLate('joined_month', body.joined_month, this.now())
+    checkNotTooLate('left_month', body.left_month, this.now())
     const now = nowIso()
     const student: StudentRow = {
       id: this.id(),
@@ -205,67 +231,77 @@ export class MockDb {
     return this.toDetail(student)
   }
 
+  /** Mirrors `update_student` in backend/app/services/students.py, including its 422s. */
   updateStudent(id: number, body: StudentUpdate): StudentDetail {
     const student = this.findStudent(id)
+    const now = this.now()
     const next = { ...student }
     if ('name' in body) {
       const name = blankToNull(body.name)
-      if (!name) invalid('name', 'Enter a name')
+      if (!name) invalid('name', 'Name is required')
       next.name = name
     }
     for (const key of ['phone', 'guardian_name', 'batch_label', 'notes'] as const) {
       if (key in body) next[key] = blankToNull(body[key])
     }
-    if (
-      body.monthly_fee_paise !== undefined &&
-      body.monthly_fee_paise !== null &&
-      (!Number.isInteger(body.monthly_fee_paise) || body.monthly_fee_paise < 0)
-    ) {
-      invalid('monthly_fee_paise', 'Fee must be 0 or more')
+    const fee = body.monthly_fee_paise
+    if (fee !== undefined && fee !== null && (!Number.isInteger(fee) || fee < 0)) {
+      invalid('monthly_fee_paise', 'Input should be greater than or equal to 0')
     }
+    if (body.fee_effective_month != null && fee == null) {
+      invalid('fee_effective_month', 'Send the new monthly fee together with the month it starts')
+    }
+    checkMonth('joined_month', body.joined_month)
+    checkMonth('left_month', body.left_month)
+    checkMonth('fee_effective_month', body.fee_effective_month)
+    if (body.left_month && body.joined_month && body.left_month < body.joined_month) {
+      invalid('left_month', 'Left month can’t be before the joined month')
+    }
+
     const own = this.fees
       .filter((f) => f.student_id === id)
       .toSorted((a, b) => a.effective_month.localeCompare(b.effective_month))
-    if (body.joined_month) {
-      checkMonth('joined_month', body.joined_month)
-      // Edit rule 1: the earliest fee moves with joined_month, unless that would swallow a
-      // later fee change.
-      const later = own[1]
-      if (later && body.joined_month >= later.effective_month) {
-        invalid('joined_month', 'The joining month can’t be on or after a later fee change')
+    const joined = body.joined_month || student.joined_month
+    checkNotTooLate('joined_month', body.joined_month, now)
+    checkNotTooLate('left_month', body.left_month, now)
+    checkNotTooLate('fee_effective_month', body.fee_effective_month, now)
+    const later = own[1]
+    if (joined !== student.joined_month && later && joined >= later.effective_month) {
+      invalid(
+        'joined_month',
+        `The joined month can’t be on or after a later fee change (${formatMonth(later.effective_month)}). Change that fee first.`,
+      )
+    }
+    const leftSent = 'left_month' in body
+    const left = leftSent ? (body.left_month ?? null) : student.left_month
+    if (left !== null && left < joined) {
+      invalid(
+        leftSent ? 'left_month' : 'joined_month',
+        'Left month can’t be before the joined month',
+      )
+    }
+    let feeMonth: string | null = null
+    if (fee != null) {
+      feeMonth = body.fee_effective_month ?? (now > joined ? now : joined)
+      if (feeMonth < joined) {
+        invalid('fee_effective_month', 'The new fee can’t start before the joined month')
       }
-      next.joined_month = body.joined_month
     }
-    if ('left_month' in body) {
-      checkMonth('left_month', body.left_month)
-      next.left_month = body.left_month ?? null
-    }
-    if (next.left_month !== null && next.left_month < next.joined_month) {
-      invalid('left_month', 'The month they left can’t be before the month they joined')
-    }
-    if (body.fee_effective_month !== undefined && body.fee_effective_month !== null) {
-      if (body.monthly_fee_paise === undefined || body.monthly_fee_paise === null) {
-        invalid('fee_effective_month', 'Only allowed together with monthly_fee_paise')
-      }
-      checkMonth('fee_effective_month', body.fee_effective_month)
-      if (body.fee_effective_month < next.joined_month) {
-        invalid('fee_effective_month', 'The new fee can’t start before the month they joined')
-      }
-    }
-    if (own[0] && body.joined_month) own[0].effective_month = next.joined_month
 
-    if (body.monthly_fee_paise !== undefined && body.monthly_fee_paise !== null) {
-      const effective = body.fee_effective_month ?? this.now()
-      const existing = this.fees.find((f) => f.student_id === id && f.effective_month === effective)
-      if (existing) existing.amount_paise = body.monthly_fee_paise
-      else {
+    next.joined_month = joined
+    next.left_month = left
+    if (joined !== student.joined_month && own[0]) own[0].effective_month = joined
+    if (feeMonth !== null && fee != null && feeFor(own, feeMonth) !== fee) {
+      // A fee change for a month that already has one replaces its amount.
+      const existing = own.find((f) => f.effective_month === feeMonth)
+      if (existing) existing.amount_paise = fee
+      else
         this.fees.push({
           id: this.id(),
           student_id: id,
-          effective_month: effective,
-          amount_paise: body.monthly_fee_paise,
+          effective_month: feeMonth,
+          amount_paise: fee,
         })
-      }
     }
 
     Object.assign(student, next, { updated_at: nowIso() })
@@ -336,16 +372,15 @@ export class MockDb {
   private validatePayment(p: Omit<PaymentRow, 'id' | 'created_at' | 'updated_at'>) {
     if (!this.students.some((s) => s.id === p.student_id)) notFound('Student')
     if (!Number.isInteger(p.amount_paise) || p.amount_paise <= 0) {
-      invalid('amount_paise', 'Amount must be more than 0')
+      invalid('amount_paise', 'Input should be greater than 0')
     }
     if (!DATE_RE.test(p.paid_on)) invalid('paid_on', 'Enter a valid date')
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
-    if (p.paid_on > today(tomorrow)) invalid('paid_on', 'The payment date can’t be in the future')
+    if (p.paid_on < '2000-01-01') invalid('paid_on', 'Paid-on date can’t be before the year 2000')
+    if (p.paid_on > today(tomorrow)) invalid('paid_on', 'Paid-on date can’t be in the future')
     checkMonth('for_month', p.for_month)
-    if (p.for_month > addMonths(this.now(), 24)) {
-      invalid('for_month', 'Pick a month within the next two years')
-    }
+    checkNotTooLate('for_month', p.for_month, this.now())
     if (!METHODS.includes(p.method)) invalid('method', "Input should be 'upi', 'cash' or 'other'")
   }
 

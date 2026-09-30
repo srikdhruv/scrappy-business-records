@@ -16,9 +16,22 @@ export function balanceTone(status: BalanceStatus): Tone {
   return status === 'owes' ? 'owed' : status === 'credit' ? 'credit' : 'paid'
 }
 
-/** "Up to date" / "Owes ₹3,000" / "Credit ₹500". */
-export function balanceLabel(status: BalanceStatus, balancePaise: number): string {
+/**
+ * "Up to date" / "Owes ₹3,000" / "Credit ₹500" / "Paid ahead ₹2,000".
+ *
+ * A positive balance is either money paid too much for a month that's due (`creditPaise`, real
+ * credit) or simply paying ahead for months not due yet. Only the first is called credit.
+ */
+export function balanceLabel(
+  status: BalanceStatus,
+  balancePaise: number,
+  creditPaise: number,
+): string {
   if (status === 'owes') return `Owes ${formatRupees(Math.abs(balancePaise))}`
-  if (status === 'credit') return `Credit ${formatRupees(balancePaise)}`
+  if (status === 'credit') {
+    return creditPaise > 0
+      ? `Credit ${formatRupees(balancePaise)}`
+      : `Paid ahead ${formatRupees(balancePaise)}`
+  }
   return 'Up to date'
 }

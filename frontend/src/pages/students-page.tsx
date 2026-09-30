@@ -11,7 +11,7 @@ import type { StudentRead } from '@/api/types'
 import { PageHeader } from '@/components/layout/page-header'
 import { Panel } from '@/components/panel'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
-import { BalanceChip, CreditNote } from '@/components/status'
+import { BalanceChip, ExtraPaidNote } from '@/components/status'
 import { StudentAvatar } from '@/components/student-avatar'
 import { StudentFormDialog } from '@/components/student-form'
 import { Button } from '@/components/ui/button'
@@ -25,7 +25,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { currentMonth, formatMonthShort, formatRupees, formatTenure } from '@/lib/format'
+import { formatMonthShort, formatRupees } from '@/lib/format'
+import { tenureLabel } from '@/lib/labels'
 
 type Tab = 'active' | 'left' | 'all'
 const TABS: { value: Tab; label: string }[] = [
@@ -157,19 +158,21 @@ export function StudentsPage() {
                   className="cursor-pointer"
                   onClick={() => void navigate(`/students/${s.id}`)}
                 >
-                  <TableCell className="pl-6">
+                  <TableCell className="max-w-80 pl-6 whitespace-normal">
                     <div className="flex items-center gap-3">
                       <StudentAvatar name={s.name} />
                       <div className="min-w-0">
                         <Link
                           to={`/students/${s.id}`}
-                          className="rounded font-bold outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+                          className="rounded font-bold wrap-break-word outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
                           onClick={(e) => e.stopPropagation()}
                         >
                           {s.name}
                         </Link>
                         {s.guardian_name && (
-                          <p className="text-sm text-muted-foreground">Parent: {s.guardian_name}</p>
+                          <p className="text-sm wrap-break-word text-muted-foreground">
+                            Parent: {s.guardian_name}
+                          </p>
                         )}
                       </div>
                     </div>
@@ -182,9 +185,13 @@ export function StudentsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col items-start gap-1">
-                      <BalanceChip status={s.status} balancePaise={s.balance_paise} />
-                      {s.status !== 'credit' && (s.credit_paise ?? 0) > 0 && (
-                        <CreditNote paise={s.credit_paise!} />
+                      <BalanceChip
+                        status={s.status}
+                        balancePaise={s.balance_paise}
+                        creditPaise={s.credit_paise}
+                      />
+                      {s.status !== 'credit' && s.credit_paise > 0 && (
+                        <ExtraPaidNote paise={s.credit_paise} />
                       )}
                     </div>
                   </TableCell>
@@ -195,7 +202,7 @@ export function StudentsPage() {
                       </span>
                     ) : (
                       <>
-                        {formatTenure(s.joined_month, s.current_month ?? currentMonth())}
+                        {tenureLabel(s)}
                         {s.left_month && (
                           <span className="block text-sm text-muted-foreground">
                             Leaving after {formatMonthShort(s.left_month)}

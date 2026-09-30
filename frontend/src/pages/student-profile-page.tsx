@@ -39,14 +39,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { errorMessage } from '@/lib/errors'
-import {
-  currentMonth,
-  formatMonth,
-  formatMonthShort,
-  formatRupees,
-  formatTenure,
-} from '@/lib/format'
-import { firstName, plural } from '@/lib/labels'
+import { formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
+import { firstName, formatMonthCount, plural, tenurePhrase } from '@/lib/labels'
 import { cn } from '@/lib/utils'
 
 function BackLink() {
@@ -167,11 +161,13 @@ function Profile({ student }: { student: StudentDetail }) {
       <BackLink />
       <PageHeader
         title={
-          <div className="flex items-center gap-4">
+          <div className="flex min-w-0 items-center gap-4">
             <StudentAvatar name={student.name} size="lg" />
             <div className="min-w-0 space-y-1.5">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <h1 className="text-3xl font-extrabold tracking-tight">{student.name}</h1>
+                <h1 className="min-w-0 text-3xl font-extrabold tracking-tight wrap-break-word">
+                  {student.name}
+                </h1>
                 {student.left_month && (
                   <StatusPill tone="muted">
                     {leaving ? 'Leaving after' : 'Left after'} {formatMonth(student.left_month)}
@@ -179,7 +175,9 @@ function Profile({ student }: { student: StudentDetail }) {
                 )}
               </div>
               {student.batch_label && (
-                <p className="text-base text-muted-foreground">{student.batch_label}</p>
+                <p className="text-base wrap-break-word text-muted-foreground">
+                  {student.batch_label}
+                </p>
               )}
             </div>
           </div>
@@ -221,7 +219,7 @@ function Profile({ student }: { student: StudentDetail }) {
       />
 
       <div className="space-y-6">
-        <div className="grid items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)]">
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)]">
           <BalanceCard
             student={student}
             onLog={logFor}
@@ -335,8 +333,14 @@ function BalanceCard({
   onFix?: (month: string) => void
 }) {
   const overpaid = student.months.filter((m) => m.is_due && m.status === 'overpaid')
-  const credit = student.credit_paise ?? overpaid.reduce((sum, m) => sum + m.excess_paise, 0)
+  const credit = student.credit_paise
   const tone = balanceTone(student.status)
+  // Paid ahead: the last month, after this one, that's paid in full without a gap.
+  let aheadTo: string | undefined
+  for (const m of student.months.filter((m) => !m.is_due)) {
+    if (m.status !== 'paid' && m.status !== 'overpaid') break
+    aheadTo = m.month
+  }
   const owed = student.months.filter(
     (m) => m.is_due && (m.status === 'unpaid' || m.status === 'partial'),
   )
@@ -346,7 +350,7 @@ function BalanceCard({
     <section
       aria-label="Balance"
       className={cn(
-        'flex flex-col justify-between gap-4 rounded-2xl border p-6 shadow-soft',
+        'flex min-w-0 flex-col justify-between gap-4 rounded-2xl border p-6 shadow-soft',
         tone === 'owed' && 'border-owed/25 bg-owed-soft/60',
         tone === 'credit' && 'border-credit/25 bg-credit-soft/60',
         tone === 'paid' && 'border-paid/25 bg-paid-soft/60',
@@ -356,25 +360,35 @@ function BalanceCard({
         <p className="text-base font-bold text-muted-foreground">Balance</p>
         <p
           className={cn(
-            'mt-1 text-4xl font-extrabold tracking-tight tabular-nums',
+            'mt-1 text-4xl font-extrabold tracking-tight wrap-anywhere tabular-nums',
             TONE_TEXT[tone],
           )}
         >
           {student.status === 'up_to_date'
             ? 'Up to date'
-            : `${student.status === 'owes' ? 'Owes' : 'Credit'} ${formatRupees(amount)}`}
+            : student.status === 'owes'
+              ? `Owes ${formatRupees(amount)}`
+              : credit > 0
+                ? `Credit ${formatRupees(amount)}`
+                : `Paid ahead ${formatRupees(amount)}`}
         </p>
         <p className="mt-2 text-base text-foreground/80">
           {student.status === 'owes'
             ? `Not fully paid for ${plural(owed.length, 'month')}.`
-            : student.status === 'credit'
-              ? `Paid ${formatRupees(amount)} more than was due so far.`
-              : 'Everything due so far has been paid.'}
+            : student.status === 'credit' && credit === 0
+              ? aheadTo
+                ? `Paid ahead to ${formatMonth(aheadTo)}.`
+                : `Paid ${formatRupees(amount)} towards months that aren’t due yet.`
+              : student.status === 'credit'
+                ? `Paid ${formatRupees(amount)} more than was due so far.`
+                : aheadTo
+                  ? `Everything due is paid, and ahead to ${formatMonth(aheadTo)}.`
+                  : 'Everything due so far has been paid.'}
         </p>
       </div>
       {oldest && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-card/80 px-4 py-3">
-          <div>
+          <div className="min-w-0">
             <p className="text-sm font-bold text-muted-foreground">Oldest unpaid</p>
             <p className="text-base font-bold">
               {formatMonth(oldest.month)}{' '}
@@ -458,9 +472,9 @@ function DetailsCard({ student }: { student: StudentDetail }) {
           <span className="text-muted-foreground">
             {' '}
             ·{' '}
-            {student.left_month
-              ? `left after ${formatMonth(student.left_month)}`
-              : `member for ${formatTenure(student.joined_month, student.current_month ?? currentMonth()).toLowerCase()}`}
+            {student.left_month && !student.is_active
+              ? `left after ${formatMonth(student.left_month)} (${formatMonthCount(student.tenure_months)})`
+              : tenurePhrase(student)}
           </span>
         </Detail>
         <Detail label="Class or batch">{student.batch_label ?? <Muted>Not set</Muted>}</Detail>

@@ -16,7 +16,10 @@ describe('dashboard', () => {
 
     it('shows this month, the summary and who is yet to pay', async () => {
       renderApp('/')
-      expect(screen.getByRole('heading', { level: 1, name: 'October 2026' })).toBeInTheDocument()
+      // With no month chosen, the server's current month is shown.
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'October 2026' }),
+      ).toBeInTheDocument()
       const list = await yetToPay()
       expect(list.getByRole('link', { name: 'Kabir Mehta' })).toBeInTheDocument()
       expect(list.getByRole('link', { name: 'Diya Sharma' })).toBeInTheDocument()
@@ -56,7 +59,7 @@ describe('dashboard', () => {
       const dialog = await findDialog('Log a payment')
       expect(dialog.getByRole('combobox', { name: /Student/ })).toHaveTextContent('Kabir Mehta')
       expect(dialog.getByLabelText('Amount')).toHaveValue('1500')
-      expect(dialog.getByLabelText('For month')).toHaveTextContent('October 2026')
+      expect(dialog.getByLabelText(/^For month:/)).toHaveTextContent('October 2026')
       // He also owes September, and the form says so.
       expect(await dialog.findByText('Oldest unpaid: September 2026')).toBeInTheDocument()
 
@@ -81,7 +84,30 @@ describe('dashboard', () => {
       await user.click(list.getByRole('button', { name: 'Log payment for Rohan Kulkarni' }))
       const dialog = await findDialog('Log a payment')
       await user.click(await dialog.findByRole('button', { name: 'Pay July instead' }))
-      expect(dialog.getByLabelText('For month')).toHaveTextContent('July 2026')
+      expect(dialog.getByLabelText(/^For month:/)).toHaveTextContent('July 2026')
+    })
+
+    it('shows a future month calmly: not due yet, nothing owed', async () => {
+      renderApp('/?month=2026-11')
+      expect(
+        await screen.findByRole('heading', { level: 1, name: 'November 2026' }),
+      ).toBeInTheDocument()
+      const summary = within(await screen.findByRole('group', { name: 'Summary' }))
+      expect(summary.getByText('Not due yet')).toBeInTheDocument()
+      expect(summary.queryByText('Still due')).not.toBeInTheDocument()
+      expect(summary.getByText('Nothing to follow up yet')).toBeInTheDocument()
+      const list = within(
+        screen.getByRole('heading', { name: /Not paid ahead yet/ }).closest('section')!,
+      )
+      expect(list.queryByText('Unpaid')).not.toBeInTheDocument()
+      expect(list.getAllByText('Not due yet').length).toBeGreaterThan(0)
+    })
+
+    it('says how much extra someone paid, and in which month', async () => {
+      renderApp('/')
+      const list = await yetToPay()
+      // Aarav owes part of October but paid ₹1,500 too much in March.
+      expect(list.getByText('Paid ₹1,500 extra in Mar 2026')).toBeInTheDocument()
     })
 
     it('moves between months', async () => {

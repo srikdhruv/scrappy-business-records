@@ -3,7 +3,7 @@
  * picks. The trigger looks like an input and shows "October 2026".
  */
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, XIcon } from 'lucide-react'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -15,6 +15,8 @@ const toMonth = (year: number, month: number) => `${year}-${pad(month)}`
 
 export function MonthPicker({
   id,
+  label,
+  current,
   value,
   onChange,
   placeholder = 'Pick a month',
@@ -24,9 +26,12 @@ export function MonthPicker({
   invalid,
   className,
   'aria-describedby': describedBy,
-  'aria-label': ariaLabel,
 }: {
   id?: string
+  /** What the month is for ("For month"). Read out together with the chosen month. */
+  label: string
+  /** The server's current month, marked in the grid. Defaults to the laptop's. */
+  current?: string
   value: string | null
   onChange: (month: string | null) => void
   placeholder?: string
@@ -37,10 +42,12 @@ export function MonthPicker({
   invalid?: boolean
   className?: string
   'aria-describedby'?: string
-  'aria-label'?: string
 }) {
   const [open, setOpen] = useState(false)
-  const now = currentMonth()
+  const now = current ?? currentMonth()
+  const autoId = useId()
+  const buttonId = id ?? `${autoId}-button`
+  const labelId = `${autoId}-label`
   const initialYear = Number((value ?? now).slice(0, 4))
   const [year, setYear] = useState(initialYear)
   const gridRef = useRef<HTMLDivElement>(null)
@@ -92,14 +99,18 @@ export function MonthPicker({
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
+      {/* Read as "For month: October 2026", the label and the current choice. */}
+      <span id={labelId} className="sr-only">
+        {label}: {value ? formatMonth(value) : placeholder}
+      </span>
       <PopoverTrigger asChild>
         <Button
-          id={id}
+          id={buttonId}
           type="button"
           variant="outline"
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
-          aria-label={ariaLabel}
+          aria-labelledby={labelId}
           className={cn(
             'h-11 w-full justify-between bg-card px-3 font-normal hover:bg-card',
             !value && 'text-muted-foreground',

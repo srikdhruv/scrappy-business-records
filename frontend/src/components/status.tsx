@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 
 import type { BalanceStatus, MonthStatus } from '@/api/types'
-import { formatRupees } from '@/lib/format'
+import { formatMonthShort, formatRupees } from '@/lib/format'
 import { balanceLabel, balanceTone, type Tone } from '@/lib/status'
 import { cn } from '@/lib/utils'
 
@@ -95,33 +95,46 @@ export function MonthStatusBadge({
 export function BalanceChip({
   status,
   balancePaise,
+  creditPaise,
   className,
 }: {
   status: BalanceStatus
   balancePaise: number
+  creditPaise: number
   className?: string
 }) {
-  const icon = status === 'up_to_date' ? CheckIcon : undefined
+  const aheadOnly = status === 'credit' && creditPaise === 0
+  const icon = status === 'up_to_date' ? CheckIcon : aheadOnly ? FastForwardIcon : undefined
   return (
     <StatusPill tone={balanceTone(status)} icon={icon} className={className}>
-      {balanceLabel(status, balancePaise)}
+      {balanceLabel(status, balancePaise, creditPaise)}
     </StatusPill>
   )
 }
 
 /**
- * "has ₹300 credit": money paid in an overpaid month, which might have been meant for another
- * month. Shown next to a student who also owes, so the two can be matched up.
+ * "Paid ₹1,500 extra in Feb 2026" (or "₹1,500 paid extra" when the month isn't known): money
+ * paid too much for a month, shown next to a student who also owes, so the two can be matched.
  */
-export function CreditNote({ paise, className }: { paise: number; className?: string }) {
+export function ExtraPaidNote({
+  paise,
+  month,
+  className,
+}: {
+  paise: number
+  month?: string
+  className?: string
+}) {
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-full bg-credit-soft px-2 py-0.5 text-xs font-bold text-credit',
+        'inline-flex max-w-full items-center rounded-full bg-credit-soft px-2 py-0.5 text-xs font-bold text-credit',
         className,
       )}
     >
-      has {formatRupees(paise)} credit
+      {month
+        ? `Paid ${formatRupees(paise)} extra in ${formatMonthShort(month)}`
+        : `${formatRupees(paise)} paid extra`}
     </span>
   )
 }

@@ -56,6 +56,9 @@ export function formatRupees(paise: number): string {
  */
 export const MAX_AMOUNT_PAISE = 100_000_000
 
+/** A month can be set at most this far after the current month (backend `MONTHS_AHEAD`). */
+export const MONTHS_AHEAD = 24
+
 // The whole-rupee part: plain digits, or correctly grouped with commas the Indian way
 // (1,50,000) or the Western way (150,000). Mis-grouped input like "15,00" is rejected, and so is
 // a comma group starting with 0 ("0,500").
