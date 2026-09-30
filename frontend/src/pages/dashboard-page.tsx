@@ -519,7 +519,7 @@ function CreditMoves({ items, month }: { items: CreditMoveItem[]; month: string 
       className="min-w-0"
       title="Extra money used"
       count={items.length}
-      description={`Money paid above a fee pays the oldest month still owed, in or out of ${formatMonth(month)}.`}
+      description={`Money paid above a fee that paid another month, to or from ${formatMonth(month)}.`}
     >
       <ul className="divide-y divide-border/70 border-t border-border/70">
         {items.map((item) => (
