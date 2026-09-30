@@ -6,8 +6,9 @@ attached (`tests/test_feedback.py` checks that no stored record shows up in what
 
 - `install_id()`: a random ID for this copy of the app, made once and kept in the data folder,
   so feedback from the same laptop can be grouped. It says nothing about who uses it.
-- `log_tail()`: the last lines of `server.log`, with the laptop's home folder shortened to `~`
-  and any values a database error might print (`[parameters: ...]`) hidden.
+- `log_tail()`: the last warnings, errors and app notes in `server.log`, with the laptop
+  user's name and home folder hidden (`redact`), and quoted values and the values a database
+  error prints (`[parameters: ...]`) removed.
 - `server_environment()`: app version, build ID, operating system, Python, database revision.
 """
 
@@ -17,6 +18,7 @@ import datetime as dt
 import logging
 import os
 import platform
+import re
 import uuid
 from pathlib import Path
 
@@ -28,6 +30,7 @@ LOG_TAIL_LINES = 200
 LOG_TAIL_MAX_CHARS = 64 * 1024
 LOG_LINE_MAX_CHARS = 500
 _READ_BYTES = 256 * 1024  # enough for 200 long lines, without reading a whole 1 MB log
+_SCAN_LINES = 2000  # how far back to look for lines worth sending
 
 
 # --------------------------------------------------------------------------- install ID
@@ -55,26 +58,92 @@ def install_id() -> str:
 
 # --------------------------------------------------------------------------- log tail
 
+_SEP = r"(?:\\+|/+|%5C|%2F)"
+r"""A path separator as it shows up in text: \, \\ (escaped, as in a Python repr), /, or
+URL-encoded."""
+_USER_DIR = re.compile(
+    rf"(?P<lead>{_SEP}|^|(?<=[\s'\"(=:]))(?P<dir>Users|home|Documents and Settings)"
+    rf"(?P<sep>{_SEP})(?P<name>(?:[^\\/%'\"<>|:*?,;()\r\n]|%20)+)",
+    re.IGNORECASE,
+)
+r"""`C:\Users\<name>`, `/Users/<name>`, `/home/<name>`, 8.3 short names (`ANANYA~1`) too:
+whoever the user is, the folder name after Users/home is hidden."""
+_QUOTED = re.compile(r"""(?P<q>['"])(?:\\.|(?!(?P=q)).)*(?P=q)""")
+_LOG_RECORD = re.compile(
+    r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d+ (?P<level>[A-Z]+)\s+\[\d+\] (?P<name>[\w.]+): "
+)
+_KEEP_LEVELS = {"WARNING", "ERROR", "CRITICAL"}
 
-def _home_variants() -> list[str]:
-    home = str(Path.home())
-    variants = {home, home.replace("\\", "/")}
-    # Windows paths also appear with the drive letter in the other case.
-    variants |= {v[0].swapcase() + v[1:] for v in list(variants) if len(v) > 1 and v[1] == ":"}
-    return sorted((v for v in variants if len(v) > 1), key=len, reverse=True)
+
+def _home_pattern() -> re.Pattern[str] | None:
+    """The home folder in any spelling: any separator form, `:` or `%3A`, any letter case."""
+    home = Path.home()
+    parts = [p for p in re.split(r"[\\/]+", str(home)) if p]
+    if len(parts) < 2:
+        return None
+    escaped = [re.escape(p).replace(":", "(?::|%3A)").replace(r"\ ", "(?: |%20)") for p in parts]
+    lead = "" if re.match(r"^[A-Za-z]:", parts[0]) else _SEP
+    return re.compile(lead + _SEP.join(escaped), re.IGNORECASE)
+
+
+def _names_to_hide() -> list[str]:
+    """This laptop's user name, from the home folder and the environment (at least 3
+    characters, so a short one doesn't eat ordinary words)."""
+    names = {Path.home().name}
+    for var in ("USERNAME", "USER", "LOGNAME"):
+        names.add(os.environ.get(var, ""))
+    return sorted((n for n in names if len(n) >= 3), key=len, reverse=True)
 
 
 def redact(text: str) -> str:
-    """Shorten the home folder (which holds the laptop user's name) to `~`, and hide the values
-    SQLAlchemy prints after a database error (`[parameters: ('Ananya Rao', ...)]`)."""
-    for home in _home_variants():
-        text = text.replace(home, "~")
+    r"""Hide what could name the laptop's user or echo the owner's records:
+
+    - the home folder, in every spelling (\, \\, /, URL-encoded, any letter case), becomes `~`,
+      and any other `Users\<name>` / `/home/<name>` folder (8.3 short names too) becomes
+      `Users\<user>`;
+    - the user's name anywhere else becomes `<user>`;
+    - the values SQLAlchemy prints after a database error (`[parameters: ...]`) are hidden.
+    """
+    home = _home_pattern()
+    if home is not None:
+        text = home.sub("~", text)
+    for name in _names_to_hide():
+        text = re.sub(re.escape(name), "<user>", text, flags=re.IGNORECASE)
+    text = _USER_DIR.sub(
+        lambda m: (
+            f"{m['lead']}{m['dir']}{m['sep']}<user>" if m["name"].lower() != "<user>" else m[0]
+        ),
+        text,
+    )
     lines = []
     for line in text.split("\n"):
         if "[parameters:" in line:
             line = line[: line.index("[parameters:")] + "[parameters: hidden]"
         lines.append(line)
     return "\n".join(lines)
+
+
+def _strip_values(line: str) -> str:
+    """Quoted values in an error message (`invalid literal for int(): 'Ananya'`, a validation
+    error's `'input': '...'`) become `'…'`. Traceback file lines keep their (redacted) path."""
+    if line.lstrip().startswith('File "'):
+        return line
+    return _QUOTED.sub(lambda m: f"{m['q']}…{m['q']}", line)
+
+
+def _worth_sending(lines: list[str]) -> list[str]:
+    """Warnings and errors (with their tracebacks), and the app's own notes (`scrappy`: startup,
+    backups, feedback); not other libraries' chatter. A line that isn't the start of a record
+    belongs to the one before it."""
+    kept: list[str] = []
+    keep = False
+    for line in lines:
+        record = _LOG_RECORD.match(line)
+        if record:
+            keep = record["level"] in _KEEP_LEVELS or record["name"].split(".")[0] == "scrappy"
+        if keep:
+            kept.append(line)
+    return kept
 
 
 def _last_lines(path: Path, count: int) -> list[str]:
@@ -93,16 +162,16 @@ def _last_lines(path: Path, count: int) -> list[str]:
 
 
 def log_tail(count: int = LOG_TAIL_LINES) -> str:
-    """The last `count` lines of `server.log` (reaching into `server.log.1` when the current file
-    has just rotated), redacted, each at most 500 characters, 64 KB at most in all."""
+    """The last `count` lines worth sending from `server.log` (reaching into `server.log.1` when
+    the current file has just rotated): warnings, errors and their tracebacks, and the app's own
+    notes, redacted, quoted values hidden, each at most 500 characters, 64 KB at most in all."""
     current = logs.log_file()
-    lines = _last_lines(current, count)
-    if len(lines) < count:
-        older = current.with_name(current.name + ".1")
-        lines = _last_lines(older, count - len(lines)) + lines
+    older = current.with_name(current.name + ".1")
+    lines = _worth_sending(_last_lines(older, _SCAN_LINES) + _last_lines(current, _SCAN_LINES))
+    lines = lines[-count:] if count > 0 else []
     trimmed = [
         line if len(line) <= LOG_LINE_MAX_CHARS else line[:LOG_LINE_MAX_CHARS] + "…"
-        for line in (redact(line) for line in lines)
+        for line in (_strip_values(redact(line)) for line in lines)
     ]
     text = "\n".join(trimmed)
     if len(text) > LOG_TAIL_MAX_CHARS:

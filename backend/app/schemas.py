@@ -1014,6 +1014,10 @@ class FeedbackClientInfo(_Model):
     )
 
 
+def _path_only(value: str) -> str:
+    return value.split("?")[0].split("#")[0]
+
+
 def _message_required(value: str) -> str:
     if not value:
         raise _field_error("Please write a message")
@@ -1047,8 +1051,11 @@ class FeedbackCreate(_Model):
         AfterValidator(_message_required),
         Field(max_length=5000, description="What the owner wrote. Required."),
     ]
-    route: Annotated[str, _clip(500)] = Field(
-        "", description="The page it was sent from, with its query.", examples=["/students?q=ana"]
+    route: Annotated[str, _clip(500), AfterValidator(_path_only)] = Field(
+        "",
+        description="The page it was sent from: the path only. A query or #fragment (a search "
+        "could hold a name) is dropped.",
+        examples=["/students"],
     )
     client: FeedbackClientInfo = Field(default_factory=FeedbackClientInfo)
     screenshot: Annotated[
