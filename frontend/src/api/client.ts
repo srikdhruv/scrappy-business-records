@@ -20,16 +20,59 @@ export const api = createClient<paths>({
   fetch: (request) => globalThis.fetch(request),
 })
 
-/** An API error with the HTTP status and FastAPI's `detail`. */
+interface ValidationItem {
+  loc?: unknown[]
+  msg?: unknown
+}
+
+/** Pydantic prefixes messages from custom validators with "Value error, ". */
+function cleanMessage(msg: string): string {
+  return msg.replace(/^Value error,\s*/, '')
+}
+
+/**
+ * Turn FastAPI's `detail` into plain messages. `detail` is a string for 404s and similar, and a
+ * list of `{loc, msg, type}` items for 422s (validation and business rules alike).
+ */
+export function errorMessages(detail: unknown): {
+  messages: string[]
+  fields: Record<string, string>
+} {
+  if (typeof detail === 'string') return { messages: [detail], fields: {} }
+  const messages: string[] = []
+  const fields: Record<string, string> = {}
+  if (Array.isArray(detail)) {
+    for (const item of detail as ValidationItem[]) {
+      if (!item || typeof item.msg !== 'string') continue
+      const msg = cleanMessage(item.msg)
+      messages.push(msg)
+      // loc is e.g. ["body", "left_month"]; a whole-body error has no field.
+      const field = Array.isArray(item.loc) ? item.loc.slice(1).join('.') : ''
+      if (field && !(field in fields)) fields[field] = msg
+    }
+  }
+  return { messages, fields }
+}
+
+/**
+ * An API error with the HTTP status, FastAPI's raw `detail`, and readable messages.
+ * `message` is ready to show a person; `fields` maps a field name (e.g. "left_month") to its
+ * message, for showing next to form inputs.
+ */
 export class ApiError extends Error {
   readonly status: number
   readonly detail: unknown
+  readonly messages: string[]
+  readonly fields: Record<string, string>
 
   constructor(status: number, detail: unknown) {
-    super(typeof detail === 'string' ? detail : `Request failed (${status})`)
+    const { messages, fields } = errorMessages(detail)
+    super(messages.length > 0 ? messages.join('. ') : `Something went wrong (error ${status}).`)
     this.name = 'ApiError'
     this.status = status
     this.detail = detail
+    this.messages = messages
+    this.fields = fields
   }
 }
 

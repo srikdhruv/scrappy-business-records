@@ -48,6 +48,20 @@ def test_static_files_are_served(spa_client: TestClient) -> None:
     assert spa_client.get("/favicon.svg").text == "<svg/>"
 
 
+def test_missing_asset_is_404_not_index(spa_client: TestClient) -> None:
+    # e.g. an old JS chunk requested by a tab opened before an update
+    response = spa_client.get("/assets/app-old999.js")
+    assert response.status_code == 404
+    assert INDEX not in response.text
+
+
+def test_head_is_supported(spa_client: TestClient) -> None:
+    for path in ["/", "/students/1", "/assets/app-abc123.js"]:
+        response = spa_client.head(path)
+        assert response.status_code == 200, path
+        assert response.content == b""
+
+
 def test_unknown_api_paths_are_404_json(spa_client: TestClient) -> None:
     response = spa_client.get("/api/does-not-exist")
     assert response.status_code == 404

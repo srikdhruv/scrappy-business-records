@@ -49,26 +49,54 @@ export function formatRupees(paise: number): string {
   return `${sign}₹${groupIndian(String(rupees))}${fraction}`
 }
 
+// The whole-rupee part: plain digits, or correctly grouped with commas the Indian way
+// (1,50,000) or the Western way (150,000). Mis-grouped input like "15,00" is rejected.
+const RUPEES_PLAIN = /^\d+$/
+const RUPEES_INDIAN = /^\d{1,2}(?:,\d{2})*,\d{3}$/
+const RUPEES_WESTERN = /^\d{1,3}(?:,\d{3})+$/
+
 /**
  * Parse what a person types into an amount box into paise.
- * Accepts "1500", "1,500", "1,50,000", "1500.5", "1500.50", "₹ 1,500", " 1500 ".
- * Returns null for anything else (empty, negative, letters, more than 2 decimals).
+ * Accepts "1500", "1,500", "1,50,000", "150,000", "1500.5", "1500.50", ".5", "₹ 1,500", "Rs 200".
+ * Returns null for anything else: empty, negative, letters, more than 2 decimals, commas in the
+ * wrong places ("15,00", "1,5,0"), and 0 — unless `allowZero` is set (e.g. for a fee).
  */
-export function rupeesToPaise(input: string): number | null {
-  const cleaned = input.replace(/[₹,\s]/g, '').replace(/^rs\.?/i, '')
-  const match = /^(\d+)(?:\.(\d{0,2}))?$/.exec(cleaned)
+export function rupeesToPaise(
+  input: string,
+  { allowZero = false }: { allowZero?: boolean } = {},
+): number | null {
+  const cleaned = input
+    .trim()
+    .replace(/^(?:₹|rs\.?|inr)\s*/i, '')
+    .replace(/\s+/g, '')
+  const match = /^([\d,]*)(?:\.(\d{0,2}))?$/.exec(cleaned)
   if (!match) return null
-  const rupees = Number(match[1])
-  const fraction = Number((match[2] ?? '').padEnd(2, '0'))
-  const paise = rupees * 100 + fraction
-  return Number.isSafeInteger(paise) ? paise : null
+  const whole = match[1] ?? ''
+  const decimals = match[2]
+  if (whole === '' && !decimals) return null // "", "." — no digits at all
+  if (
+    whole !== '' &&
+    !RUPEES_PLAIN.test(whole) &&
+    !RUPEES_INDIAN.test(whole) &&
+    !RUPEES_WESTERN.test(whole)
+  ) {
+    return null
+  }
+  const rupees = Number(whole.replace(/,/g, '') || '0')
+  const paise = rupees * 100 + Number((decimals ?? '').padEnd(2, '0'))
+  if (!Number.isSafeInteger(paise)) return null
+  if (paise === 0 && !allowZero) return null
+  return paise
 }
 
 /** Paise -> the plain number to prefill an amount box with: 150000 -> "1500", 150050 -> "1500.50". */
 export function paiseToRupeesInput(paise: number): string {
-  const rupees = Math.floor(paise / 100)
-  const rem = paise % 100
-  return rem === 0 ? String(rupees) : `${rupees}.${String(rem).padStart(2, '0')}`
+  const whole = Math.round(paise)
+  const sign = whole < 0 ? '-' : ''
+  const abs = Math.abs(whole)
+  const rupees = Math.floor(abs / 100)
+  const rem = abs % 100
+  return `${sign}${rupees}${rem === 0 ? '' : `.${String(rem).padStart(2, '0')}`}`
 }
 
 function parseMonth(month: string): { year: number; month: number } {

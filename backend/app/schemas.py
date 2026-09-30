@@ -5,7 +5,7 @@ the names the UI uses. Conventions (see docs/data-model.md):
 
 - Money is integer **paise** in fields ending `_paise`.
 - Months are `"YYYY-MM"` strings (`Month`). Dates are ISO `"YYYY-MM-DD"` (`datetime.date`).
-- Timestamps are UTC.
+- Timestamps are timezone-aware UTC (`UtcDatetime`), serialized with a trailing "Z".
 - Optional text fields turn blank strings into `null`.
 - PATCH bodies are partial: only fields that are sent are changed. Use
   `model.model_fields_set` to tell "not sent" from "sent as null".
@@ -17,10 +17,17 @@ import datetime as dt
 import enum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    model_validator,
+)
 
 from app.models import PaymentMethod
-from app.months import MONTH_PATTERN
+from app.months import MONTH_PATTERN, format_month
 
 __all__ = [
     "BacklogItem",
@@ -64,11 +71,29 @@ def _strip(value: object) -> object:
     return value.strip() if isinstance(value, str) else value
 
 
+def _date_to_month(value: object) -> object:
+    # ORM rows hold months as first-of-month `date`s; the API speaks "YYYY-MM".
+    return format_month(value) if isinstance(value, dt.date) else value
+
+
+def _as_utc(value: dt.datetime) -> dt.datetime:
+    # SQLite stores CURRENT_TIMESTAMP as naive UTC. Mark it as UTC so JSON gets a "Z" suffix.
+    return value.replace(tzinfo=dt.UTC) if value.tzinfo is None else value.astimezone(dt.UTC)
+
+
 Month = Annotated[
     str,
+    BeforeValidator(_date_to_month),
     Field(pattern=MONTH_PATTERN, description='A month as "YYYY-MM".', examples=["2026-10"]),
 ]
-"""A calendar month, e.g. "2026-10"."""
+"""A calendar month, e.g. "2026-10". Also accepts a `date` (from an ORM row) and converts it."""
+
+UtcDatetime = Annotated[
+    dt.datetime,
+    AfterValidator(_as_utc),
+    Field(description="UTC timestamp, e.g. 2026-10-05T09:30:00Z"),
+]
+"""A timestamp, always timezone-aware UTC (serialized with a trailing "Z")."""
 
 Name = Annotated[str, BeforeValidator(_strip), Field(min_length=1, max_length=200)]
 ShortText = Annotated[Annotated[str, Field(max_length=200)] | None, BeforeValidator(_blank_to_none)]
@@ -139,7 +164,12 @@ class HealthResponse(_ReadModel):
 
 
 class ErrorResponse(_ReadModel):
-    """FastAPI's standard error body for 404 and similar errors."""
+    """Error body for 404 (and other non-validation errors): `detail` is a sentence.
+
+    422 responses use FastAPI's `HTTPValidationError` instead, where `detail` is a list of
+    `{loc, msg, type}` items. Business-rule 422s raised by routers use the same list shape (see
+    `app.errors.unprocessable`), so the UI handles one 422 format.
+    """
 
     detail: str
 
@@ -172,6 +202,18 @@ class StudentUpdate(_Model):
     To change the fee, send `monthly_fee_paise`, and optionally `fee_effective_month` (defaults
     to the current month). Earlier months keep their old fee. Send `left_month: null` to
     un-archive a student.
+
+    Edit rules. This model checks what it can on its own. The router checks the rest against the
+    stored student and answers **422** in the standard validation shape (`app.errors`), never a
+    500 from a database CHECK:
+
+    1. **Moving `joined_month`** moves the earliest fee change's `effective_month` with it, so
+       the first owed month always has a fee. If the new joined month is on or after a later
+       fee change, answer 422, because the earliest fee would disappear.
+    2. **`fee_effective_month` before `joined_month`** (the new one if sent, else the stored
+       one) → 422. A fee change for a month that already has one replaces its amount.
+    3. **`left_month`** is checked against `joined_month` (the new one if sent, else the
+       stored one): `left_month < joined_month` → 422.
     """
 
     name: Name | None = None
@@ -225,8 +267,8 @@ class StudentRead(_ReadModel):
         "Negative means they owe; positive means credit."
     )
     status: BalanceStatus
-    created_at: dt.datetime
-    updated_at: dt.datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
 
 class FeeChangeRead(_ReadModel):
@@ -307,8 +349,8 @@ class PaymentRead(_ReadModel):
     for_month: Month
     method: PaymentMethod
     note: str | None
-    created_at: dt.datetime
-    updated_at: dt.datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
 
 # --------------------------------------------------------------------------- dashboard

@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import FileResponse
 
 from app import __version__, config, migrate
@@ -53,8 +53,8 @@ def _add_spa(app: FastAPI, static_dir: Path) -> None:
     root = static_dir.resolve()
     index = root / "index.html"
 
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def spa(full_path: str, request: Request) -> FileResponse:
+    @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+    async def spa(full_path: str) -> FileResponse:
         if full_path == "api" or full_path.startswith("api/"):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Not Found")
         if not index.is_file():
@@ -66,6 +66,10 @@ def _add_spa(app: FastAPI, static_dir: Path) -> None:
             if candidate.is_relative_to(root) and candidate.is_file():
                 cache = _IMMUTABLE if full_path.startswith("assets/") else _NO_CACHE
                 return FileResponse(candidate, headers={"Cache-Control": cache})
+            # A missing build file (e.g. an old JS chunk after an update) must be a real 404.
+            # Answering with index.html would make the browser run HTML as JS: a blank page.
+            if full_path.startswith("assets/"):
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Not Found")
         return FileResponse(index, headers={"Cache-Control": _NO_CACHE})
 
 

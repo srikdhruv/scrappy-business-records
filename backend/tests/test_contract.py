@@ -46,6 +46,34 @@ def test_status_codes(client: TestClient) -> None:
     assert "404" in paths["/api/students/{student_id}"]["get"]["responses"]
 
 
+def test_422_uses_validation_shape_and_404_uses_error_response(client: TestClient) -> None:
+    schema = client.get("/api/openapi.json").json()
+    for path, ops in schema["paths"].items():
+        for method, op in ops.items():
+            if (method, path) == ("get", "/api/health"):
+                continue  # takes no input, so it can't fail validation
+            ref = op["responses"]["422"]["content"]["application/json"]["schema"]["$ref"]
+            assert ref.endswith("/HTTPValidationError"), (method, path)
+            if "404" in op["responses"]:
+                ref404 = op["responses"]["404"]["content"]["application/json"]["schema"]["$ref"]
+                assert ref404.endswith("/ErrorResponse"), (method, path)
+
+
+def test_validation_error_body(client: TestClient) -> None:
+    response = client.post(
+        "/api/students",
+        json={
+            "name": "Kabir Mehta",
+            "monthly_fee_paise": 1,
+            "joined_month": "2026-05",
+            "left_month": "2026-04",
+        },
+    )
+    assert response.status_code == 422
+    [item] = response.json()["detail"]
+    assert "left_month cannot be before joined_month" in item["msg"]
+
+
 NOT_YET_IMPLEMENTED = [
     ("get", "/api/students", None),
     ("get", "/api/students/1", None),

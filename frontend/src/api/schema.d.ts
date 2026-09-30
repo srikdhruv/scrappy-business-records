@@ -271,7 +271,11 @@ export interface components {
         };
         /**
          * ErrorResponse
-         * @description FastAPI's standard error body for 404 and similar errors.
+         * @description Error body for 404 (and other non-validation errors): `detail` is a sentence.
+         *
+         *     422 responses use FastAPI's `HTTPValidationError` instead, where `detail` is a list of
+         *     `{loc, msg, type}` items. Business-rule 422s raised by routers use the same list shape (see
+         *     `app.errors.unprocessable`), so the UI handles one 422 format.
          */
         ErrorResponse: {
             /** Detail */
@@ -450,11 +454,13 @@ export interface components {
             /**
              * Created At
              * Format: date-time
+             * @description UTC timestamp, e.g. 2026-10-05T09:30:00Z
              */
             created_at: string;
             /**
              * Updated At
              * Format: date-time
+             * @description UTC timestamp, e.g. 2026-10-05T09:30:00Z
              */
             updated_at: string;
         };
@@ -555,11 +561,13 @@ export interface components {
             /**
              * Created At
              * Format: date-time
+             * @description UTC timestamp, e.g. 2026-10-05T09:30:00Z
              */
             created_at: string;
             /**
              * Updated At
              * Format: date-time
+             * @description UTC timestamp, e.g. 2026-10-05T09:30:00Z
              */
             updated_at: string;
             /**
@@ -630,11 +638,13 @@ export interface components {
             /**
              * Created At
              * Format: date-time
+             * @description UTC timestamp, e.g. 2026-10-05T09:30:00Z
              */
             created_at: string;
             /**
              * Updated At
              * Format: date-time
+             * @description UTC timestamp, e.g. 2026-10-05T09:30:00Z
              */
             updated_at: string;
         };
@@ -645,6 +655,18 @@ export interface components {
          *     To change the fee, send `monthly_fee_paise`, and optionally `fee_effective_month` (defaults
          *     to the current month). Earlier months keep their old fee. Send `left_month: null` to
          *     un-archive a student.
+         *
+         *     Edit rules. This model checks what it can on its own. The router checks the rest against the
+         *     stored student and answers **422** in the standard validation shape (`app.errors`), never a
+         *     500 from a database CHECK:
+         *
+         *     1. **Moving `joined_month`** moves the earliest fee change's `effective_month` with it, so
+         *        the first owed month always has a fee. If the new joined month is on or after a later
+         *        fee change, answer 422, because the earliest fee would disappear.
+         *     2. **`fee_effective_month` before `joined_month`** (the new one if sent, else the stored
+         *        one) → 422. A fee change for a month that already has one replaces its amount.
+         *     3. **`left_month`** is checked against `joined_month` (the new one if sent, else the
+         *        stored one): `left_month < joined_month` → 422.
          */
         StudentUpdate: {
             /** Name */

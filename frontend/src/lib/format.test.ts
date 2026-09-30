@@ -40,20 +40,64 @@ describe('rupeesToPaise', () => {
     ['₹ 1,500', 150000],
     ['Rs. 200', 20000],
     ['  750  ', 75000],
-    ['0', 0],
     ['0.05', 5],
+    ['.5', 50],
+    ['.05', 5],
+    ['150,000', 15000000],
+    ['1,234,567', 123456700],
+    ['12,34,567', 123456700],
+    ['1,00,00,000.50', 1000000050],
+    ['₹1,500', 150000],
   ])('%s -> %i', (input, expected) => {
     expect(rupeesToPaise(input)).toBe(expected)
   })
 
-  it.each(['', ' ', 'abc', '-100', '1.234', '1.2.3', '12a', '.5'])('rejects %j', (input) => {
+  it.each([
+    '',
+    ' ',
+    '.',
+    'abc',
+    '-100',
+    '1.234',
+    '1.2.3',
+    '12a',
+    '15,00',
+    '1,5,0',
+    ',500',
+    '1500,',
+    '1,,500',
+    '12,3456',
+    '1,500,00',
+  ])('rejects %j', (input) => {
     expect(rupeesToPaise(input)).toBeNull()
   })
 
+  it('rejects zero unless allowed', () => {
+    expect(rupeesToPaise('0')).toBeNull()
+    expect(rupeesToPaise('0.00')).toBeNull()
+    expect(rupeesToPaise('0', { allowZero: true })).toBe(0)
+    expect(rupeesToPaise('0.00', { allowZero: true })).toBe(0)
+  })
+
   it('round-trips with paiseToRupeesInput', () => {
-    for (const paise of [0, 5, 150000, 150050, 99999999]) {
+    for (const paise of [5, 50, 150000, 150050, 99999999]) {
       expect(rupeesToPaise(paiseToRupeesInput(paise))).toBe(paise)
     }
+    expect(rupeesToPaise(paiseToRupeesInput(0), { allowZero: true })).toBe(0)
+  })
+})
+
+describe('paiseToRupeesInput', () => {
+  it.each([
+    [0, '0'],
+    [50, '0.50'],
+    [150000, '1500'],
+    [150050, '1500.50'],
+    [-150, '-1.50'],
+    [-50, '-0.50'],
+    [-150000, '-1500'],
+  ])('%i -> %s', (paise, expected) => {
+    expect(paiseToRupeesInput(paise)).toBe(expected)
   })
 })
 
