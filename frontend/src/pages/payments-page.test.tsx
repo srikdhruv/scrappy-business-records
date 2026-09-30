@@ -20,18 +20,22 @@ function column(header: string): string[] {
   )
 }
 
+/** Queries scoped to the table's heading row (cheap, unlike role queries over every row). */
+function header() {
+  return within(screen.getByRole('table').querySelector('thead')!)
+}
+
 const rupees = (s: string) => Number(s.replace(/[₹,]/g, ''))
 
 describe('payments page', () => {
   it('lists every payment, newest first, with a total', async () => {
     renderApp('/payments')
-    const t = await table()
+    await table()
     const paidOn = column('Paid on')
     expect(paidOn).toHaveLength(mockDb.payments.length)
     expect(paidOn[0]).toBe('15 Oct 2026')
     const total = mockDb.payments.reduce((sum, p) => sum + p.amount_paise, 0) / 100
-    const footer = t.getAllByRole('row').at(-1)!
-    expect(footer.closest('tfoot')).not.toBeNull()
+    const footer = screen.getByRole('table').querySelector('tfoot tr')!
     expect(footer).toHaveTextContent(`${mockDb.payments.length} payments`)
     expect(footer).toHaveTextContent(`₹${total.toLocaleString('en-IN')}`)
   })
@@ -39,24 +43,24 @@ describe('payments page', () => {
   it('sorts by clicking the column headings', async () => {
     const user = userEvent.setup()
     renderApp('/payments')
-    const t = await table()
+    await table()
 
-    await user.click(t.getByRole('button', { name: 'Amount' }))
-    const header = t.getByRole('columnheader', { name: /Amount/ })
+    await user.click(header().getByRole('button', { name: 'Amount' }))
+    const amountHeading = header().getByRole('columnheader', { name: /Amount/ })
     const sorted = column('Amount').map(rupees)
-    const direction = header.getAttribute('aria-sort')
+    const direction = amountHeading.getAttribute('aria-sort')
     expect(direction).toMatch(/ascending|descending/)
     const expected = [...sorted].sort((a, b) => (direction === 'ascending' ? a - b : b - a))
     expect(sorted).toEqual(expected)
 
-    await user.click(t.getByRole('button', { name: 'Amount' }))
+    await user.click(header().getByRole('button', { name: 'Amount' }))
     const flipped = column('Amount').map(rupees)
     expect(flipped).toEqual([...expected].reverse())
 
-    await user.click(t.getByRole('button', { name: 'Student' }))
+    await user.click(header().getByRole('button', { name: 'Student' }))
     const names = column('Student')
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)))
-    expect(t.getByRole('columnheader', { name: /Student/ })).toHaveAttribute(
+    expect(header().getByRole('columnheader', { name: /Student/ })).toHaveAttribute(
       'aria-sort',
       'ascending',
     )

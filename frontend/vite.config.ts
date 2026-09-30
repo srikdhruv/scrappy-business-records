@@ -58,5 +58,7 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     css: false,
+    // Whole-page tests render real tables of ~250 rows in jsdom; CI machines need headroom.
+    testTimeout: 20_000,
   },
 })
