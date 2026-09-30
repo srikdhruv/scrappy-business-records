@@ -5,7 +5,7 @@
 - `main` is always releasable. Whatever is on `main` can be tagged and installed on a real laptop.
 - **Features and fixes come in through pull requests.** Branch from `main` (`feat/…`, `fix/…`,
   `chore/…`, `docs/…`) and open a PR. CI must be green before merging. Prefer squash-merge.
-- Documentation-only changes may be committed straight to `main` while the project is young.
+- `main` is protected: every change, docs included, goes through a pull request.
 - Keep PRs focused: one feature or one infra change per PR.
 
 ## Before you open a PR
