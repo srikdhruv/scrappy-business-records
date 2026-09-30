@@ -72,7 +72,8 @@ function Move-ScrappyFolder([string]$From, [string]$To) {
 
 function Stop-ScrappyProcesses([string]$Root) {
     # Only processes started from our own folders: never someone else's Python.
-    $prefixes = @('app', 'app.new', 'app.old') | ForEach-Object { (Join-Path $Root $_) + '\' }
+    # app\, app.new\, and app.old\ (or app.old-<time>\) left over from an earlier update.
+    $prefixes = @('app\', 'app.new\', 'app.old') | ForEach-Object { Join-Path $Root $_ }
     $procs = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
         $path = $null
         try { $path = $_.Path } catch { }
@@ -237,7 +238,11 @@ function Install-ScrappyRecords {
         $newVersion = (Get-Content -LiteralPath (Join-Path $newDir 'VERSION') -TotalCount 1).Trim()
 
         Write-ScrappyStep "Installing version $newVersion..."
-        Remove-ScrappyFolder $oldDir
+        # A copy left over from an earlier update that couldn't be deleted (say, an antivirus
+        # scan held a file) must not block this one: set it aside under another name.
+        Get-ChildItem -LiteralPath $InstallRoot -Directory -Filter 'app.old*' -ErrorAction SilentlyContinue |
+            ForEach-Object { Remove-ScrappyFolder $_.FullName -BestEffort }
+        if (Test-Path -LiteralPath $oldDir) { $oldDir = "$oldDir-$(Get-Date -Format 'yyyyMMddHHmmss')" }
         if (Test-Path -LiteralPath $appDir) { Move-ScrappyFolder $appDir $oldDir }
         try {
             Move-ScrappyFolder $newDir $appDir
