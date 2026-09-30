@@ -152,8 +152,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--reason", choices=("manual", "pre-update"), default="manual")
     args = parser.parse_args(argv)
-    if sys.stderr is not None:
-        logging.basicConfig(level=logging.INFO, format="%(message)s")
+    if sys.stderr is not None:  # show warnings, e.g. about falling back to data/backups
+        logging.basicConfig(level=logging.WARNING, format="%(message)s")
     try:
         target = backup(args.reason)
     except Exception as exc:
