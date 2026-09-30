@@ -2,6 +2,7 @@
 
     python db_probe.py insert <records.db> <name>   # add a student called <name>
     python db_probe.py check  <records.db> <name>   # exit 0 if that student exists, else 1
+    python db_probe.py valid  <records.db>          # exit 0 if it's a sound copy of our database
 
 Talks to SQLite directly because the smoke tests must not depend on API endpoints that other
 pull requests are still building.
@@ -12,9 +13,15 @@ import sys
 
 
 def main() -> int:
-    action, db, name = sys.argv[1:4]
+    action, db = sys.argv[1:3]
+    name = sys.argv[3] if len(sys.argv) > 3 else ""
     conn = sqlite3.connect(db)
     try:
+        if action == "valid":
+            ok = conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
+            print(f"{db}: integrity {'ok' if ok else 'BAD'}, tables: {sorted(tables)}")
+            return 0 if ok and "students" in tables else 1
         if action == "insert":
             with conn:
                 conn.execute(

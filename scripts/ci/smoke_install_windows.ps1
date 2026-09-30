@@ -165,8 +165,10 @@ try {
     Wait-Health | Out-Null
     Assert-Student $database
     $daily = Join-Path $backups ('records-{0}.db' -f (Get-Date -Format 'yyyy-MM-dd'))
+    # Taken by the first start that found a database (before the student was added), so just
+    # check it's a sound copy. The pre-update backup below proves the contents.
     if (-not (Test-Path $daily)) { Fail "no daily backup at $daily" }
-    Assert-Student $daily
+    if ((Invoke-Program $python "`"$probe`" valid `"$daily`"") -ne 0) { Fail "$daily is not a sound copy" }
 
     Step 'Reinstall (the update path) while the app is running, with the -Param form'
     $oldServer = (Get-ServerProcesses)[0].Id

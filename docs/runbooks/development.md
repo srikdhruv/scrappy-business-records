@@ -151,7 +151,7 @@ install folder it checks, in order:
    writes `server.log`.
 4. Two launchers started at the same moment, from another folder, start exactly one server.
 5. A student added straight into `records.db` (the bundled Python's `sqlite3`) survives a
-   restart, and today's daily backup exists and contains it.
+   restart, and today's daily backup exists and is a sound SQLite copy.
 6. Re-running the installer with the app running (the update path, `-Param` form, launching the
    app) stops the old server, takes a pre-update backup containing the student, keeps the data,
    and leaves no `app.new` or `app.old` behind.
