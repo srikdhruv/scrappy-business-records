@@ -38,8 +38,13 @@ version tag.
 5. Watch the whole workflow go green in the Actions tab. The release page must show the new
    version as **Latest**, with both assets. (The check can be re-run by hand: Actions →
    Post-release check → Run workflow, with `mode` `latest` or `tagged`.)
-6. Update the user's laptop: follow [update.md](update.md), or ask them to run the install line
-   again.
+6. **Check it on a real Windows laptop.** This is required before the owner's first install,
+   and after any release that changes the installer, launcher or backups; otherwise it's
+   optional. Follow [release-acceptance-test.md](release-acceptance-test.md): a 10-minute
+   checklist that a person does, since no automated test can reach a real laptop. Record the
+   result in its table.
+7. Update the owner's laptop: follow [update.md](update.md), or ask them to run the install line
+   again. For the very first install, follow [install-windows.md](install-windows.md).
 
 If the tests, a bundle or a smoke test fail, nothing is published. If a check fails, the
 release stays (or goes back to being) a prerelease that users never get. Either way: fix the
