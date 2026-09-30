@@ -180,7 +180,8 @@ messages instead of showing a box, which would otherwise wait for a click.
    builds the Alembic config in code and doesn't depend on the working directory). Migrations
    run with SQLite foreign keys **off**, because rebuilding a table with them on would
    cascade-delete its payments. They run in **one transaction**, and are rolled back if
-   `PRAGMA foreign_key_check` finds any broken references afterwards.
+   `PRAGMA foreign_key_check` finds any broken references afterwards. Migrations only add (see
+   "Data safety" below).
 4. Serve requests.
 
 The server's version (in `/api/health`) comes from the installed package metadata. If that's
@@ -240,6 +241,31 @@ How `scripts/build_bundle.py` (`make package`) builds it:
    virtualenv, PATH cut down to the system's own folders), checks that `import app` finds the
    bundle's copy from another folder, then starts `python -m app` and checks `/api/health` and
    the UI.
+
+## Data safety
+
+The owner's data is never lost ([ADR 0004](adr/0004-data-is-never-lost.md)):
+
+- **Updates never touch the data folder.** The installer replaces only `app\`; `data\` stays.
+- **Migrations only add**, with defaults: new tables, nullable or defaulted columns, indexes and
+  constraints. No drops, renames, type changes, or SQL that deletes or updates rows. SQLite's
+  batch table rebuild is allowed, because it copies every row (with foreign keys off, and a
+  rollback if a link breaks; see "Lifecycle"). CI's *Data safety* job scans every migration
+  (`scripts/ci/check_migrations_only_add.py`). An exception needs the owner's explicit approval,
+  a backup and a tested data-keeping migration, and is marked in the migration with
+  `# data-safety: approved by owner — <reason>`.
+- **Computed values may change between versions; stored entries don't.** The ledger's rules can
+  change what is shown as owed or paid ahead; they never rewrite what the owner typed.
+- **Every release's data upgrades intact, tested.** `backend/tests/fixtures/releases/` has one
+  sample database per release, made by that release's own code
+  (`scripts/make_release_fixture.py`), with a manifest of every row.
+  `backend/tests/test_release_upgrades.py` upgrades each one through the real startup (backups,
+  `alembic upgrade head`, foreign-key check) and checks that every row and value is unchanged,
+  that the pre-migration backup holds the old data, that the API serves all of it, and that
+  going back down to the release's revision and up again keeps it. It runs once with today's
+  migrations and once with a pretend next migration that rebuilds `students`, so the
+  "upgrade needed" path is always exercised. The release workflow refuses to publish a version
+  if the previous release has no sample.
 
 ## Security and privacy
 

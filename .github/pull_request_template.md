@@ -27,7 +27,10 @@
 
 - [ ] `make fmt`, `make lint` and `make test` pass
 - [ ] `make gen-api` run and `frontend/src/api/schema.d.ts` committed, if the API changed
-- [ ] A migration added, if the database models changed (never edit a released one)
+- [ ] A migration added, if the database models changed (never edit a released one). It only
+      adds, with defaults, or the owner has explicitly approved the exception
+      (`docs/adr/0004-data-is-never-lost.md`)
+- [ ] Nothing the owner entered is rewritten: only computed values change
 - [ ] Feature guide (`docs/feature-guide.md`) updated, with new pictures if a screen changed
       noticeably, or this PR doesn't change what the user sees
 - [ ] Other docs updated if they no longer match (`daily-use.md`, the PRD, the data model)

@@ -68,7 +68,8 @@ backend/
     launcher.py      Desktop-shortcut entry point: health check, start the server, open the browser
     backup.py        Daily / pre-update / pre-migration backups, also `python -m app.backup`
     logs.py          Rotating logs/server.log (set up first thing by `python -m app`)
-  tests/             pytest; conftest.py points SCRAPPY_HOME at a temp folder
+  tests/             pytest; conftest.py points SCRAPPY_HOME at a temp folder;
+                     fixtures/releases/ holds each release's sample database (ADR 0004)
 frontend/src/
   main.tsx, App.tsx  Entry and router
   routes.tsx         Every client route (/, /payments, /students, /students/:id)
@@ -96,8 +97,12 @@ scripts/
   make_icon.py       Draws the app icon (scrappy.ico / scrappy.png) at build time
   install.ps1        Windows installer and updater (`irm ... | iex`)
   install.sh         macOS installer and updater (`curl ... | sh`)
-  ci/                Install smoke tests CI runs on Windows and macOS (+ db_probe.py), and
-                     check_feature_guide.py (the *Feature guide* PR check)
+  make_release_fixture.py  After a release: its sample database, made by that release's code
+  release_fixture_populate.py  The fictional data it fills in (through the release's own API)
+  ci/                Install smoke tests CI runs on Windows and macOS (+ db_probe.py),
+                     check_feature_guide.py (the *Feature guide* PR check),
+                     check_migrations_only_add.py (*Data safety*), and
+                     check_release_fixture.py (the release gate)
 ```
 
 ## Frontend conventions
@@ -183,6 +188,28 @@ The app runs migrations itself at startup through `app.migrate.upgrade_to_head()
 the Alembic config in code, so it works from any install folder.
 
 **Never edit a released migration.** Add a new one instead.
+
+**Migrations only add** ([ADR 0004](../adr/0004-data-is-never-lost.md)): new tables, new columns
+that are nullable or have a `server_default`, indexes and constraints. Check with
+`python3 scripts/ci/check_migrations_only_add.py` (CI's *Data safety* job runs it). It flags, in
+`upgrade()`: `drop_table`, `drop_column`, renaming a table or column, `alter_column` changing a
+type or making a column required, adding a required column with no default, SQL containing
+DELETE, UPDATE, DROP, RENAME, REPLACE or TRUNCATE (or SQL it can't read), and
+`batch_alter_table(copy_from=...)`. A plain `batch_alter_table` is fine: its table copy keeps
+every row. Only if the owner has explicitly approved an exception (with a backup and a test
+proving the data is kept), mark the line, or the top of the file for the whole migration:
+
+```python
+op.drop_table("old_imports")  # data-safety: approved by owner — empty since 0.3, agreed 2026-11-02
+```
+
+**Every release's data must upgrade.** `tests/test_release_upgrades.py` upgrades the sample
+database of every release (`tests/fixtures/releases/`) through the real startup and checks every
+row. If your change stores a new kind of data (a new table or field), also add it to
+`scripts/release_fixture_populate.py`, guarded with `api.has(...)` so older tags still work, so
+the next release's sample covers it. Regenerate a sample with
+`python3 scripts/make_release_fixture.py <tag>` (see the [release runbook](release.md)); never
+edit one by hand.
 
 ## Adding an API endpoint
 

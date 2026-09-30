@@ -247,4 +247,7 @@ full.
 - **Durability:**
   - A daily backup is kept in *Documents*, for 30 days.
   - A backup is taken before every update and every schema migration.
+  - Updates never change or remove what the owner entered: the database layout only grows,
+    and every release's saved data is tested to upgrade intact
+    ([ADR 0004](../adr/0004-data-is-never-lost.md)).
 - **Startup:** the app is usable within about 5 seconds of double-clicking the shortcut.

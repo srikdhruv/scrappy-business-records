@@ -1321,7 +1321,9 @@ Open their profile and look at **Month by month** to see which month shows as ow
   Explorer. See [Backups and restore](runbooks/backup-and-restore.md).
 - **Updating.** Paste the same one line you installed with. The installer closes the app, saves
   a backup, swaps in the new version and opens it. Your data is never touched, and if the new
-  version needs to upgrade the records it takes one more backup first. See
+  version needs to upgrade the records it takes one more backup first. An update only ever adds
+  to how records are kept: what you typed in is never changed or removed, and before each new
+  version is released it's checked against records saved by every earlier version. See
   [Updating](runbooks/update.md). The version you have is at the bottom of the side menu.
 - **Deleting is for good.** Deleted payments and students can't be brought back from inside
   the app, which is why it always asks first. The daily backup is the safety net: see
