@@ -385,7 +385,8 @@ class StudentRead(_ReadModel):
         "and including the current month) that is Unpaid or Partial."
     )
     paid_ahead_paise: NonNegativePaise = Field(
-        description="Money paid for months after the current month (not due yet; not credit)."
+        description="Money paid for months after the current month that they're still enrolled "
+        "in (not due yet; not credit). Months after left_month count as credit instead."
     )
     credit_paise: NonNegativePaise = Field(
         description="Money in overpaid months up to this month: the sum of max(0, paid - "
@@ -394,8 +395,9 @@ class StudentRead(_ReadModel):
     )
     tenure_months: int = Field(
         ge=0,
-        description="How long they have been a student, in whole months: from joined_month to "
-        "the current month (or left_month, if earlier). 0 in the month they join or before.",
+        description="How long they have been a student, in months. Still coming: whole months "
+        "since joined_month (0 in the joining month or before). Left (left_month before the "
+        "current month): the months enrolled, both ends counted (left_month - joined_month + 1).",
     )
     current_month: Month = Field(
         description="The server's current month, which every number here is worked out for."

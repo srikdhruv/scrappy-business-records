@@ -406,3 +406,36 @@ test('pressing Enter or clicking Save twice saves only one payment', async ({ pa
   expect(await paymentCount(request, id)).toBe(1)
   expect(await paymentCount(request, otherId)).toBe(1)
 })
+
+test('a payment for a month after leaving is flagged, never "paid ahead"', async ({
+  page,
+  request,
+}) => {
+  const now = await serverMonth(request)
+  const [joined, last] = [addMonths(now, -2), addMonths(now, -1)]
+  const name = uniqueName('Wamiqa')
+  const id = await createStudent(request, {
+    name,
+    monthly_fee_paise: 150000,
+    joined_month: joined,
+    left_month: last,
+  })
+  await pay(request, { student_id: id, amount_paise: 150000, for_month: joined })
+  // Meant for their last month, but logged for next month by mistake.
+  await pay(request, { student_id: id, amount_paise: 150000, for_month: addMonths(now, 1) })
+
+  await page.goto(`/students/${id}`)
+  const balance = page.getByRole('region', { name: 'Balance' })
+  await expect(balance.getByText(/^Owes ₹1,500/)).toBeVisible()
+  await expect(balance.getByText(`₹1,500 paid for ${MONTH_SHORT(addMonths(now, 1))}`)).toBeVisible()
+  await expect(
+    balance.getByText(`after they left — was it for ${formatMonth(last).slice(0, 3)}?`, {
+      exact: false,
+    }),
+  ).toBeVisible()
+  await expect(balance.getByText(/Paid ahead/)).toHaveCount(0)
+  // Two months enrolled, both counted.
+  await expect(
+    page.getByText(`left after ${formatMonth(last)} (2 mo)`, { exact: false }),
+  ).toBeVisible()
+})

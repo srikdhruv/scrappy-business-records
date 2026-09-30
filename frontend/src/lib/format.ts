@@ -170,21 +170,3 @@ export function addMonths(month: string, n: number): string {
 export function monthsBetween(from: string, to: string): number {
   return monthIndex(to) - monthIndex(from)
 }
-
-/**
- * How long someone has been a student, counted in calendar months from the month they joined.
- * formatTenure("2025-07", "2026-10") -> "1 yr 3 mo"; "2026-06" -> "4 mo"; same month ->
- * "New this month". `now` may be a Date or a "YYYY-MM" month (defaults to today).
- */
-export function formatTenure(joinedMonth: string, now: Date | string = new Date()): string {
-  const nowMonth = typeof now === 'string' ? now : currentMonth(now)
-  const months = monthsBetween(joinedMonth, nowMonth)
-  if (months < 0) return `Starts ${formatMonth(joinedMonth)}`
-  if (months === 0) return 'New this month'
-  const years = Math.floor(months / 12)
-  const rest = months % 12
-  const parts: string[] = []
-  if (years > 0) parts.push(`${years} ${years === 1 ? 'yr' : 'yrs'}`)
-  if (rest > 0) parts.push(`${rest} mo`)
-  return parts.join(' ')
-}

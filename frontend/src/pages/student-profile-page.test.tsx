@@ -130,6 +130,46 @@ describe('student profile', () => {
     expect(balance.getByText('Paid ₹1,500 extra in Sep 2026')).toBeInTheDocument()
   })
 
+  it('treats a payment for a month after leaving as extra, not "paid ahead"', async () => {
+    // June to August, then left; paid June and July, and then ₹1,500 "for November".
+    const student = mockDb.createStudent({
+      name: 'Pari Test',
+      monthly_fee_paise: 150000,
+      joined_month: '2026-06',
+      left_month: '2026-08',
+    })
+    for (const month of ['2026-06', '2026-07', '2026-11']) {
+      mockDb.createPayment({
+        student_id: student.id,
+        amount_paise: 150000,
+        paid_on: '2026-10-01',
+        for_month: month,
+        method: 'upi',
+      })
+    }
+    renderApp(`/students/${student.id}`)
+    const balance = within(await screen.findByRole('region', { name: 'Balance' }))
+    expect(balance.getByText(/^Owes ₹1,500/)).toBeInTheDocument()
+    expect(balance.getByText('(Aug)')).toBeInTheDocument()
+    expect(balance.getByText('₹1,500 paid for Nov 2026')).toBeInTheDocument()
+    expect(balance.getByText(/after they left — was it for Aug\?/)).toBeInTheDocument()
+    expect(balance.queryByText(/Paid ahead/)).not.toBeInTheDocument()
+    // Three months enrolled, June to August.
+    expect(screen.getByText(/left after August 2026 \(3 mo\)/)).toBeInTheDocument()
+  })
+
+  it('says "No payments yet" rather than "₹0 across 0 payments"', async () => {
+    const student = mockDb.createStudent({
+      name: 'Rudra Test',
+      monthly_fee_paise: 0,
+      joined_month: '2026-10',
+    })
+    renderApp(`/students/${student.id}`)
+    const balance = within(await screen.findByRole('region', { name: 'Balance' }))
+    expect(balance.getByText('No payments yet.')).toBeInTheDocument()
+    expect(balance.queryByText(/across 0 payments/)).not.toBeInTheDocument()
+  })
+
   it('changes the fee from a chosen month, keeping earlier months', async () => {
     const user = userEvent.setup()
     const id = idOf('Ananya Rao')

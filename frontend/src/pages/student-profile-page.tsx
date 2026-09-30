@@ -332,12 +332,16 @@ function BalanceCard({
   /** Undefined while the payments are still loading. */
   onFix?: (month: string) => void
 }) {
-  const overpaid = student.months.filter((m) => m.is_due && m.status === 'overpaid')
+  const afterLeft = (month: string) => student.left_month !== null && month > student.left_month
+  // Money paid too much: due months, and any month after they left (even a later one).
+  const overpaid = student.months.filter(
+    (m) => m.status === 'overpaid' && (m.is_due || afterLeft(m.month)),
+  )
   const credit = student.credit_paise
   const tone = balanceTone(student.status)
-  // Paid ahead: the last month, after this one, that's paid in full without a gap.
+  // Paid ahead: the last month, after this one and still enrolled, paid in full without a gap.
   let aheadTo: string | undefined
-  for (const m of student.months.filter((m) => !m.is_due)) {
+  for (const m of student.months.filter((m) => !m.is_due && !afterLeft(m.month))) {
     if (m.status !== 'paid' && m.status !== 'overpaid') break
     aheadTo = m.month
   }
@@ -428,10 +432,25 @@ function BalanceCard({
             {overpaid.map((m) => (
               <li key={m.month} className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-base">
-                  <span className="font-bold">{formatMonth(m.month)}</span>{' '}
-                  <span className="text-muted-foreground tabular-nums">
-                    · {formatRupees(m.paid_paise)} paid for a {formatRupees(m.expected_paise)} fee
-                  </span>
+                  {afterLeft(m.month) ? (
+                    // Nothing is owed after leaving: this was probably meant for another month.
+                    <>
+                      <span className="font-bold tabular-nums">
+                        {formatRupees(m.paid_paise)} paid for {formatMonthShort(m.month)}
+                      </span>
+                      <span className="text-muted-foreground">
+                        , after they left{oldest ? ` — was it for ${abbr(oldest.month)}?` : '.'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-bold">{formatMonth(m.month)}</span>{' '}
+                      <span className="text-muted-foreground tabular-nums">
+                        · {formatRupees(m.paid_paise)} paid for a {formatRupees(m.expected_paise)}{' '}
+                        fee
+                      </span>
+                    </>
+                  )}
                 </span>
                 <Button
                   variant="outline"
@@ -451,8 +470,9 @@ function BalanceCard({
         </div>
       )}
       <p className="text-sm text-muted-foreground">
-        {formatRupees(student.total_paid_paise)} paid in total, across{' '}
-        {plural(student.payment_count, 'payment')}.
+        {student.payment_count === 0
+          ? 'No payments yet.'
+          : `${formatRupees(student.total_paid_paise)} paid in total, across ${plural(student.payment_count, 'payment')}.`}
       </p>
     </section>
   )
@@ -561,7 +581,8 @@ function MonthHistory({
       <TableBody>
         {rows.map((m) => {
           const owes = m.is_due && (m.status === 'unpaid' || m.status === 'partial')
-          const extra = m.is_due && m.status === 'overpaid'
+          const afterLeaving = student.left_month !== null && m.month > student.left_month
+          const extra = (m.is_due || afterLeaving) && m.status === 'overpaid'
           return (
             <TableRow key={m.month} className={cn(extra && 'bg-credit-soft/40')}>
               <TableCell className="pl-6 font-semibold">{formatMonth(m.month)}</TableCell>
@@ -573,13 +594,13 @@ function MonthHistory({
               </TableCell>
               <TableCell>
                 <div className="flex flex-wrap items-center gap-2">
-                  <MonthStatusBadge status={m.status} isDue={m.is_due} />
+                  <MonthStatusBadge status={m.status} isDue={m.is_due || afterLeaving} />
                   {m.is_due && m.status === 'partial' && (
                     <span className="text-sm text-muted-foreground tabular-nums">
                       {formatRupees(m.remaining_paise)} left
                     </span>
                   )}
-                  {m.is_due && m.status === 'overpaid' && (
+                  {extra && (
                     <span className="text-sm text-muted-foreground tabular-nums">
                       {formatRupees(m.excess_paise)} extra
                     </span>

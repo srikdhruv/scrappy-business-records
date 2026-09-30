@@ -80,6 +80,9 @@ Earlier months keep the old fee.
   owe for a month, the box says **Owes** first, with a note such as "Paid ₹500 extra in Jul
   2026", so you can match the two up. Paying early for months that haven't started yet is
   different: that shows as **Paid ahead**, and there is nothing to fix.
+- **Paid for a month after they left:** that can't be right (they owe nothing then), so the
+  profile says so, for example "₹1,500 paid for Oct 2026, after they left — was it for Jul?".
+  Click **Edit payment** and change its month.
 - **Student added by mistake:** open their profile and click **Delete**. This also deletes their
   payments, and the app will ask you to confirm first.
 

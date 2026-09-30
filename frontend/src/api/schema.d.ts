@@ -581,7 +581,7 @@ export interface components {
             owed_paise: number;
             /**
              * Paid Ahead Paise
-             * @description Money paid for months after the current month (not due yet; not credit).
+             * @description Money paid for months after the current month that they're still enrolled in (not due yet; not credit). Months after left_month count as credit instead.
              */
             paid_ahead_paise: number;
             /**
@@ -591,7 +591,7 @@ export interface components {
             credit_paise: number;
             /**
              * Tenure Months
-             * @description How long they have been a student, in whole months: from joined_month to the current month (or left_month, if earlier). 0 in the month they join or before.
+             * @description How long they have been a student, in months. Still coming: whole months since joined_month (0 in the joining month or before). Left (left_month before the current month): the months enrolled, both ends counted (left_month - joined_month + 1).
              */
             tenure_months: number;
             /**
@@ -685,7 +685,7 @@ export interface components {
             owed_paise: number;
             /**
              * Paid Ahead Paise
-             * @description Money paid for months after the current month (not due yet; not credit).
+             * @description Money paid for months after the current month that they're still enrolled in (not due yet; not credit). Months after left_month count as credit instead.
              */
             paid_ahead_paise: number;
             /**
@@ -695,7 +695,7 @@ export interface components {
             credit_paise: number;
             /**
              * Tenure Months
-             * @description How long they have been a student, in whole months: from joined_month to the current month (or left_month, if earlier). 0 in the month they join or before.
+             * @description How long they have been a student, in months. Still coming: whole months since joined_month (0 in the joining month or before). Left (left_month before the current month): the months enrolled, both ends counted (left_month - joined_month + 1).
              */
             tenure_months: number;
             /**

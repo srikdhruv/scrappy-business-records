@@ -307,29 +307,49 @@ def owed(student: StudentRecord, current_month: dt.date) -> int:
     )
 
 
+def _after_leaving(student: StudentRecord, month: dt.date) -> bool:
+    return student.left_month is not None and month > student.left_month
+
+
 def paid_ahead(student: StudentRecord, current_month: dt.date) -> int:
-    """Money paid for months after the current month (rule 5: not due yet, not credit)."""
-    return sum(paid for m, paid in student.paid_by_month.items() if m > current_month)
+    """Money paid for months after the current month that the student is still enrolled in
+    (rule 5: not due yet, not credit). A payment for a month after they leave isn't paying
+    ahead: it is credit (see `credit`)."""
+    return sum(
+        paid
+        for m, paid in student.paid_by_month.items()
+        if m > current_month and not _after_leaving(student, m)
+    )
 
 
 def credit(student: StudentRecord, current_month: dt.date) -> int:
     """Money in overpaid months: the sum of max(0, paid - expected) over months up to and
-    including the current month. That includes payments for months the student isn't active
-    in. Payments for later months are "paid ahead", not credit."""
+    including the current month, including months the student isn't enrolled in (before
+    joining, after leaving). Plus anything paid for a month after they leave, even a later
+    one: they owe nothing then, so it was most likely meant for another month. Payments for
+    later months they are still enrolled in are "paid ahead", not credit."""
     return sum(
         max(0, paid - student.expected(m))
         for m, paid in student.paid_by_month.items()
-        if m <= current_month
+        if m <= current_month or _after_leaving(student, m)
     )
 
 
 def tenure_months(student: StudentRecord, current_month: dt.date) -> int:
-    """How long they have been a student, in whole months: from `joined_month` to the current
-    month (or to `left_month`, if earlier). 0 in the month they join, or if they haven't joined
-    yet. Joined in August, now September: 1."""
-    last = current_month if student.left_month is None else min(current_month, student.left_month)
-    elapsed = (last.year - student.joined_month.year) * 12 + last.month - student.joined_month.month
-    return max(0, elapsed)
+    """How long they have been (or were) a student, in months.
+
+    - Still coming: whole months since joining, `current_month - joined_month`. Joined in
+      August, now September: 1. 0 in the joining month, or if they haven't joined yet.
+    - Left (`left_month` before the current month): the months they were enrolled, both ends
+      counted, `left_month - joined_month + 1`. March to June: 4; joined and left in May: 1.
+    """
+
+    def months(a: dt.date, b: dt.date) -> int:
+        return (b.year - a.year) * 12 + b.month - a.month
+
+    if student.left_month is not None and student.left_month < current_month:
+        return max(0, months(student.joined_month, student.left_month) + 1)
+    return max(0, months(student.joined_month, current_month))
 
 
 def history_range(student: StudentRecord, current_month: dt.date) -> list[dt.date]:

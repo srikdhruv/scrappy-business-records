@@ -6,7 +6,9 @@ import {
   isStillActive,
   ledgerMonths,
   monthStatus,
+  paidAheadPaise,
   suggestPayment,
+  tenureMonths,
   type StudentBook,
 } from './ledger'
 
@@ -99,6 +101,25 @@ describe('mock ledger', () => {
       amount_paise: null,
       reason: 'all_paid',
     })
+  })
+
+  it('counts tenure like the backend', () => {
+    const b = (joined: string, left: string | null) =>
+      book({ joined_month: joined, left_month: left }).student
+    expect(tenureMonths(b('2026-09', null), NOW)).toBe(1) // joined last month
+    expect(tenureMonths(b('2026-10', null), NOW)).toBe(0) // new this month
+    expect(tenureMonths(b('2026-03', '2026-06'), NOW)).toBe(4) // left: both ends counted
+    expect(tenureMonths(b('2026-05', '2026-05'), NOW)).toBe(1)
+    expect(tenureMonths(b('2026-03', '2026-10'), NOW)).toBe(7) // leaving after now: elapsed
+  })
+
+  it('counts a payment for a month after leaving as credit, not paid ahead', () => {
+    const b = book({ joined_month: '2026-07', left_month: '2026-08' }, [
+      ['2026-07', 1500],
+      ['2026-12', 1500],
+    ])
+    expect(paidAheadPaise(b, NOW)).toBe(0)
+    expect(creditPaise(b, NOW)).toBe(150000)
   })
 
   it('is active until the left month has passed (rule 8)', () => {

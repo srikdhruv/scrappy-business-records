@@ -58,6 +58,10 @@ export interface StudentBook {
   payments: PaymentRow[]
 }
 
+/** A month after the student's last month (a payment for it can't be for that month). */
+const afterLeaving = (student: StudentRow, month: string) =>
+  student.left_month !== null && month > student.left_month
+
 /** Rule 1: active from joined_month up to and including left_month. */
 export function isActive(student: StudentRow, month: string): boolean {
   return (
@@ -155,7 +159,9 @@ export function owedPaise(book: StudentBook, now: string): number {
 /** Money paid for months after the current one (backend `paid_ahead`). */
 export function paidAheadPaise(book: StudentBook, now: string): number {
   let ahead = 0
-  for (const [m, p] of paidByMonth(book.payments)) if (m > now) ahead += p
+  for (const [m, p] of paidByMonth(book.payments)) {
+    if (m > now && !afterLeaving(book.student, m)) ahead += p
+  }
   return ahead
 }
 
@@ -217,18 +223,28 @@ export function suggestPayment(book: StudentBook, now: string): SuggestedPayment
   return { for_month: null, amount_paise: null, reason: 'all_paid' }
 }
 
-/** Months they have been a student: joined_month to the current (or left) month, both counted. */
-/** Whole months since joining (to now, or to leaving): joined August, now September -> 1. */
+/**
+ * Backend `tenure_months`. Still coming: whole months since joining (joined August, now
+ * September -> 1). Left before now: months enrolled, both ends counted (March to June -> 4).
+ */
 export function tenureMonths(student: StudentRow, now: string): number {
-  const last = student.left_month !== null && student.left_month < now ? student.left_month : now
-  return Math.max(0, monthsBetween(student.joined_month, last))
+  const { joined_month, left_month } = student
+  if (left_month !== null && left_month < now) {
+    return Math.max(0, monthsBetween(joined_month, left_month) + 1)
+  }
+  return Math.max(0, monthsBetween(joined_month, now))
 }
 
-/** Money paid in overpaid due months (paid > expected, up to the current month). */
+/**
+ * Backend `credit`: extra paid for months up to now (all of it, for months they weren't
+ * enrolled in), plus anything paid for a month after they left, even a later one.
+ */
 export function creditPaise(book: StudentBook, now: string): number {
   let credit = 0
   for (const [month, p] of paidByMonth(book.payments)) {
-    if (month <= now) credit += Math.max(0, p - expectedFor(book, month))
+    if (month <= now || afterLeaving(book.student, month)) {
+      credit += Math.max(0, p - expectedFor(book, month))
+    }
   }
   return credit
 }

@@ -199,23 +199,28 @@ the edges.
 - **Months after the current month** get the same status rule as any other (for example
   `paid` when paid ahead in full, `unpaid` when not), with `is_due: false`. They never count
   as owed and never appear in *Backlog* or *Overpaid*. A payment for one adds to
-  `paid_ahead_paise` (and the net `balance_paise`), never to `credit_paise`.
+  `paid_ahead_paise` (and the net `balance_paise`), unless the month is after `left_month`:
+  then it adds to `credit_paise` instead.
 - **`status`** (PRD ledger rule 6) is `owes` if `owed_paise > 0`, else `credit` if
   `credit_paise > 0`, else `up_to_date` (`ledger.standing_status`). **`owed_paise`** is the
   sum of `remaining_paise` over due months (active months up to and including the current
-  month). **`paid_ahead_paise`** is the money paid for months after the current month.
+  month). **`paid_ahead_paise`** is the money paid for months after the current month that the
+  student is still enrolled in (not after `left_month`).
   **`balance_paise`** is the net `sum(payments) − sum(expected for due months)`; it is kept for
   reference, but the UI never uses it for a headline, because money paid ahead or paid twice
   can cancel out a month still owed.
-- **`credit_paise`** (PRD ledger rule 10) is the money in overpaid months: the sum of
-  `max(0, paid − expected)` over months up to and including the current month, including
-  payments for months the student isn't enrolled in. It is shown next to students who still
+- **`credit_paise`** (PRD ledger rule 10) is the sum of `max(0, paid − expected)` over months
+  up to and including the current month, including months the student isn't enrolled in
+  (there, all of a payment is extra), plus everything paid for a month after `left_month`,
+  even a later one. It is shown next to students who still
   owe (the students list, the profile, and the dashboard's *Yet to pay* and *Backlog*) so the
   owner can move the payment to the right month. Payments are never moved or split
   automatically.
-- **`tenure_months`** is how long they have been a student, in whole months: the current month
-  (or `left_month`, if earlier) minus `joined_month`. Joined in August, now September: 1. It is
-  0 in the joining month and before it (the UI then says "New this month" or "Starts …").
+- **`tenure_months`** is how long they have been (or were) a student. Still coming: whole
+  months since joining, `current_month − joined_month` (joined in August, now September: 1; 0
+  in the joining month and before it, when the UI says "New this month" or "Starts …"). Left
+  (`left_month` before the current month): the months enrolled, both ends counted,
+  `left_month − joined_month + 1` (March to June: 4; joined and left in May: 1).
 - **Current fee (`monthly_fee_paise`)** is the fee in effect this month, or in `joined_month`
   for a student who hasn't joined yet.
 - **`is_active`** (and the `status=active|left` filter) is the PRD's ledger rule 8: true while
