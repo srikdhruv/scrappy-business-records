@@ -106,6 +106,15 @@ describe('students page', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe(`/students/${id}`))
   })
 
+  it('opens someone who has left with Enter too, though the list shows Active', async () => {
+    const user = userEvent.setup()
+    const { router } = renderApp('/students')
+    await studentRows()
+    await user.type(screen.getByRole('searchbox', { name: 'Search students' }), 'malhotra{Enter}')
+    const id = mockDb.students.find((s) => s.name === 'Dev Malhotra')!.id
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/students/${id}`))
+  })
+
   it('says when the filters hide someone who matches', async () => {
     const user = userEvent.setup()
     renderApp('/students')

@@ -12,6 +12,7 @@ Copies are saved automatically to **`Documents\ScrappyRecords Backups`**:
 | Once a day: when the app starts, and at midnight (or on waking) while it runs | `records-2026-10-05.db` | 30 days |
 | Before an update | `records-pre-update-20261005-101500.db` | Kept until you delete it |
 | Before a database upgrade | `records-pre-migration-20261005-101500.db` | Kept until you delete it |
+| Before turning labels into batches ("Create batches from existing labels") | `records-pre-batches-20261005-101500.db` | Kept until you delete it |
 | When someone takes one by hand | `records-manual-20261005-101500.db` | Kept until you delete it |
 
 The daily backup is taken when the app starts, and the running app takes the next one itself

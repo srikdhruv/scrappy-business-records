@@ -150,9 +150,12 @@ export function StudentsTable({
   }, [])
 
   const onSearchKey = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter' && needle && shown[0]) {
+    // The first row; if the filters hide everyone who matches, the first match anyway (someone
+    // who has left, say), so Enter always finds who was typed.
+    const first = shown[0] ?? sortStudents(matching, sort.key, sort.dir, byId)[0]
+    if (event.key === 'Enter' && needle && first) {
       event.preventDefault()
-      void navigate(`/students/${shown[0].id}`)
+      void navigate(`/students/${first.id}`)
     } else if (event.key === 'Escape' && search) {
       event.preventDefault()
       setSearch('')

@@ -114,7 +114,7 @@ test('a new fee applies from the chosen month; earlier months keep the old fee',
   await expect(page.getByText(`₹1,500 from ${MONTH_SHORT(start)}`)).toBeVisible()
 })
 
-test('mark as left moves the student to the Left tab', async ({ page, request }) => {
+test('mark as left shows the student under Left', async ({ page, request }) => {
   const now = await serverMonth(request)
   const name = uniqueName('Omkar')
   const id = await createStudent(request, {

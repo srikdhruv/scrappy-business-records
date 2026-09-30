@@ -4,7 +4,8 @@
  * Runs the real app (the same FastAPI app and built UI as `python -m app`, through
  * scripts/guide_server.py) three times, each on a free port with its own throwaway data folder:
  * one with the fictional demo data (`app.seed`),
- * one empty (the first-run screen), and a copy of the demo data that is changed and then stopped
+ * one empty (the first-run screen, then students with only an old label, for turning labels
+ * into batches), and a copy of the demo data that is changed and then stopped
  * (a fee change already scheduled, Undo, "leaving", a payment after leaving, extra kept as credit,
  * and the "Can't reach Scrappy Records" banner). The last demo pictures mark a student who left as coming again.
  * Nothing here touches ./.devdata or a real install.
@@ -280,15 +281,102 @@ await page.waitForTimeout(400)
 await shot('payments-delete-confirm', page.getByRole('alertdialog'), 0)
 await escape()
 
-// ---- Students -------------------------------------------------------------------------------
+// ---- Students and batches -------------------------------------------------------------------
+const batchesDemo = await api(demo, '/batches')
+const batchOf = (name) => {
+  const b = batchesDemo.find((x) => x.name === name)
+  if (!b) throw new Error(`No demo batch called ${name}`)
+  return b.id
+}
+const choose = async (label, option) => {
+  await page.getByRole('combobox', { name: new RegExp(`^${label}:`) }).click()
+  await page.getByRole('option', { name: option }).click()
+  await page.waitForTimeout(300)
+}
+const studentsPanel = () =>
+  page.locator('section').filter({ has: page.getByRole('heading', { name: /^All students/ }) })
+const tableRows = (n) => page.getByRole('table').getByRole('row').nth(n)
+
 await open(demo, '/students')
+await page.locator(':focus').blur()
 await shot('students')
-await page.getByRole('tab', { name: /Left/ }).click()
-await page.waitForTimeout(300)
-await shot('students-left-tab', page.locator('main section').first())
+await shot('students-tabs', page.getByRole('navigation', { name: 'Batches' }), 6)
+await shot('batch-card', page.getByRole('article', { name: 'Mon/Wed Evening' }), 6)
+await studentsPanel().scrollIntoViewIfNeeded()
+await shot('students-table', [studentsPanel().locator('h2'), tableRows(5)])
+await choose('Group by', 'Batch')
+await shot('students-grouped', [studentsPanel().locator('h2'), tableRows(4)])
+await choose('Group by', 'No groups')
+await choose('Show', /^Left/)
+await shot('students-left-tab', [studentsPanel().locator('h2'), tableRows(1)])
+await open(demo, '/students')
+await page.getByRole('button', { name: 'New batch' }).click()
+await page.waitForTimeout(400)
+await shot('batch-new', dialog(), 0)
+await escape()
+await page.getByRole('button', { name: 'Delete Saturday Morning' }).click()
+await page.waitForTimeout(400)
+await shot('batch-delete-confirm', page.getByRole('alertdialog'), 0)
+await escape()
 await header().getByRole('button', { name: 'New student' }).click()
 await page.waitForTimeout(400)
 await shot('student-new', dialog(), 0)
+await dialog()
+  .getByRole('combobox', { name: /^Batch:/ })
+  .click()
+await page.waitForTimeout(400)
+await shot('student-batch-picker', [dialog(), popover()], 0)
+await escape()
+await escape()
+
+await open(demo, `/students/batch/${batchOf('Mon/Wed Evening')}`)
+await shot('batch-tab')
+await page.getByRole('button', { name: 'Add student' }).first().click()
+await page.waitForTimeout(500)
+await shot('student-new-in-batch', dialog(), 0)
+await escape()
+await page.getByRole('button', { name: 'Edit batch' }).click()
+await page.waitForTimeout(400)
+await page.locator('#batch-fee').fill('1800')
+await page.getByRole('checkbox').check()
+await page.waitForTimeout(300)
+await shot('batch-edit-fee', dialog(), 0)
+await escape()
+
+// A narrow window: the main menu moves to the top, and the batches become one dropdown.
+await page.setViewportSize({ width: 800, height: 700 })
+await open(demo, `/students/batch/${batchOf('Mon/Wed Evening')}`)
+await page.getByRole('combobox', { name: 'Batch' }).click()
+await page.waitForTimeout(400)
+await shot('students-narrow')
+await escape()
+await page.setViewportSize({ width: 1280, height: 900 })
+
+// Before batches: students with only a label ("Class or batch"). The empty server is used,
+// since its first-run picture is already taken.
+for (const [name, label] of [
+  ['Ananya Rao', 'Mon/Wed 5pm – Koramangala'],
+  ['Kabir Mehta', 'mon/wed 5PM – Koramangala'],
+  ['Meera Iyer', 'Mon/Wed 5pm – Koramangala'],
+  ['Diya Nair', 'Sat 10am – Jayanagar Studio'],
+  ['Arjun Menon', 'Sat 10am – Jayanagar Studio'],
+]) {
+  await api(empty, '/students', {
+    method: 'POST',
+    body: JSON.stringify({
+      name,
+      monthly_fee_paise: 150000,
+      joined_month: now,
+      batch_label: label,
+    }),
+  })
+}
+await open(empty, '/students')
+await page.locator(':focus').blur()
+await shot('students-no-batches', page.locator('section[aria-labelledby="batches-heading"]'))
+await page.getByRole('button', { name: 'Create batches from existing labels' }).click()
+await page.waitForTimeout(400)
+await shot('convert-labels', dialog(), 0)
 await escape()
 
 // ---- Profiles -------------------------------------------------------------------------------

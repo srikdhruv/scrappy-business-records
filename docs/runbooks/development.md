@@ -60,9 +60,10 @@ backend/
     migrate.py       Run Alembic from code (no alembic.ini, no CWD assumptions)
     openapi_dump.py  Print the OpenAPI JSON (used by `make gen-api`)
     services/        ledger.py: pure business rules (dues, statuses, dashboard), no I/O;
-                     students.py, payments.py, dashboard.py: the database work routers call;
+                     students.py, payments.py, dashboard.py, batches.py: the database work
+                     routers call;
                      bounds.py (input limits), text.py (case- and accent-insensitive matching)
-    routers/         health, students, payments, dashboard
+    routers/         health, students, payments, dashboard, batches
     migrations/      Alembic env.py and versions/ (ships inside the package)
     static/          Built UI (git-ignored; `make build`)
     launcher.py      Desktop-shortcut entry point: health check, start the server, open the browser
@@ -72,18 +73,22 @@ backend/
                      fixtures/releases/ holds each release's sample database (ADR 0004)
 frontend/src/
   main.tsx, App.tsx  Entry and router
-  routes.tsx         Every client route (/, /payments, /students, /students/:id)
+  routes.tsx         Every client route (/, /payments, /students, /students/batch/:batchId,
+                     /students/:id)
   providers.tsx      QueryClient, tooltips, Log payment, toasts
   api/               schema.d.ts (generated), types.ts (what the UI imports), client.ts
                      (openapi-fetch), queries.ts (hooks)
   pages/             Dashboard, Payments, Students, StudentProfile (+ their tests)
   components/        App building blocks: log-payment (the form), student-form, payments-table,
                      month-picker, student-combobox, mark-left and come-back dialogs, status
-                     badges; layout/; ui/ (shadcn/ui)
+                     badges; batches/ (tabs, cards, batch form, labels to batches, the
+                     students table, the batch picker); layout/; ui/ (shadcn/ui)
   lib/format.ts      ₹, date and month formatting (the only place that formats them)
   lib/errors.ts      Plain-words messages for API errors, including "Can't reach Scrappy Records"
   lib/search.ts      The student search both lists use (words in any order, accents, phones)
   lib/fees.ts        Reading a fee history: the fee in a month, and "until …" sentences
+  lib/batches.ts     Batches in words ("Mon, Wed · 5:00–6:00 pm"), and the students table's
+                     filters, sorting and grouping
   mocks/             The mock API (MSW) for `make dev-mock` and the tests. Never in the build
   index.css          Theme tokens (CSS variables) and Tailwind setup
   styles/            theme.test.ts checks the text contrast of the theme tokens
@@ -170,6 +175,9 @@ student as left, credit and paid-ahead, deleting with confirmation, and a server
 message shown next to its field. `e2e/fixes.spec.ts` covers the fixes made before v0.1.0:
 coming back after leaving, a scheduled fee change (and removing it), a month off set in
 advance, Enter after clicking Cash, the Students search, the amount cap and the Paid on sort.
+`e2e/batches.spec.ts` covers batches: creating one, adding a student from its tab with the fee
+filled in, its % paid after a payment, filtering and grouping, deleting a batch, and turning
+labels into batches.
 Each test sets up its own students through the API, relative to
 the server's current month. The first run needs a browser: `cd frontend && npx playwright install
 chromium`. CI's `e2e` job runs the same thing, with the browser cached.

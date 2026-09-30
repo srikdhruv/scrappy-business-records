@@ -16,7 +16,7 @@ no Docker, no database server and no separate web server.
 │                            ▼                                               │
 │  ┌──────────── pythonw.exe -m app  (uvicorn, 127.0.0.1:8765) ───────────┐  │
 │  │  FastAPI                                                             │  │
-│  │   ├─ /api/health, /api/students, /api/payments, /api/dashboard       │  │
+│  │   ├─ /api/health, /students, /payments, /dashboard, /batches         │  │
 │  │   ├─ services/ledger.py  (pure business rules: dues, statuses)       │  │
 │  │   ├─ SQLAlchemy ──► sqlite3 (built into Python) ──► data/records.db  │  │
 │  │   └─ /  → static/ (built React app, index.html fallback)             │  │

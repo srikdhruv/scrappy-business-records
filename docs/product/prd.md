@@ -43,12 +43,23 @@ can open the app and see who is left to pay.
    - underpayments, where extra money went, and any extra kept as credit.
 5. **Payments page.** Every payment, sortable and filterable.
 6. **Students page.** Every student, with a status and how long they have been a student.
+   Found fast: search as you type (Enter opens the first match), sort, filter and group.
+7. **Batches.** The classes students come to. See [Batches](#batches).
+   - Create, edit and delete batches. A batch has a name (unique, ignoring capitals and
+     spaces), and optionally a location, the days it meets, start and end times, a **usual
+     monthly fee** and notes.
+   - Each student is in **one batch or none** ("No batch").
+   - The Students page has a tab per batch, across the top (the main menu runs down the side),
+     plus *All batches* and *No batch*; a dropdown on a narrow window.
+   - For a chosen month, each batch shows its students, their fees, what's collected and a
+     **% paid**.
+   - The old free-text class labels can be turned into batches, in one step the owner confirms.
 
 ### Not in the MVP
 
-See [future-features.md](future-features.md). In short: locations, batches, bank-statement
-import, notifications, reminders, attendance, instructor payouts, analytics, and a Start Menu
-entry.
+See [future-features.md](future-features.md). In short: locations as records of their own
+(with an address), a student in more than one batch, instructors, bank-statement import,
+notifications, reminders, attendance, instructor payouts, analytics, and a Start Menu entry.
 
 ## User stories
 
@@ -70,6 +81,12 @@ entry.
 | P5 | log a payment worth two months (or more) once | the extra pays the months still owed without me splitting it |
 | D4 | look at a different month | I can check the past |
 | D5 | log a payment straight from the dashboard | following up is one click |
+| B1 | create my batches, with their place, days, times and usual fee | my students are grouped the way I teach |
+| B2 | add a student to a batch with its fee filled in, and move a student to another batch | adding someone takes seconds, and a discount is still possible |
+| B3 | see, for any month, how much of each batch's fees is paid (100% when everyone has) | I know which batch to follow up with |
+| B4 | turn the class labels I typed before into batches, after seeing what will happen | I don't have to place every student by hand |
+| B5 | find any student in a keystroke or two, and sort, filter and group everyone by batch, place, day or status | I never hunt for a name |
+| B6 | change a batch's usual fee, and choose whether its students pay it too, from a month | nobody's fee changes by surprise |
 
 ## Data captured
 
@@ -77,10 +94,21 @@ entry.
 - Name (required).
 - Phone (optional).
 - Parent/guardian name (optional).
-- Class/batch label (optional free text, e.g. "Tue/Thu 5pm – Indiranagar").
+- Batch (optional): the batch they're in, or none.
+- Class/batch label (optional free text, e.g. "Tue/Thu 5pm – Indiranagar"): what was typed
+  before batches existed. Kept exactly as typed; the form only shows it for a student who has
+  one.
 - Monthly fee (required).
 - Joined month (required; defaults to this month).
 - Left month (optional).
+- Notes.
+
+**Batch**
+- Name (required, unique ignoring capitals and spaces).
+- Location (optional free text).
+- Days (any of Monday to Sunday).
+- Start and end time (optional, `HH:MM`; the end after the start).
+- Usual monthly fee (optional): prefills the fee of a new student in the batch.
 - Notes.
 
 **Payment**
@@ -245,6 +273,30 @@ These rules decide every number the app shows.
     would make every month away owed. If they came back after all, use this step from the
     month after they left (so nothing is skipped), then set a new left month if needed.
 
+### Batches
+
+1. **One batch or none.** A student is in at most one batch at a time. Deleting a batch never
+   deletes a student: its students are then in no batch.
+2. **The usual fee only prefills.** Every student keeps their own fee (discounts, siblings, a
+   free place). Changing a batch's usual fee changes no student's fee by itself. The owner may
+   tick *Also charge it to …*, which lists exactly which students change (those in the batch,
+   not left, on the old usual fee; everyone in it if there was none) and from which month, and
+   records an ordinary fee change for each (rule 7). Someone who joins after that month gets it
+   from their joining month; if the month falls in their months away (rule 11), it starts from
+   the month they came back.
+3. **A batch's numbers for month M** are the Dashboard's summary (rules 1–5 and 10), worked out
+   over the batch's students only: students active in M, expected, collected (or paid ahead,
+   for a later M), still due and not fully paid. **% paid** = (expected − still due) /
+   expected, rounded down, so it is 100% only when every fee in the batch is fully paid; none
+   when nothing is expected. The batch is the one each student is in **now** (a move to another
+   batch takes their past months with them; batch history isn't kept). Every batch plus "No
+   batch" adds up to the Dashboard.
+4. **Labels to batches.** Students in no batch whose label isn't blank are grouped by label,
+   ignoring capitals, accents and spaces. Each group becomes a batch named after its most
+   common spelling (or goes into the existing batch of that name). A preview shows every group
+   and student; nothing changes until the owner confirms. Then, after a backup, it is done in
+   one transaction. Labels are never changed. Running it again does nothing.
+
 ### Dashboard for a selected month M
 
 | Section | Contents |
@@ -273,6 +325,11 @@ money used** and *Overpaid* is called **Extra kept as credit** (plain words). Th
 - ₹ in Indian grouping (₹1,50,000). Dates like "5 Oct 2026". Months like "October 2026".
 - Every destructive action asks for confirmation and says what will happen.
 - The **+ Log payment** button is visible on every page.
+- **Two directions, never confused.** The main menu runs down the left side; the Students
+  page's batch tabs run across the top. On a narrow window, where the menu moves to the top,
+  the batches are one dropdown instead of a second row of tabs.
+- **Finding a student is instant.** Search as you type on the Students page (and "/" to get
+  there), Enter opens the first match, and one click opens any profile.
 - Works well at laptop widths (1280–1920px) and is still usable on a small window.
 
 ## Non-functional requirements

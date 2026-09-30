@@ -13,13 +13,19 @@ When picking one up, write a short spec in `docs/product/` and link it here.
 The owner runs several **locations**. Each has several **batches** (a day/time slot, sometimes
 taught by a hired instructor), and each batch has several students.
 
-- `locations`: name, address.
-- `batches`: location, name, days of the week, start and end time, instructor, standard monthly
-  fee.
-- `enrollments`: student ↔ batch, start and end month, optional **per-student fee override**
-  (discounts, siblings).
-- A student in two batches owes both fees.
-- Filter the dashboard and grid by location and batch. Group "Yet to pay" by location, then
+**Built** (PRD scope item 7, [Batches](prd.md#batches)): `batches` with a name, a free-text
+location, days, start and end time, a usual monthly fee (it only prefills a new student's fee)
+and notes; each student in one batch or none (`students.batch_id`); batch tabs, cards with each
+batch's % paid for a month, and turning the old `batch_label` text into batches.
+
+Still open:
+
+- `locations` as their own records: name, address (today a batch's location is free text).
+- An **instructor** per batch (and, later, instructor payouts).
+- `enrollments`: student ↔ batch, with start and end months, so **a student can be in two
+  batches** (and owe both fees), and a move to another batch keeps the months before it in the
+  old batch (today a batch's numbers use the batch each student is in now).
+- Filter the Dashboard and the grid by location and batch. Group "Yet to pay" by location, then
   batch.
 - **"Excused / on break" months:** mark a student as not owing for a specific month (holiday,
   injury) without archiving them. A cheap first version could reuse what *Mark as coming
@@ -28,9 +34,10 @@ taught by a hired instructor), and each batch has several students.
   "Taking a break" button would ask for the months off and write exactly those two fee
   changes; the profile would then show those months as "On a break" rather than "No fee".
   Until then, the guide's month-off steps do the same by hand with two fee changes.
-- **Migration path from the MVP:**
-  - Each student's free-text `batch_label` becomes a suggestion when creating batches.
-  - `students.monthly_fee` history maps to an enrollment fee override.
+- **Migration path from here:**
+  - Each student's `batch_id` becomes one enrollment, from their joining month.
+  - Each student's own fee history (`fee_changes`) stays the fee they owe, as now (the batch's
+    usual fee only ever prefilled it).
 
 ## 2. Month-by-month grid
 
