@@ -27,8 +27,8 @@ When everyone has paid, you'll see **Everyone's paid for** the month 🎉.
 ## When someone pays you
 
 1. Click **+ Log payment** at the top right. It's there on every page.
-2. Start typing the student's name (or their phone number), and pick them from the list with
-   the arrow keys and **Enter** (or click their name).
+2. Start typing the student's name (or their phone number, with or without spaces), and pick
+   them from the list with the arrow keys and **Enter** (or click their name).
 3. Check the **Amount** and **For month**. They're filled in with the oldest month the student
    still owes (the form says, for example, "Oldest unpaid: August 2026"). If they're paid up,
    it's the next month they haven't paid for. You can change both.
@@ -69,7 +69,9 @@ Changed your mind? Before that month, click **Mark as staying**.
 1. Open their profile (**Students** → **Left** tab → their name).
 2. Click **Mark as coming again**.
 3. **Which month are they back from?** This month is filled in; change it if needed.
-4. Click **Mark as coming again**.
+4. Check **Monthly fee from then** (their old fee is filled in), and change it if their fee is
+   different now.
+5. Click **Mark as coming again**.
 
 The months they were away show **No fee**, and nothing is owed for them. They owe their fee
 again from the month they're back.

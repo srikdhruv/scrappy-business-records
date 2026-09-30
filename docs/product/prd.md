@@ -110,20 +110,22 @@ These rules decide every number the app shows.
    So a payment for a month the student isn't active in (before joining, after leaving) is
    **Overpaid** by its full amount.
 5. **Months that count as due.** Only months up to and including the **current month** count as
-   owed. A payment for a future month is "paid ahead" and is not an overpayment: future months
-   never appear in *Backlog* or *Overpaid*, and aren't credit (rule 10). They are shown as
-   **Paid ahead**.
+   owed. A payment for a future month they're enrolled in is "paid ahead", **up to that
+   month's fee**: future months never appear in the dashboard's *Backlog* or *Overpaid*, and
+   they are shown as **Paid ahead**. Anything paid above a future month's fee (all of it, in a
+   month with a ₹0 fee, such as a month away) is credit (rule 10), shown as **Paid extra**.
 6. **Standing.** What a student is shown as, overall (the students list and the profile):
    - **Owes ₹X** if any due month (an active month up to the current month) is Unpaid or
      Partial. ₹X is the sum of what's left on those months (`owed_paise`). Money paid ahead or
      paid too much for another month never cancels this out, because payments are kept exactly
      as typed (rule 10).
-   - Otherwise **Credit ₹X** if there is credit (`credit_paise`, rule 10): money paid too
-     much for a month up to the current month, including months they weren't enrolled in
-     (before joining, after leaving), plus anything paid for a month after they left.
+   - Otherwise **Credit ₹X** if there is credit (`credit_paise`, rule 10): money paid above
+     a month's fee, in any month, including months they weren't enrolled in (before joining,
+     after leaving) and months with a ₹0 fee.
    - Otherwise **Up to date**.
 
-   Money paid ahead (for later months they're still enrolled in) is shown next to the
+   Money paid ahead (for later months they're still enrolled in, up to each month's fee) is
+   shown next to the
    standing ("Paid ahead to Nov 2026"). The net
    figure `sum(all payments) − sum(expected for due months)` is still returned as
    `balance_paise`, for reference, but no headline uses it: a net 0 can hide months still owed
@@ -153,12 +155,13 @@ These rules decide every number the app shows.
 
    It never suggests a month that is already fully paid, one with a ₹0 fee, one they aren't
    enrolled in, or one more than two years ahead.
-10. **Credit.** The sum of `max(0, paid − expected)` over every month up to the current
-    month, including months the student wasn't enrolled in (before joining, after leaving),
-    where the whole payment is extra. Anything paid for a month after they left counts too,
-    even a month that hasn't come yet: they owe nothing then, so it was probably meant for
-    another month ("₹1,500 paid for Oct 2026, after they left — was it for Jul?"). Payments
-    for later months they are still enrolled in are "paid ahead", not credit. Payments stay
+10. **Credit.** The sum of `max(0, paid − expected)` over **every** month with a payment,
+    including months the student wasn't enrolled in (before joining, after leaving) and months
+    with a ₹0 fee, where the whole payment is extra, and months still to come. Anything paid
+    for a month after they left or while they're away counts, even a month that hasn't come
+    yet: they owe nothing then, so it was probably meant for another month ("₹1,500 paid for
+    Oct 2026, after they left — was it for Jul?"). A later month they're enrolled in is "paid
+    ahead" up to its fee (rule 5); only what's above the fee is credit. Payments stay
     exactly as they were typed: credit is never moved to other months or split automatically.
     Instead, wherever a student is shown as owing (*Yet to pay*, *Backlog*, the students list
     and the profile), their credit is shown next to it ("Paid ₹X extra in Jul 2026"), so the
@@ -169,22 +172,26 @@ These rules decide every number the app shows.
     - the months in between (from the month after `left_month` to the month before they're
       back) get a **₹0 fee**, one fee change at the month after `left_month`. They are
       *Not applicable* (rule 4), shown as **No fee**, and are never owed;
-    - from the month they're back, their fee carries on: the fee their schedule already had
-      for that month, which is usually the fee they paid when they left. If they're back the
-      very next month, there is no gap and no fee change is added;
-    - fee changes already set for a month in the gap are replaced by the ₹0 fee (the latest of
-      them is the fee they come back on). Fee changes from the month they're back on are kept;
+    - from the month they're back, they owe the fee shown in the same step, which the owner
+      can change. It starts as the fee their schedule has for that month, **ignoring any ₹0
+      fee after `left_month`** (the months away of an earlier return must never become the fee
+      they come back on). Usually that is the fee they paid when they left; a raise set for a
+      month while they were away counts. If they're back the very next month, there is no gap;
+    - fee changes already set for a month in the gap are replaced by the ₹0 fee, and one at the
+      month they're back gets the fee shown. Fee changes after that month are kept;
     - `left_month` is cleared, so they are Active again.
 
-    A payment already logged for a month in the gap then counts as paid extra (rule 10), like
-    any payment for a month with no fee. Emptying the left month in *Edit* is not offered once
-    it has passed, because that would make every month away owed.
+    It happens once however fast it's clicked: the second click waits and then finds they are
+    no longer marked as left. A payment already logged for a month in the gap then counts as
+    paid extra (rule 10), like any payment for a month with no fee. Once the left month has
+    passed, *Edit* can only move it **earlier** (never empty it or move it later), because that
+    would make every month away owed: coming back is always this step.
 
 ### Dashboard for a selected month M
 
 | Section | Contents |
 |---|---|
-| **Summary** | Expected for M (all students active in M) · Collected for M (payments whose `for_month = M`) · Still due for M (sum of `max(0, expected − paid)` over students active in M) · Number of students not fully paid |
+| **Summary** | Expected for M (all students active in M), and how many of them have a fee above ₹0 in M ("from N students"; a month off or a free place isn't counted) · Collected for M (payments whose `for_month = M`) · Still due for M (sum of `max(0, expected − paid)` over students active in M) · Number of students not fully paid, "of" that same N |
 | **Yet to pay** | Students active in M whose status is Unpaid or Partial, with remaining amount and a *Log payment* button |
 | **Backlog** | Students with any Unpaid or Partial month *before* M (and not after the current month, since only those are due), with the months listed and the total still owed. Includes students who have since left |
 | **Overpaid** | Student-months up to M (and not after the current month) with paid > expected, with the excess amount |

@@ -16,7 +16,7 @@ export function FeeNow({ student, long = false }: { student: FeeStudent; long?: 
   const now = student.monthly_fee_paise
   const next = student.next_fee_change
   const main = (
-    <span className={cn('font-bold tabular-nums', now === 0 && 'text-muted-foreground')}>
+    <span className={cn('tabular-nums', long && 'font-bold', now === 0 && 'text-muted-foreground')}>
       {feeText(now)}
     </span>
   )

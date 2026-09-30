@@ -86,7 +86,7 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 | `GET /students/{id}` | Detail, including `fee_history`, `months[]` (the ledger; see [Ledger computation](#ledger-computation)) and `payment_count` (so the UI can warn before a delete) |
 | `PATCH /students/{id}` | Partial update. A new fee is sent as `monthly_fee_paise` + `fee_effective_month` (which defaults to the current month, or `joined_month` if that is later). See the edit rules below |
 | `DELETE /students/{id}` | Hard delete. Payments cascade |
-| `POST /students/{id}/return` | A student who left comes again (PRD ledger rule 11). Body: `{from_month}`, any month after `left_month` and at most 24 months ahead. In one transaction: a ₹0 fee change at the month after `left_month` (none if `from_month` is that month), fee changes in the gap between them removed, the fee the schedule had for `from_month` recorded from `from_month` (unless a fee change there already says so), and `left_month` cleared. Answers 200 with the `StudentDetail`. 422 on `from_month` if they haven't been marked as left, or the month is too early or too late. See [Coming back after leaving](#coming-back-after-leaving) |
+| `POST /students/{id}/return` | A student who left comes again (PRD ledger rule 11). Body: `{from_month, monthly_fee_paise?}`; `from_month` is any month after `left_month` and at most 24 months ahead. In one transaction, holding the write lock: a ₹0 fee change at the month after `left_month` (none if `from_month` is that month), fee changes in the gap between them removed, `monthly_fee_paise` (default: `return_fee`, the schedule's fee for `from_month` ignoring ₹0 rows after `left_month`) recorded from `from_month`, and `left_month` cleared. Answers 200 with the `StudentDetail`. 422 on `from_month` if they haven't been marked as left, or the month is too early or too late. See [Coming back after leaving](#coming-back-after-leaving) |
 | `DELETE /students/{id}/fee-changes/{fee_change_id}` | Remove a fee change that hasn't started yet (its month is after the current month); the fee before it carries on. 204. 404 if the student, or that fee change of theirs, doesn't exist. 422 (`loc: ["path", "fee_change_id"]`) for the first fee, or one that has already started |
 | `GET /payments?student_id=&month=&q=&sort=paid_on\|for_month\|amount\|student\|method&order=asc\|desc` | List, including `student_name`. `month` matches `for_month`; `q` matches the student's name or the note, ignoring case and accents ("emile" finds "Émile"). `sort=student` sorts by name ignoring case and accents; `method` sorts `cash`, `other`, `upi`. Ties go to the latest `paid_on`, then the newest entry |
 | `POST /payments` | Create. Body: `student_id`, `amount_paise`, `paid_on`, `for_month`, `method`, `note?`. 404 if the student doesn't exist. Any `for_month` within the [limits](#limits) is accepted, even one the student isn't active in (it then shows as overpaid) |
@@ -110,13 +110,13 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 
 | Model | Fields |
 |---|---|
-| `StudentRead` (list item) | `id`, `name`, `phone`, `guardian_name`, `batch_label`, `joined_month`, `left_month`, `notes`, `is_active`, `monthly_fee_paise`, `status` (see below), `owed_paise`, `credit_paise` (money in overpaid months), `paid_ahead_paise`, `balance_paise` (net, for reference only), `tenure_months`, `current_month`, `created_at`, `updated_at` |
+| `StudentRead` (list item) | `id`, `name`, `phone`, `guardian_name`, `batch_label`, `joined_month`, `left_month`, `notes`, `is_active`, `monthly_fee_paise`, `status` (see below), `owed_paise`, `credit_paise` (money in overpaid months), `paid_ahead_paise`, `balance_paise` (net, for reference only), `tenure_months`, `next_fee_change` (the first `FeeChangeRead` after the month `monthly_fee_paise` is for, or `null`), `current_month`, `created_at`, `updated_at` |
 | `StudentDetail` (`GET`/`POST`/`PATCH` of one student) | `StudentRead`, plus `fee_history[]` (`FeeChangeRead`), `months[]` (`LedgerMonth`), `payment_count` and `total_paid_paise` |
 | `LedgerMonth` | `month`, `expected_paise`, `paid_paise`, `remaining_paise` (`max(0, expected − paid)`), `excess_paise` (`max(0, paid − expected)`), `status`, `is_due` (month ≤ current month) |
 | `PaymentRead` | `id`, `student_id`, `student_name`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `created_at`, `updated_at` |
 | `DashboardResponse` | `month`, `summary` (`expected_paise`, `collected_paise`, `still_due_paise`, `not_fully_paid_count`, `active_student_count`), `current_month`, `yet_to_pay[]` (each with `credit_paise`), `backlog[]` (each with `months[]`, `total_owed_paise` and `credit_paise`) and `overpaid[]` (student-months with `batch_label`, `phone` and `excess_paise`) |
 | `SuggestedPayment` | `for_month` (nullable), `amount_paise` (nullable), `reason` |
-| `StudentReturn` (request) | `from_month` |
+| `StudentReturn` (request) | `from_month`, `monthly_fee_paise` (optional) |
 | `HealthResponse` | `app`, `version`, `status` |
 
 **Enums.**
@@ -189,10 +189,18 @@ router checks them. Each failure is a 422 in the shape above:
    lasts until the next later one: the Edit form says so, from `fee_history`.
 3. **`left_month` before `joined_month`** → 422. Again, use the new `joined_month` if sent,
    otherwise the stored one. This must be a 422, not a 500 from the database CHECK.
-   `left_month: null` clears it as if they never left: every month since counts. The UI only
-   sends it for **Mark as staying** (the left month hasn't passed yet). Once it has passed,
-   the UI uses `POST /students/{id}/return` instead, and the Edit form doesn't offer
-   "Still coming".
+   `left_month: null` clears it as if they never left: every month since counts. That's only
+   allowed while the left month hasn't passed (**Mark as staying**). Once it has passed, a
+   `left_month` of `null` or a later month is a 422 ("They left after February 2026. To say
+   they've come back, use Mark as coming again on their profile."): coming back is
+   `POST /students/{id}/return`. Moving it earlier is fine.
+
+**Changes at the same moment.** `update_student`, `return_student` and `delete_fee_change`
+start with `app.db.lock_for_writing` (`BEGIN IMMEDIATE`), so a second copy of the same change
+(a double click) waits for the first to commit and then sees it. Any database rule that still
+refuses a write (`IntegrityError`, e.g. a payment for a student deleted at that moment) is a
+**409** with a plain `{"detail": "That change clashed with another one saved at the same
+moment. Reload the page and check."}`, never a 500.
 
 ### Coming back after leaving
 
@@ -204,13 +212,15 @@ router checks them. Each failure is a 422 in the shape above:
 | At or before L | Kept (the first fee is always among them) |
 | After L and before B (in the gap) | Removed |
 | — | A ₹0 fee change at L + 1, if B > L + 1 |
-| At B | Kept |
-| — | If none is at B: the fee the old schedule had for B, from B (skipped when that fee is already in effect then) |
+| At B | Its amount becomes the fee they come back on |
+| — | If none is at B: the fee they come back on, from B (skipped when that fee is already in effect then) |
 | After B | Kept |
 
-So the months L + 1 … B − 1 are *Not applicable* (**No fee**) and never owed, and from B
-the fee carries on: usually the fee they paid when they left, or the latest raise set before
-they came back. Example: left after May at ₹1,500, a raise to ₹1,800 set for July, back from
+So the months L + 1 … B − 1 are *Not applicable* (**No fee**) and never owed. From B they owe
+`monthly_fee_paise` if it was sent, else `return_fee`: the latest fee change on or before B,
+**skipping ₹0 ones after L** (an earlier return's months away), so usually the fee they paid
+when they left, or the latest raise set before they came back. Leaving again at the same month
+and coming back straight away therefore owes the real fee, not an old ₹0. Example: left after May at ₹1,500, a raise to ₹1,800 set for July, back from
 September: ₹0 from June, ₹1,800 from September. Payments logged for a gap month become
 overpaid (credit), like any payment for a month with no fee. `left_month` is cleared.
 
@@ -232,21 +242,25 @@ the edges.
   payments, months after a student left (Not applicable), and a future joining month.
 - **Months after the current month** get the same status rule as any other (for example
   `paid` when paid ahead in full, `unpaid` when not), with `is_due: false`. They never count
-  as owed and never appear in *Backlog* or *Overpaid*. A payment for one adds to
-  `paid_ahead_paise` (and the net `balance_paise`), unless the month is after `left_month`:
-  then it adds to `credit_paise` instead.
+  as owed and never appear in the dashboard's *Backlog* or *Overpaid*. A payment for one adds
+  to `paid_ahead_paise` up to that month's fee, and the rest to `credit_paise` (all of it for
+  a month with a ₹0 fee, or after `left_month`). All of it adds to the net `balance_paise`.
+- **Dashboard `active_student_count`** ("from N students", "of N") counts students active in
+  M **with a fee above ₹0 in M**: a month off, the months away before coming back, or a free
+  place isn't counted. `expected_paise` and the lists are unchanged by that.
 - **`status`** (PRD ledger rule 6) is `owes` if `owed_paise > 0`, else `credit` if
   `credit_paise > 0`, else `up_to_date` (`ledger.standing_status`). **`owed_paise`** is the
   sum of `remaining_paise` over due months (active months up to and including the current
   month). **`paid_ahead_paise`** is the money paid for months after the current month that the
-  student is still enrolled in (not after `left_month`).
+  student is still enrolled in (not after `left_month`), counting at most each month's fee;
+  the rest is credit. So `total_paid = Σ min(paid, expected) over due months + paid_ahead +
+  credit`.
   **`balance_paise`** is the net `sum(payments) − sum(expected for due months)`; it is kept for
   reference, but the UI never uses it for a headline, because money paid ahead or paid twice
   can cancel out a month still owed.
-- **`credit_paise`** (PRD ledger rule 10) is the sum of `max(0, paid − expected)` over months
-  up to and including the current month, including months the student isn't enrolled in
-  (there, all of a payment is extra), plus everything paid for a month after `left_month`,
-  even a later one. It is shown next to students who still
+- **`credit_paise`** (PRD ledger rule 10) is the sum of `max(0, paid − expected)` over every
+  month with a payment, later ones included. Where the student isn't enrolled (before
+  joining, after `left_month`) or the fee is ₹0, all of a payment is extra. It is shown next to students who still
   owe (the students list, the profile, and the dashboard's *Yet to pay* and *Backlog*) so the
   owner can move the payment to the right month. Payments are never moved or split
   automatically.

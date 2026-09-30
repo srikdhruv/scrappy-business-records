@@ -157,10 +157,10 @@ arrow on each side. Under it, one line:
 
 | Box | What the number means | How it's worked out |
 |---|---|---|
-| **Expected** | What everyone enrolled that month should pay in total | Each student's fee for that month, added up, for everyone enrolled that month. "From 24 students in September" says how many that is |
+| **Expected** | What everyone enrolled that month should pay in total | Each student's fee for that month, added up, for everyone enrolled that month. "From 24 students in September" says how many of them have a fee that month (someone on a month off, or with a free place, isn't counted) |
 | **Collected** | What has come in for that month so far | Every payment logged *for* that month, added up, whatever day it was paid on. The bar and percentage compare it with Expected (the bar stops at 100%) |
 | **Still due** | What's still left to collect for that month | For each enrolled student, their fee minus what they've paid for that month (never below ₹0), added up. Red while anything is left, green at ₹0 |
-| **Not fully paid** | How many students haven't paid that month in full | The number of names in *Yet to pay*, "of" the number of students enrolled that month. Green with "Everyone has paid" at 0 |
+| **Not fully paid** | How many students haven't paid that month in full | The number of names in *Yet to pay*, "of" the number of students with a fee that month. Green with "Everyone has paid" at 0 |
 
 > Example: Pooja's fee is ₹1,500 and she has paid ₹750 for September, so she adds ₹750 to
 > **Still due**. Someone who paid ₹2,500 against a ₹2,000 fee adds ₹0, not −₹500: extra
@@ -301,9 +301,10 @@ when fixing one, **Edit payment** (*"Fix any detail and save."*).
 
 - It finds students whose name, parent's name, class or phone number contains every word you
   type, in any order, ignoring capitals and accents: *menon arjun* finds *Arjun Menon*, and
-  *emile* finds *Émile*. A phone number can be typed with or without its spaces
-  (*9000000006* finds *90000 00006*). It's the same search as on the
-  [Students page](#students-page).
+  *emile* finds *Émile*. Apostrophes and hyphens in names don't matter (*obrien* finds
+  *O'Brien*, *dsouza* finds *D'Souza*). A phone number can be typed with or without its
+  spaces, and with or without *+91* in front (*9000000006* finds *90000 00006*). It's the same
+  search as on the [Students page](#students-page).
 - Current students are listed under **Students**. Students who have left are listed last,
   under **Left**, because they sometimes pay off an old month.
 - Use the arrow keys and **Enter**, or click a name.
@@ -599,7 +600,7 @@ a class or batch, and ignores capitals.
 |---|---|
 | **Name** | Their name, and *Parent: …* if you entered one. Click anywhere on the row to open their profile |
 | **Class or batch** | What you typed for their class, or — |
-| **Monthly fee** | Their fee this month (for someone who hasn't started yet, the fee they'll start on) |
+| **Monthly fee** | Their fee this month (for someone who hasn't started yet, the fee they'll start on), or **No fee**. If a different fee is already set for a later month, a second line says so, e.g. *₹1,000 from Dec 2026* under *No fee* for someone coming back in December |
 | **Status** | How they stand overall (see below) |
 | **Member for** | How long they've been coming (see below) |
 
@@ -630,8 +631,9 @@ a class or batch, and ignores capitals.
 
 **Find a student**
 1. Type part of their name, phone number, parent's name or class into the search box. The
-   words can be in any order (*menon arjun*), capitals and accents don't matter (*emile* finds
-   *Émile*), and a phone number can be typed with or without its spaces.
+   words can be in any order (*menon arjun*), capitals, accents, apostrophes and hyphens don't
+   matter (*emile* finds *Émile*, *obrien* finds *O'Brien*), and a phone number can be typed
+   with or without its spaces or *+91*.
 2. Choose **All** if you're not sure whether they've left.
 
 **See who has left**
@@ -709,9 +711,11 @@ later."*):
 
 - **Left in month** (optional): *"The last month they should pay for. Leave empty while they're
   still coming."* It shows **Still coming** when empty, and its calendar has a **Still coming**
-  button to empty it again. Once their last month has passed, the **Still coming** button
-  isn't there, and the line says *"If they've come back, use Mark as coming again on their
-  profile."* That asks which month they're back from, so the months away aren't owed.
+  button to empty it again. Once their last month has passed, it can only be moved
+  **earlier** here: later months are greyed out, the **Still coming** button isn't there, and
+  the line says *"The last month they paid for. It can only move earlier here. If they've come
+  back, use Mark as coming again on their profile."* That asks which month they're back from,
+  so the months away aren't owed.
 - **New fee applies from**: this appears, in a marigold box, as soon as you type a fee different
   from their current one. It's also there whenever they have a fee change that hasn't started
   yet (and once you've typed in the fee box, whenever they've had more than one fee), so you
@@ -865,12 +869,14 @@ Under the headline:
 
 <img src="images/feature-guide/profile-credit.png" alt="A teal Balance card: 'Credit ₹500', 'Paid ₹500 more than was due.', and a box '₹500 paid extra: July 2026 · ₹2,500 paid for a ₹2,000 fee' with an Edit payment button and 'If it was meant for another month, change that payment's month.'" width="320"> <img src="images/feature-guide/profile-paid-after-leaving.png" alt="A red Balance card for a student who left after May: 'Owes ₹2,500 (May)', a teal note 'Paid ₹2,500 extra in Jul 2026', an Oldest unpaid box 'May 2026 · ₹2,500 left' with Log payment, and '₹2,500 paid extra: ₹2,500 paid for Jul 2026, after they left — was it for May?' with Edit payment." width="320">
 
-**The Details card:** **Monthly fee** (this month's), **Joined** (*October 2025 · member for 11 mo*, or *new this month*, *starts …*, or *left after
+**The Details card:** **Monthly fee** (this month's, and the next one if it's already set:
+*₹1,800, then ₹2,000 from November 2026*, or *No fee until December 2026, then ₹1,000*),
+**Joined** (*October 2025 · member for 11 mo*, or *new this month*, *starts …*, or *left after
 May 2026 (8 mo)*, counting both the first and the last month), **Fee history** (when their
 fee has ever changed), **Class or batch**, **Phone**, **Parent or guardian** and **Notes**
 (*Not set* or *None* when empty).
 
-![The Details card for Kabir Mehta: Monthly fee ₹1,800, Joined October 2025 · member for 11 mo, then Fee history: ₹1,500 from Oct 2025, ₹1,800 from Apr 2026, and ₹2,000 from Nov 2026 (not started yet) with a red Remove button; then class, phone, parent and a note.](images/feature-guide/profile-details-fee-history.png)
+![The Details card for Kabir Mehta: Monthly fee ₹1,800, then ₹2,000 from November 2026, Joined October 2025 · member for 11 mo, then Fee history: ₹1,500 from Oct 2025, ₹1,800 from Apr 2026, and ₹2,000 from Nov 2026 (not started yet) with a red Remove button; then class, phone, parent and a note.](images/feature-guide/profile-details-fee-history.png)
 
 **Fee history** lists every fee and the month it starts, oldest first. *No fee* means ₹0 (a
 month off, or the months away before they came back). A fee that starts after this month is
@@ -893,10 +899,11 @@ first, from the month they joined to this month (and any later month they've pai
 
 The labels:
 - **Paid** (green tick), **Partial** (amber), **Unpaid** (red): for this month and earlier.
-- **Paid extra** (teal +): more than the fee was paid, or anything was paid for a month after
-  they left; the row is tinted teal.
-- **Paid ahead** or **Part paid ahead** (teal ▸▸): a later month already paid (in part), while
-  they're still enrolled.
+- **Paid extra** (teal +): more than the fee was paid, in any month (even one still to come),
+  or anything was paid for a month with no fee (after they left, or while they were away); the
+  row is tinted teal.
+- **Paid ahead** or **Part paid ahead** (teal ▸▸): a later month already paid, up to its fee
+  (or part of it), while they're still enrolled.
 - **Not due yet** (grey): a later month not paid yet. It isn't owed.
 - **No fee** (grey): a month with a ₹0 fee and nothing paid, such as a month off or the months
   away before they came back. It's never owed.
@@ -949,13 +956,16 @@ by the heading is how many there are.
 1. Click **Mark as coming again**.
 2. **Which month are they back from?** This month is filled in. You can pick any month after the
    one they left, up to two years ahead.
-3. Read what will happen: the months away get **no fee**, so nothing is owed for them, and
-   from the month they're back they owe their fee again. If they had paid for a month while
-   they were away, it says that payment will show as paid extra.
-4. Click **Mark as coming again**. You'll see *"Rohan Desai is coming again — From September
-   2026. Nothing is owed for June–August 2026."*
+3. **Monthly fee from then** shows the fee they'll owe from that month: usually the fee they
+   paid when they left (or a new fee you'd already set for a month while they were away).
+   Change it if they're coming back on a different fee.
+4. Read what will happen: the months away get **no fee**, so nothing is owed for them, and
+   from the month they're back they owe that fee. If they had paid for a month while they were
+   away, it says that payment will show as paid extra.
+5. Click **Mark as coming again**. You'll see *"Rohan Desai is coming again — From September
+   2026. Nothing is owed for June–August 2026."* Clicking twice still does it once.
 
-<img src="images/feature-guide/come-back.png" alt="The box 'Mark Rohan Desai as coming again?': 'Rohan left after May 2026. Their payments and history are kept.', 'Which month are they back from? September 2026', 'June–August 2026: no fee, so nothing is owed for the months away.', 'From September 2026 they'll owe ₹2,500 a month again.', Cancel and Mark as coming again." width="420">
+<img src="images/feature-guide/come-back.png" alt="The box 'Mark Rohan Desai as coming again?': 'Rohan left after May 2026. Their payments and history are kept.', 'Which month are they back from? September 2026' and 'Monthly fee from then ₹2500', 'June–August 2026: no fee, so nothing is owed for the months away.', 'From September 2026 they'll owe ₹2,500 a month.', Cancel and Mark as coming again." width="480">
 
 Afterwards, *Month by month* shows the months away as **No fee** (grey), never as unpaid, and
 *Fee history* shows *No fee from Jun 2026* and their fee again from the month they're back:
@@ -965,10 +975,16 @@ Afterwards, *Month by month* shows the months away as **No fee** (grey), never a
 If you pick the month right after they left, nothing is skipped: every month counts, as if
 they never left (use this if they were marked as left by mistake).
 
+If they come back in a later month, the profile's **Monthly fee** says so until then: *"No fee
+until December 2026, then ₹1,000"*, and the Students page shows *No fee* with *₹1,000 from Dec
+2026* under it.
+
 **Remove a fee change that hasn't started yet**
 1. In **Details → Fee history**, click **Remove** next to it.
 2. The app says what their fee will be instead: *"After this, from November 2026 they'll owe
-   ₹1,800 a month. Nothing else changes."*
+   ₹1,800 a month. Nothing else changes."* If removing it would leave them with no fee from then
+   on (the fee that ends a month off, or the fee they come back on), it warns: *"After this,
+   they'll have no fee from December 2026 onwards, with no end."*
 3. Click **Remove fee change**. You'll see *"Fee change removed"*.
 
 <img src="images/feature-guide/fee-change-remove-confirm.png" alt="The box 'Remove the ₹2,000 fee from November 2026?': 'After this, from November 2026 they'll owe ₹1,800 a month. Nothing else changes.', with Cancel and a red Remove fee change button." width="380">
@@ -1005,7 +1021,9 @@ they never left (use this if they were marked as left by mistake).
 - **Route:** `/students/:id`.
 - **Components:** `frontend/src/pages/student-profile-page.tsx` (`Profile`, `BalanceCard`,
   `DetailsCard`, `FeeHistory`, `MonthHistory`, `fixMonth`), `components/mark-left-dialog.tsx`,
-  `components/come-back-dialog.tsx` (`ComeBackDialog`), `lib/fees.ts`,
+  `components/come-back-dialog.tsx` (`ComeBackDialog`; the fee box starts from
+  `lib/fees.ts` `returnFee`, which skips an earlier return's ₹0 months), `components/fee-now.tsx`
+  ("No fee until …, then …", from `next_fee_change`),
   `components/confirm-dialog.tsx`, `components/payments-table.tsx` (`showStudent={false}`),
   `components/status.tsx` (`MonthStatusBadge`, `PaidAheadNote`, `ExtraPaidNote`),
   `lib/status.ts`, `lib/labels.ts` (`tenurePhrase`).
@@ -1018,7 +1036,9 @@ they never left (use this if they were marked as left by mistake).
   (`deleteStudent`).
 - **Backend:** `services/students.get_student` / `student_detail` → `ledger.student_ledger`
   (`history_range`, `month_line`, `standing_status`, `owed`, `credit`, `paid_ahead`);
-  `services/students.return_student` (one transaction: a ₹0 fee change after `left_month`,
+  `services/students.return_student` (one transaction that takes the write lock first,
+  `app.db.lock_for_writing`, so a double click can't apply it twice: a ₹0 fee change after
+  `left_month`,
   the gap's fee changes removed, the fee carried on from `from_month`, `left_month` cleared;
   see [data model](data-model.md#coming-back-after-leaving)), `delete_fee_change` (never the
   first fee, never one that has started), `delete_student` (payments cascade).
@@ -1028,7 +1048,10 @@ they never left (use this if they were marked as left by mistake).
   badge and the extra-money list (`afterLeft`), matching `ledger.credit`.
 - **PRD:** stories S2, S3, S4, S5, S6; ledger rules 4, 5, 6, 7, 10 and 11.
 - **Tests:** `frontend/src/pages/student-profile-page.test.tsx` ("Mark as coming again", "lists
-  the fee history and removes a scheduled change…"); `backend/tests/test_api_fee_schedule.py`;
+  the fee history and removes a scheduled change…", "can come back on a different fee…"),
+  `lib/fees.test.ts` (`returnFee`); `backend/tests/test_api_fee_schedule.py`,
+  `test_api_fee_schedule_edges.py` (leaving and coming back twice, two clicks at once, a
+  clash is a 409);
   `frontend/e2e/fixes.spec.ts` → "coming back after leaving asks the month…", "a scheduled fee
   change shows in the message and can be removed…";
   `backend/tests/test_api_students.py` (`test_detail_ledger_with_payments`,
@@ -1054,11 +1077,11 @@ The same word always has the same colour, everywhere in the app.
 | **Partial** | Amber | Dashboard *Yet to pay*; *Earlier months still owed* (as "· part paid"); profile | This month or an earlier one, and some but not all of the fee was paid |
 | **Unpaid** | Muted red | Dashboard *Yet to pay*; *Earlier months still owed* (a red month label); profile | This month or an earlier one, a fee was due, and nothing was paid |
 | **Overpaid** | — | Not shown as a word. The app says **Paid extra** or **Paid too much** instead | More was paid for a month than its fee (the rules' name for it) |
-| **Paid extra** | Teal, with a + | Profile *Month by month*; "Paid ₹500 extra in Jul 2026" notes on the Dashboard and profile; "₹500 paid extra" on the Students page | This month or an earlier one, and more than the fee was paid (or anything was paid for a month the student wasn't enrolled in). Also any month after they left, even one still to come |
+| **Paid extra** | Teal, with a + | Profile *Month by month*; "Paid ₹500 extra in Jul 2026" notes on the Dashboard and profile; "₹500 paid extra" on the Students page | Any month, even one still to come, where more than the fee was paid, or anything was paid for a month with no fee (before they joined, after they left, while they were away) |
 | **Paid too much** | Teal amounts (+₹500) | The Dashboard section of that name | The list of every such month up to the one you're looking at |
-| **Paid ahead** | Teal, with ▸▸ | Profile *Month by month* and Balance card ("Paid ahead to Oct 2026"); Students page ("Paid ahead ₹1,500"); the Dashboard's second box for a later month | Money paid for a month that hasn't started yet, while they're still enrolled then. It's never counted as extra or owed. **Part paid ahead** means only part of that month's fee |
+| **Paid ahead** | Teal, with ▸▸ | Profile *Month by month* and Balance card ("Paid ahead to Oct 2026"); Students page ("Paid ahead ₹1,500"); the Dashboard's second box for a later month | Money paid for a month that hasn't started yet, while they're still enrolled then, up to that month's fee. Anything above the fee is **Paid extra** instead. **Part paid ahead** means only part of that month's fee |
 | **Owes ₹X** | Muted red | Students page *Status*; profile Balance headline | Any month up to this one is Unpaid or Partial. ₹X is what's left on all of them |
-| **Credit ₹X** | Teal | Students page; profile Balance headline | Nothing is owed, but some month up to this one was paid more than its fee, or something was paid for a month after they left. ₹X is the extra. It is never used up automatically for later months: to count it, edit that payment's month |
+| **Credit ₹X** | Teal | Students page; profile Balance headline | Nothing is owed, but some month was paid more than its fee, or something was paid for a month with no fee (after they left, or while they were away). ₹X is the extra. It is never used up automatically for later months: to count it, edit that payment's month |
 | **Up to date** | Green, with a tick | Students page; profile Balance headline | Nothing owed and nothing extra |
 | **Not due yet** | Grey | Profile *Month by month*; Dashboard for a later month (labels and the third box) | A month that hasn't started, not paid yet. Nothing is owed until it comes |
 | **No fee** | Grey | Profile *Month by month* and *Fee history* | A month whose fee is ₹0, with nothing paid: a free place, a month off, or the months away before they came back. Never owed |
@@ -1205,7 +1228,8 @@ changes. This works before the month off, during it, or after it:
 
 1. Open their profile and click **Edit**.
 2. Type **0** as the **Monthly fee**, set **New fee applies from** to the month off, and click
-   **Save changes**. (The form says *"From December 2026 they'll have no fee."*)
+   **Save changes**. (The form warns *"They'll have no fee from December 2026 onwards, with no
+   end."* Step 3 gives it an end.)
 3. Click **Edit** again. Type their usual **Monthly fee** (it may already be there), set **New
    fee applies from** to the month after the break, and check the sentence: *"From January 2027
    they'll owe ₹1,500 a month."* Click **Save changes**.
@@ -1334,12 +1358,8 @@ for months after the current one). The current month always comes from the serve
 The four found while writing this guide (the first click on **Paid on**, the Students
 search, setting a scheduled fee back, and the months away after **Mark as coming again**) were
 fixed before v0.1.0, along with Enter after clicking a method button and the cap message for
-amounts written with `/-`. Still open:
-
-- **A ₹0 month still counts as enrolled on the Dashboard.** In a month with no fee (a month off,
-  the months away before coming back, or a free place), the student is still one of the
-  *"from 24 students"* and *"of 24"* for that month, although they add ₹0 and never appear in
-  *Yet to pay*.
+amounts written with `/-`. So was the Dashboard counting someone with no fee that month in
+*"from 24 students"*. None are open now.
 
 ---
 
