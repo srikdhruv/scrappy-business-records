@@ -6,6 +6,7 @@ import {
   formatMonthShort,
   formatRupees,
   formatTenure,
+  MAX_AMOUNT_PAISE,
   monthsBetween,
   paiseToRupeesInput,
   rupeesToPaise,
@@ -44,10 +45,16 @@ describe('rupeesToPaise', () => {
     ['.5', 50],
     ['.05', 5],
     ['150,000', 15000000],
-    ['1,234,567', 123456700],
-    ['12,34,567', 123456700],
-    ['1,00,00,000.50', 1000000050],
+    ['123,456', 12345600],
+    ['1,23,456', 12345600],
+    ['9,99,999.99', 99999999],
     ['₹1,500', 150000],
+    ['₹1,500/-', 150000],
+    ['1500/-', 150000],
+    ['Rs. 1,500 /-', 150000],
+    ['INR 2,000', 200000],
+    ['₹  1,500  ', 150000],
+    ['0500', 50000],
   ])('%s -> %i', (input, expected) => {
     expect(rupeesToPaise(input)).toBe(expected)
   })
@@ -68,8 +75,32 @@ describe('rupeesToPaise', () => {
     '1,,500',
     '12,3456',
     '1,500,00',
+    // spaces inside the number
+    '1500 50',
+    '15 00',
+    '1, 500',
+    '1500 .50',
+    '₹1 500',
+    // a comma group can't start with 0
+    '0,500',
+    '00,500',
+    '0,50,000',
+    // "/-" only as a suffix
+    '/-',
+    '1500/-/-',
+    '15/-00',
   ])('rejects %j', (input) => {
     expect(rupeesToPaise(input)).toBeNull()
+  })
+
+  it('caps amounts at ₹10,00,000', () => {
+    expect(MAX_AMOUNT_PAISE).toBe(100_000_000) // same as backend MAX_AMOUNT_PAISE
+    expect(rupeesToPaise('10,00,000')).toBe(MAX_AMOUNT_PAISE)
+    expect(rupeesToPaise('1,000,000')).toBe(MAX_AMOUNT_PAISE)
+    expect(rupeesToPaise('10,00,000.01')).toBeNull()
+    expect(rupeesToPaise('10,00,001')).toBeNull()
+    expect(rupeesToPaise('1,00,00,000')).toBeNull()
+    expect(rupeesToPaise('99999999999999999999')).toBeNull()
   })
 
   it('rejects zero unless allowed', () => {

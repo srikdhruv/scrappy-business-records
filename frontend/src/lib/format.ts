@@ -49,17 +49,30 @@ export function formatRupees(paise: number): string {
   return `${sign}₹${groupIndian(String(rupees))}${fraction}`
 }
 
+/**
+ * ₹10,00,000: the most a single payment or monthly fee can be. A typo guard (an extra zero or
+ * two), not a business rule. Must match `MAX_AMOUNT_PAISE` in backend/app/schemas.py, which
+ * rejects anything larger with a 422.
+ */
+export const MAX_AMOUNT_PAISE = 100_000_000
+
 // The whole-rupee part: plain digits, or correctly grouped with commas the Indian way
-// (1,50,000) or the Western way (150,000). Mis-grouped input like "15,00" is rejected.
+// (1,50,000) or the Western way (150,000). Mis-grouped input like "15,00" is rejected, and so is
+// a comma group starting with 0 ("0,500").
 const RUPEES_PLAIN = /^\d+$/
-const RUPEES_INDIAN = /^\d{1,2}(?:,\d{2})*,\d{3}$/
-const RUPEES_WESTERN = /^\d{1,3}(?:,\d{3})+$/
+const RUPEES_INDIAN = /^[1-9]\d?(?:,\d{2})*,\d{3}$/
+const RUPEES_WESTERN = /^[1-9]\d{0,2}(?:,\d{3})+$/
 
 /**
  * Parse what a person types into an amount box into paise.
- * Accepts "1500", "1,500", "1,50,000", "150,000", "1500.5", "1500.50", ".5", "₹ 1,500", "Rs 200".
- * Returns null for anything else: empty, negative, letters, more than 2 decimals, commas in the
- * wrong places ("15,00", "1,5,0"), and 0 — unless `allowZero` is set (e.g. for a fee).
+ *
+ * Accepts "1500", "1,500", "1,50,000", "150,000", "1500.5", "1500.50", ".5", "₹ 1,500",
+ * "Rs. 200" and the Indian "/-" suffix ("₹1,500/-"). Spaces are allowed only at the ends and
+ * after the ₹ / Rs / INR prefix.
+ *
+ * Returns null for anything else: empty, negative, letters, spaces inside the number
+ * ("1500 50"), more than 2 decimals, commas in the wrong places ("15,00", "1,5,0", "0,500"),
+ * more than `MAX_AMOUNT_PAISE`, and 0 unless `allowZero` is set (e.g. for a fee).
  */
 export function rupeesToPaise(
   input: string,
@@ -68,7 +81,7 @@ export function rupeesToPaise(
   const cleaned = input
     .trim()
     .replace(/^(?:₹|rs\.?|inr)\s*/i, '')
-    .replace(/\s+/g, '')
+    .replace(/\s*\/-$/, '')
   const match = /^([\d,]*)(?:\.(\d{0,2}))?$/.exec(cleaned)
   if (!match) return null
   const whole = match[1] ?? ''
@@ -84,7 +97,7 @@ export function rupeesToPaise(
   }
   const rupees = Number(whole.replace(/,/g, '') || '0')
   const paise = rupees * 100 + Number((decimals ?? '').padEnd(2, '0'))
-  if (!Number.isSafeInteger(paise)) return null
+  if (!Number.isSafeInteger(paise) || paise > MAX_AMOUNT_PAISE) return null
   if (paise === 0 && !allowZero) return null
   return paise
 }

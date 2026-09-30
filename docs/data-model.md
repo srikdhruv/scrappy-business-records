@@ -125,6 +125,18 @@ list it already has, so there are no query parameters for those.
 **Validation.**
 - Months must match `YYYY-MM`.
 - Payment amounts must be more than 0. Fees can be 0 or more.
+- **Amount cap.** A single payment (`amount_paise`) or monthly fee (`monthly_fee_paise`) can be
+  at most **₹10,00,000** (`100000000` paise). This guards against typos like an extra zero; it
+  isn't a business rule.
+  - Backend: `MAX_AMOUNT_PAISE` in `app/schemas.py` (`le=`), so a larger amount gets a 422.
+  - Frontend: `MAX_AMOUNT_PAISE` in `src/lib/format.ts`, where `rupeesToPaise` returns null
+    above it.
+
+  The two constants must match; each side has a test that pins the value. Response amounts
+  aren't capped, because totals such as a student's whole backlog can exceed it.
+- Schema rules report the field they're about. For example, a left month before the joined month
+  gives `loc: ["body", "left_month"]` with the plain-words `msg` "Left month can't be before the
+  joined month". A blank name gives "Name is required". The UI shows `msg` as-is.
 - Blank optional text becomes `null`, and unknown fields are rejected.
 - `PATCH` bodies are partial: only the fields that are sent change. Sending `left_month: null`
   un-archives a student.
