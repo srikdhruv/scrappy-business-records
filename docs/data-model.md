@@ -120,8 +120,9 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 **Lists.** `GET /students` and `GET /payments` return plain JSON arrays, **unpaginated**: at
 this scale (thousands of payments at most) one response is small and fast. Students are sorted by
 name. Payments default to `sort=paid_on&order=desc`. The server filters by `student_id`,
-`month` and `q`. The UI filters by **method** and **paid-on date range** on the client, over the
-list it already has, so there are no query parameters for those.
+`month` and `q`. The UI filters by **method** on the client, over the list it already has, so
+there is no query parameter for it. The Payments page sorts on the client too (click a column
+heading), so changing the sort doesn't refetch.
 
 **Timestamps.** `created_at` and `updated_at` are UTC with a trailing `Z`, e.g.
 `"2026-10-05T09:30:00Z"`.

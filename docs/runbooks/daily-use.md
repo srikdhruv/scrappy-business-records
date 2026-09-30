@@ -5,60 +5,75 @@ Open the app by double-clicking **Scrappy Records** on your Desktop.
 ## The Dashboard: who is left to pay?
 
 The first page shows **this month**. To look at another month, use the arrows next to the month
-name.
+name. **Back to** (under the month) brings you back to this month.
 
-- **The boxes at the top** show how much is expected this month, how much has come in, how much
-  is still due, and how many students haven't fully paid.
-- **Yet to pay:** students who haven't paid, or have paid only part, for this month. Click
-  **Log payment** next to a name to record their payment. The amount and month are filled in for
-  you.
-- **Earlier months still owed (backlog):** anyone who still owes for previous months, and how
-  much in total.
+- **The boxes at the top** show how much is **Expected** this month, how much has been
+  **Collected**, how much is **Still due**, and how many students are **Not fully paid**.
+- **Yet to pay:** students who haven't paid, or have paid only part (**Partial**), for this
+  month, with how much is left. Click **Log payment** next to a name to record their payment. The
+  student, month and amount are filled in for you.
+- **Earlier months still owed:** anyone who still owes for previous months, the months, and how
+  much in total. Click a name to open their profile.
 - **Paid too much:** months where someone paid more than their fee.
+
+When everyone has paid, you'll see **Everyone's paid for** the month 🎉.
 
 ## When someone pays you
 
 1. Click **+ Log payment** at the top right. It's there on every page.
 2. Start typing the student's name and pick them from the list.
-3. Check the **amount** and the **month it's for**. These are filled in with the oldest month
-   they still owe, and you can change them.
-4. Pick how they paid: **UPI**, **Cash** or **Other**.
-5. Click **Save**.
+3. Check the **Amount** and **For month**. They're filled in with the oldest month the student
+   still owes (the form says, for example, "Oldest unpaid: August 2026"). If they're paid up,
+   it's the next month they haven't paid for. You can change both.
+4. Pick **How they paid**: **UPI**, **Cash** or **Other**.
+5. **Paid on** is today. Change it if they paid on another day. Add a **Note** if you like.
+6. Click **Save payment**, or press **Enter**.
 
-That's it. The dashboard updates straight away.
+That's it. The dashboard updates straight away. If you saved by mistake, click **Undo** in the
+message that appears.
 
 > If a parent pays for two months at once, log two payments, one for each month.
 
 ## Adding a new student
 
-1. Go to **Students** and click **+ New student**.
-2. Fill in their **name** and **monthly fee**, and the **month they joined** (this month is
+1. Go to **Students** and click **New student**.
+2. Fill in their **Name**, **Monthly fee**, and the month they **Joined in** (this month is
    already filled in).
-3. Phone, parent's name, class and notes are optional.
-4. Click **Save**.
+3. Phone, parent or guardian, class or batch, and notes are optional.
+4. Click **Add student**.
 
 ## When a student stops coming
 
-1. Open their profile from **Students**.
-2. Click **Edit** and set **Left in month** to the **last month they should pay for**.
+1. Open their profile from **Students** (click their name).
+2. Click **Mark as left** and choose the **last month they should pay for**. Click **Mark as
+   left**.
 
-They'll stop appearing as "yet to pay" after that month. Their history is kept, and you can find
-them again with the **Left** filter.
+After that month they stop owing, and they move from the **Active** tab to the **Left** tab on
+the Students page. Their history is kept. If they come back, open their profile and click **Mark
+as coming again**.
 
 ## Changing a student's fee
 
 1. Open their profile and click **Edit**.
-2. Change the **monthly fee**.
-3. Choose **from which month** the new fee applies.
+2. Change the **Monthly fee**.
+3. Choose the month in **New fee applies from** (this month is filled in).
+4. Click **Save changes**.
 
 Earlier months keep the old fee.
 
 ## Fixing a mistake
 
-- **Wrong payment:** go to **Payments**, find it (click a column heading to sort), then click
-  **Edit** or **Delete**.
+- **Wrong payment:** go to **Payments**, find it (search, filter, or click a column heading to
+  sort), then click **Edit** or **Delete**. You can also do this from the student's profile.
+- **Paid too much:** the student's profile shows which month was paid extra. Click **Edit
+  payment** next to it, and change the amount or the month if it was meant for another month.
 - **Student added by mistake:** open their profile and click **Delete**. This also deletes their
   payments, and the app will ask you to confirm first.
+
+## If the app says "Can't reach Scrappy Records"
+
+Close the browser tab and open **Scrappy Records** again from the Desktop. See
+[troubleshooting](troubleshooting.md) if that doesn't help.
 
 ## Is my data safe?
 
