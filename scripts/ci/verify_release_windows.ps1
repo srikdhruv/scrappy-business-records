@@ -1,16 +1,20 @@
 # After a release is published: install it the way the user will, on a fresh Windows machine.
 #
-# Runs the literal install line from the docs (TLS prefix, `irm` of main's install.ps1 from
-# raw.githubusercontent.com, `| iex`), which downloads the release asset from
-# releases/latest/download/. Then: the app opens, data survives a restart, re-running the line
-# (the update) keeps the data and takes a backup, and the `-Version <tag>` form works.
+# -Mode latest (default): the literal install line from the docs (TLS prefix, `irm` of main's
+#   install.ps1 from raw.githubusercontent.com, `| iex`), which downloads the release asset from
+#   releases/latest/download/ and must install -Tag. Then the `-Version <tag>` form too.
+# -Mode tagged: only the `-Version <tag>` form, for a release that is still a prerelease (not yet
+#   "latest"). release.yml runs this before promoting the release, then `latest` after.
+# Either way: the app opens, data survives a restart, re-running the line (the update) keeps the
+# data and takes a backup.
 # Installs into the real %LOCALAPPDATA%\ScrappyRecords and Desktop of the (throwaway) CI machine.
 #
-#   powershell -NoProfile -File scripts\ci\verify_release_windows.ps1 -Tag v0.1.0
+#   powershell -NoProfile -File scripts\ci\verify_release_windows.ps1 -Tag v0.1.0 [-Mode tagged]
 # Pure ASCII, like install.ps1.
 
 param(
-    [Parameter(Mandatory = $true)][string]$Tag
+    [Parameter(Mandatory = $true)][string]$Tag,
+    [ValidateSet('latest', 'tagged')][string]$Mode = 'latest'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,6 +25,7 @@ $tls = '[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::S
 # Exactly what docs/runbooks/install-windows.md tells the user to paste.
 $installLine = "$tls; irm $url | iex"
 $versionLine = "$tls; & ([scriptblock]::Create((irm $url))) -Version $Tag"
+$line = if ($Mode -eq 'latest') { $installLine } else { $versionLine }
 
 $root = Join-Path $env:LOCALAPPDATA 'ScrappyRecords'
 $appDir = Join-Path $root 'app'
@@ -81,8 +86,8 @@ function Stop-App {
 
 $expected = $Tag.TrimStart('v')
 
-Step "The install line, exactly as published (expecting version $expected)"
-Invoke-FreshPowerShell $installLine
+Step "Install ($Mode): $line (expecting version $expected)"
+Invoke-FreshPowerShell $line
 $health = Wait-Health
 if ($health.version -ne $expected) { Fail "installed version $($health.version), expected $expected" }
 $shortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Scrappy Records.lnk'
@@ -96,18 +101,20 @@ Start-Process -FilePath $lnk.Path -ArgumentList $lnk.Arguments -WorkingDirectory
 Wait-Health | Out-Null
 if ((Invoke-Probe check $database $name) -ne 0) { Fail 'the student did not survive a restart' }
 
-Step 'Run the install line again (the update): data kept, backup taken'
-Invoke-FreshPowerShell $installLine
+Step 'Run the same line again (the update): data kept, backup taken'
+Invoke-FreshPowerShell $line
 Wait-Health | Out-Null
 if ((Invoke-Probe check $database $name) -ne 0) { Fail 'the student did not survive the update' }
 $preUpdate = @(Get-ChildItem -LiteralPath $backups -Filter 'records-pre-update-*.db' -ErrorAction SilentlyContinue)
 if ($preUpdate.Count -lt 1) { Fail "no pre-update backup in $backups" }
 
-Step "The -Version $Tag form"
-Invoke-FreshPowerShell $versionLine
-$health = Wait-Health
-if ($health.version -ne $expected) { Fail "-Version installed $($health.version)" }
-if ((Invoke-Probe check $database $name) -ne 0) { Fail 'the student did not survive -Version' }
+if ($Mode -eq 'latest') {
+    Step "The -Version $Tag form"
+    Invoke-FreshPowerShell $versionLine
+    $health = Wait-Health
+    if ($health.version -ne $expected) { Fail "-Version installed $($health.version)" }
+    if ((Invoke-Probe check $database $name) -ne 0) { Fail 'the student did not survive -Version' }
+}
 
 Stop-App
 Write-Host ''

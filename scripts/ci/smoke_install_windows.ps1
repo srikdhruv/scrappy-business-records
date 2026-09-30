@@ -252,6 +252,27 @@ try {
     if ((Invoke-Probe valid $newest.FullName) -ne 0) { Fail 'the pre-update backup contains the half-saved change' }
     Assert-Student $newest.FullName
 
+    Step 'The file-copy backup fallback (forced): copies the journal too, so the copy is sound'
+    Stop-Server
+    if ((Invoke-Probe hot-journal $database) -ne 0) { Fail 'could not leave a hot journal' }
+    $env:SCRAPPY_INSTALL_ZIP = $ZipPath
+    $env:SCRAPPY_INSTALL_ROOT = $root
+    $env:SCRAPPY_SHORTCUT_DIR = $shortcuts
+    $env:SCRAPPY_TEST_FORCE_FILE_COPY_BACKUP = '1'
+    $result = Install-LikeAUser
+    foreach ($var in 'SCRAPPY_INSTALL_ZIP', 'SCRAPPY_INSTALL_ROOT', 'SCRAPPY_SHORTCUT_DIR', 'SCRAPPY_TEST_FORCE_FILE_COPY_BACKUP') {
+        Remove-Item "Env:$var"
+    }
+    if ($result.ExitCode -ne 0) { Fail 'the update with the file-copy backup failed' }
+    if ($result.Output -notmatch 'file copy') { Fail 'the file-copy fallback was not used' }
+    $copy = Get-ChildItem -LiteralPath $backups -Filter 'records-pre-update-*.db' | Sort-Object Name | Select-Object -Last 1
+    if (-not (Test-Path -LiteralPath ($copy.FullName + '-journal'))) { Fail 'the journal was not copied with the database' }
+    # Opening the copy lets SQLite apply its journal: no half-saved change, the student is there.
+    if ((Invoke-Probe valid $copy.FullName) -ne 0) { Fail 'the file copy is not a sound database' }
+    Assert-Student $copy.FullName
+    Wait-Health | Out-Null
+    Assert-Student $database
+
     Step "Port $port taken by another program: the launcher fails politely and says why"
     Stop-Server
     $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, $port)

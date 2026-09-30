@@ -99,7 +99,10 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Publish the GitHub Release
+    # Published as a *prerelease* first: `releases/latest/download/...` (what the install line
+    # uses) ignores prereleases, so users keep getting the previous version until the checks
+    # below have installed this one on a real Windows machine.
+    name: Publish the GitHub Release (as a prerelease)
     needs: bundle
     runs-on: ubuntu-latest
     permissions:
@@ -121,11 +124,48 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "Scrappy Records $GITHUB_REF_NAME" \
             --generate-notes \
-            --verify-tag
+            --verify-tag \
+            --prerelease
 
-  verify:
-    name: Install the published release like a user
+  verify-candidate:
+    name: Install the new release by its tag (-Version), like a user
     needs: publish
     uses: ./.github/workflows/post-release-verify.yml
     with:
       tag: ${{ github.ref_name }}
+      mode: tagged
+
+  promote:
+    name: Make it the latest release
+    needs: verify-candidate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest
+
+  verify-latest:
+    name: Install the latest release with the plain install line, like a user
+    needs: promote
+    uses: ./.github/workflows/post-release-verify.yml
+    with:
+      tag: ${{ github.ref_name }}
+      mode: latest
+
+  rollback:
+    # Never leave a bad "latest": if the plain install line fails after promotion, turn the
+    # release back into a prerelease, so `latest` points at the previous version again.
+    name: Undo "latest" (the plain install line failed)
+    needs: [promote, verify-latest]
+    if: failure() && needs.promote.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --prerelease
+          echo "::error::The plain install line failed for $GITHUB_REF_NAME; it is a prerelease again and users still get the previous version."

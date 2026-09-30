@@ -18,6 +18,8 @@
 #                        [SCRAPPY_INSTALL_ROOT]
 #   -ShortcutDir <dir>   Testing only: put the shortcut here instead of on the Desktop.
 #                        [SCRAPPY_SHORTCUT_DIR]
+#   [SCRAPPY_TEST_FORCE_FILE_COPY_BACKUP=1]  Testing only: skip the app's own pre-update backup,
+#                        so CI can check the file-copy fallback.
 #
 # What it does (docs/adr/0003-distribution-and-install.md):
 #   1. downloads scrappy-records-windows-x64.zip from the GitHub release to %TEMP%, and unpacks
@@ -162,6 +164,7 @@ function Backup-ScrappyData([string[]]$Bundles, [string]$Database) {
     foreach ($bundle in $Bundles) {
         $python = Join-Path $bundle 'python\python.exe'
         if (-not (Test-Path -LiteralPath $python)) { continue }
+        if ($env:SCRAPPY_TEST_FORCE_FILE_COPY_BACKUP -eq '1') { continue }  # test hook: step 2 only
         $result = Invoke-ScrappyProgram $python '-m app.backup --reason pre-update' $bundle 120
         if ($result.ExitCode -eq 0) {
             Write-ScrappyStep $result.Output

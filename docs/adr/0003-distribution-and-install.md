@@ -76,8 +76,9 @@ run from disk.
     (see the development runbook). `macos-install` does the same on a Mac.
   - The literal published command (`irm` of `main`'s `install.ps1` from
     raw.githubusercontent.com, and the `releases/latest/download/` asset) can only be tested
-    once a release exists. `post-release-verify.yml` does that on Windows after every release
-    (and on demand): install, restart, update and `-Version`.
+    once a release exists. `release.yml` publishes each release as a prerelease, checks it on
+    Windows with `-Version`, only then makes it "latest", checks the literal line, and turns it
+    back into a prerelease if that fails (`post-release-verify.yml`).
   - Not covered: the real Desktop of a user whose Desktop is redirected to OneDrive (handled
     with `GetFolderPath('Desktop')`), antivirus products, and very old Windows 10 builds.
 - The Start Menu entry and an Edge `--app` window are deferred. The MVP has a Desktop shortcut

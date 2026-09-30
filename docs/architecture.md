@@ -152,7 +152,9 @@ The Desktop shortcut runs `pythonw.exe -m app.launcher` (`backend/app/launcher.p
    `osascript` on macOS) that names the log file, and exits with code 1. The messages tell apart
    another program on the port ("restart the laptop"), our own server holding the port without
    answering ("seems to be stuck, restart the laptop") and a slow start ("still starting, wait a
-   minute, then double-click again").
+   minute, then double-click again"). `server.lock` holds the time the server started: if our
+   server has been starting for more than 3 minutes without opening the port, that is "stuck"
+   too, not "still starting".
 
 Steps 1–3 hold a lock file (`logs\launcher.lock`), so double-clicking the shortcut twice starts
 one server: the second launcher waits, sees the first one's server and just opens the browser.
@@ -167,7 +169,8 @@ messages instead of showing a box, which would otherwise wait for a click.
    example because macOS denied access to Documents, startup carries on, and backups go to
    `data/backups` instead.)
 2. Take the **daily backup** (`records-YYYY-MM-DD.db`), if none exists for today, and delete all
-   but the 30 newest dailies. There's nothing to back up on the very first start. A failed daily
+   but the 30 newest dailies (newest by when they were written, never the one just taken, so a
+   laptop clock set to the wrong year can't make it delete today's copy). There's nothing to back up on the very first start. A failed daily
    backup is logged and the app still opens. (The running server takes later dailies itself,
    see "Starting the server".)
 3. If a database exists and is behind the latest Alembic revision (`app.migrate.needs_upgrade()`),

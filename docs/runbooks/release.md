@@ -25,21 +25,27 @@ version tag.
      self-tests each bundle (unzips it and starts the server from it with no developer tools);
    - runs the same install smoke tests as CI on each (`scripts/ci/smoke_install_windows.ps1`,
      `scripts/ci/smoke_install_mac.sh`);
-   - only if all of that passed, creates the GitHub Release with auto-generated notes and attaches
-     both zips.
-5. After publishing, it runs the **post-release check** (`post-release-verify.yml`): on a fresh
-   Windows machine it pastes the literal install line, then checks the version, a restart, a
-   re-run (update) and `-Version`. Watch it go green in the Actions tab; if it fails, users would
-   hit the same problem, so fix it before telling anyone to update. (It can be re-run by hand:
-   Actions → Post-release check → Run workflow.)
-6. Check the release page. Both assets must be present.
-7. Update the user's laptop: follow [update.md](update.md), or ask them to run the install line
+   - only if all of that passed, creates the GitHub Release with auto-generated notes and both
+     zips, **as a prerelease**. The install line downloads `releases/latest/download/...`, which
+     skips prereleases, so users still get the previous version at this point;
+   - **checks the prerelease** on a fresh Windows machine with the `-Version <tag>` form
+     (`post-release-verify.yml`, mode `tagged`): install, restart, update, data kept;
+   - only then **promotes** it (`gh release edit <tag> --prerelease=false --latest`);
+   - **checks the plain install line** (mode `latest`): the literal line from the docs must now
+     install this version; then restart, update and `-Version`;
+   - if that last check fails, **rolls back**: the release becomes a prerelease again, so
+     `latest` points at the previous version. A failed check never leaves a bad "latest".
+5. Watch the whole workflow go green in the Actions tab. The release page must show the new
+   version as **Latest**, with both assets. (The check can be re-run by hand: Actions →
+   Post-release check → Run workflow, with `mode` `latest` or `tagged`.)
+6. Update the user's laptop: follow [update.md](update.md), or ask them to run the install line
    again.
 
-If the tests, a bundle or a smoke test fail, nothing is published. Fix the problem on `main`,
-delete the tag (`git push --delete origin v0.2.0 && git tag -d v0.2.0`), and tag again. If only
-the post-release check fails, the release is already live: fix forward with a patch release
-quickly, or delete the release on GitHub so `latest` points at the previous one again.
+If the tests, a bundle or a smoke test fail, nothing is published. If a check fails, the
+release stays (or goes back to being) a prerelease that users never get. Either way: fix the
+problem on `main`, delete the release and the tag
+(`gh release delete v0.2.0 --yes; git push --delete origin v0.2.0 && git tag -d v0.2.0`), and
+tag again.
 
 ## Checking a bundle before tagging
 

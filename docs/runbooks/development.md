@@ -163,17 +163,22 @@ letters. It checks, in order:
 8. After a crash mid-save (`db_probe.py hot-journal` leaves a hot `records.db-journal`), an
    update still takes a proper backup (not the file-copy fallback) without the half-saved
    change, and the app starts with the data intact.
-9. With port 8765 held by another program, the launcher exits with code 1 and `server.log` says
+9. With the app's own backup switched off (`SCRAPPY_TEST_FORCE_FILE_COPY_BACKUP=1`, a test-only
+   hook) and a hot journal present, the installer's **file-copy** fallback copies
+   `records.db` *and* its `-journal`; opening the copy gives a sound database with the student
+   and without the half-saved change.
+10. With port 8765 held by another program, the launcher exits with code 1 and `server.log` says
    "Something else is using port 8765"; `pythonw -m app` itself logs "error while attempting to
    bind".
-10. A failing one-line install prints the friendly message and throws a catchable error, but
+11. A failing one-line install prints the friendly message and throws a catchable error, but
     doesn't end the PowerShell session (it never calls `exit`).
 
-**`post-release-verify.yml`** runs after each release is published (called by `release.yml`,
-or by hand from the Actions tab). On a fresh `windows-latest` it pastes the *literal* published
-line, which downloads `main`'s `install.ps1` and the `releases/latest/download/` asset. It then
-checks the version, the shortcut, a restart, a re-run (the update, with its backup) and the
-`-Version <tag>` form (`scripts/ci/verify_release_windows.ps1`). This can't run before the first
+**`post-release-verify.yml`** installs a published release on a fresh `windows-latest`
+(`scripts/ci/verify_release_windows.ps1`). `release.yml` calls it twice: mode `tagged`
+(`-Version <tag>`) while the release is still a prerelease, and mode `latest` (the *literal*
+published line, which downloads `main`'s `install.ps1` and the `releases/latest/download/` asset)
+after promoting it. Each checks the version, the shortcut, a restart and a re-run (the update,
+with its backup). It can also be run by hand from the Actions tab. It can't run before the first
 release exists.
 
 **`macos-install`** (on `macos-latest`) does the same for `scripts/install.sh` with
