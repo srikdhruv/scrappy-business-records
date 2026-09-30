@@ -142,6 +142,37 @@ test('correcting the left month after coming back makes the right months owed', 
   await expect(page.getByRole('list', { name: 'Fee history' })).toContainText('Away (no fee)')
 })
 
+test('marking as left inside the months away asks before they become owed', async ({
+  page,
+  request,
+}) => {
+  const now = await serverMonth(request)
+  const name = uniqueName('Ishani')
+  const id = await createStudent(request, {
+    name,
+    monthly_fee_paise: 100000,
+    joined_month: addMonths(now, -5),
+    left_month: addMonths(now, -4),
+  })
+  const back = await request.post(`/api/students/${id}/return`, {
+    data: { from_month: addMonths(now, -1) }, // away three and two months ago
+  })
+  expect(back.ok()).toBe(true)
+
+  await page.goto(`/students/${id}`)
+  await page.getByRole('button', { name: 'Mark as left' }).click()
+  const dialog = page.getByRole('dialog', { name: `Mark ${name} as left?` })
+  await pickMonth(page, 'Last month they should pay for', addMonths(now, -2))
+  await expect(dialog.getByRole('alert')).toContainText(
+    'will be owed again, because they were marked as away. Is that right?',
+  )
+  const save = dialog.getByRole('button', { name: 'Mark as left' })
+  await expect(save).toBeDisabled()
+  await dialog.getByRole('checkbox', { name: 'Yes, they owe those months' }).check()
+  await save.click()
+  await expect(page.getByText(`${name} marked as left`)).toBeVisible()
+})
+
 test('a scheduled fee change shows in the message and can be removed from Fee history', async ({
   page,
   request,
