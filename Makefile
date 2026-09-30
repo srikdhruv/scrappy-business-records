@@ -11,7 +11,7 @@ DEV_ENV  := SCRAPPY_HOME="$(DEVDATA)" SCRAPPY_BACKUP_DIR="$(DEVDATA)/backups" SC
 OPENAPI  := frontend/node_modules/.tmp/openapi.json
 
 .DEFAULT_GOAL := help
-.PHONY: help setup dev seed test e2e lint fmt gen-api build run package db-reset clean
+.PHONY: help setup dev dev-mock seed test e2e lint fmt gen-api build run package db-reset clean
 
 help: ## List the available commands
 	@echo "Scrappy Records — make targets:"
@@ -30,6 +30,10 @@ dev: ## API with auto-reload on :8765 + Vite UI on :5173 (open that one). Ctrl-C
 		--host 127.0.0.1 --port $(PORT) & \
 	(cd frontend && npm run dev) & \
 	wait
+
+dev-mock: ## Just the UI on :5173, with a pretend API and demo data (no backend needed)
+	@echo "UI with demo data: http://localhost:5173   (add ?demo=empty or ?demo=all-paid)"
+	cd frontend && npm run dev:mock
 
 seed: ## Fill ./.devdata with demo students and payments
 	@if [ ! -f backend/app/seed.py ]; then \
