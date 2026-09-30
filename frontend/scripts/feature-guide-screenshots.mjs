@@ -8,6 +8,8 @@
  * into batches), and a copy of the demo data that is changed and then stopped
  * (a fee change already scheduled, Undo, "leaving", a payment after leaving, extra kept as credit,
  * and the "Can't reach Scrappy Records" banner). The last demo pictures mark a student who left as coming again.
+ * A second copy of the demo data takes an Excel upload (`guide_server.py sample-upload`), for
+ * the upload preview and the unassigned payments it leaves.
  * Nothing here touches ./.devdata or a real install.
  *
  * The date is frozen at GUIDE_TODAY, on the server (scripts/guide_server.py overrides
@@ -110,9 +112,12 @@ const demoHome = makeHome('demo', { seed: true })
 const emptyHome = makeHome('empty', { seed: false })
 const copyHome = makeHome('copy', { seed: false })
 cpSync(path.join(demoHome.home, 'data'), path.join(copyHome.home, 'data'), { recursive: true })
+const excelHome = makeHome('excel', { seed: false })
+cpSync(path.join(demoHome.home, 'data'), path.join(excelHome.home, 'data'), { recursive: true })
 const demo = await serve(demoHome)
 const empty = await serve(emptyHome)
 const copy = await serve(copyHome)
+const excel = await serve(excelHome)
 
 const api = async (server, route, init) => {
   const response = await fetch(`${server.url}/api${route}`, {
@@ -442,6 +447,41 @@ await shot('come-back', dialog(), 0)
 await dialog().getByRole('button', { name: 'Mark as coming again' }).click()
 await settle()
 await shot('profile-back-month-by-month', section('Month by month'))
+
+// ---- Excel: upload a list over a copy of the demo data --------------------------------------
+const sample = path.join(work, 'new-students-september.xlsx')
+execFileSync('uv', [...GUIDE_SERVER, 'sample-upload', '--today', GUIDE_TODAY, '--out', sample], {
+  cwd: repo,
+  env: excelHome.env,
+  stdio: 'inherit',
+})
+await open(excel, '/students')
+await shot('students-header', header())
+await header().getByRole('button', { name: 'Upload Excel' }).click()
+await page.waitForTimeout(400)
+await shot('excel-upload-pick', dialog(), 0)
+await page.getByLabel('Excel file to upload').setInputFiles(sample)
+await page.getByTestId('upload-summary').waitFor()
+await settle()
+await shot('excel-upload-preview', dialog(), 0)
+await dialog()
+  .getByRole('tab', { name: /To choose/ })
+  .click()
+await page.waitForTimeout(300)
+await shot('excel-upload-choose', dialog(), 0)
+await dialog().getByRole('tab', { name: 'All rows' }).click()
+await dialog().getByRole('button', { name: 'Add' }).click()
+const added = page.locator('[data-sonner-toast]').first()
+await added.waitFor()
+await page.waitForTimeout(600)
+await shot('excel-upload-added', added)
+await open(excel, '/payments')
+await shot('unassigned-payments', page.locator('#unassigned-payments'))
+await open(excel, '/')
+await shot('dashboard-unassigned-banner', [header(), page.getByText(/waiting to be assigned/)])
+await open(excel, `/report?month=${now}`)
+await shot('report-unassigned', page.getByTestId('report-unassigned'))
+excel.stop()
 
 // ---- On the copy: changes, then the server goes away ----------------------------------------
 // Kabir's fee changed in April, and a raise to ₹2,000 is already set for November.

@@ -69,6 +69,7 @@ import {
   type StatusFilter,
 } from '@/lib/report'
 import { TONE_TEXT } from '@/lib/status'
+import { UNASSIGNED_SECTION_ID } from '@/lib/upload'
 import { cn } from '@/lib/utils'
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/
@@ -264,6 +265,13 @@ export function ReportPage() {
                 onSort={setSort}
               />
               <Collected totals={totals} month={data.month} ahead={ahead} filtered={filtered} />
+              {data.unassigned_count > 0 && (
+                <UnassignedLine
+                  count={data.unassigned_count}
+                  paise={data.unassigned_paise}
+                  month={data.month}
+                />
+              )}
             </>
           )}
         </Panel>
@@ -309,6 +317,31 @@ function Collected({
         Payments count for the month they’re <em>for</em>, not the day they were paid.
       </p>
     </div>
+  )
+}
+
+/**
+ * Payments from an upload that no student has yet: in no row and no total, so the report says
+ * how much for this month is still waiting (on screen and printed), with a way to them.
+ */
+function UnassignedLine({ count, paise, month }: { count: number; paise: number; month: string }) {
+  return (
+    <p
+      className="border-t border-border/70 px-6 py-3 text-sm text-muted-foreground print:px-0 print:py-1"
+      data-testid="report-unassigned"
+    >
+      <strong className="text-foreground">
+        Also {formatRupees(paise)} of payments not yet matched to a student
+      </strong>{' '}
+      ({plural(count, 'payment')} for {formatMonth(month)} from an upload): not counted above.{' '}
+      <Link
+        to={`/payments#${UNASSIGNED_SECTION_ID}`}
+        className="rounded font-bold text-primary-strong underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 print:hidden"
+      >
+        Give them to a student
+      </Link>
+      <span className="hidden print:inline">Give them to a student in Payments.</span>
+    </p>
   )
 }
 

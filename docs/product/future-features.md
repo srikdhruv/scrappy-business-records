@@ -149,8 +149,9 @@ The owner hires instructors to take some batches and pays them.
 - **Start Menu entry**, plus an "Update Scrappy Records" shortcut.
 - **App window** via `msedge --app=…`, with no address bar, so it feels like a normal app.
 - **Start at login** and a **tray icon** (open / quit / back up now).
-- In-app **backup now / restore** buttons, and an "export to Excel" of all data.
-- **Import existing roster** from a spreadsheet (name, phone, fee, batch).
+- In-app **backup now / restore** buttons. (Downloading everything as an Excel file, and
+  uploading a roster or payments from a spreadsheet, are built: see the
+  [feature guide](../feature-guide.md#downloading-and-uploading-excel).)
 - **Undo / recently deleted** instead of hard delete.
 - **Hindi (and other languages)** in the UI.
 - **Phone access on the home Wi-Fi.** The server would bind to the LAN with a PIN, so the owner can
@@ -160,6 +161,10 @@ The owner hires instructors to take some batches and pays them.
 - A **signed `.exe` installer** (MSIX or Inno Setup) with auto-update, replacing the PowerShell
   one-liner.
 - A dark mode, and a printable monthly summary.
+- **One Excel writer.** The downloads (`services/exports.py`) and the monthly report's Excel
+  file (`services/report_xlsx.py`) each set up their own headings, ₹ formats and column widths
+  with openpyxl. They could share one small helper (and the report's Indian-grouping ₹ format).
+  Not urgent: both are tested, and they look alike on purpose.
 
 ## 10. In-app feedback (open problem, revisit after v0.1)
 

@@ -21,6 +21,7 @@ import type {
   StudentRead,
   StudentReturn,
   StudentUpdate,
+  UnassignedPaymentRead,
   Weekday,
 } from '@/api/types'
 import { monthsAhead, needsCheck } from '@/lib/allocation'
@@ -54,6 +55,8 @@ export interface Fixture {
   students: StudentRow[]
   fees: FeeChangeRow[]
   payments: PaymentRow[]
+  /** Uploaded payments waiting for a student. */
+  unassigned?: UnassignedPaymentRead[]
   batches?: BatchRow[]
 }
 
@@ -143,6 +146,7 @@ export class MockDb {
   students: StudentRow[] = []
   fees: FeeChangeRow[] = []
   payments: PaymentRow[] = []
+  unassigned: UnassignedPaymentRead[] = []
   batches: BatchRow[] = []
   /** Backups the label conversion took (`pre-batches`), newest last. */
   backups: string[] = []
@@ -156,9 +160,16 @@ export class MockDb {
     this.students = fixture.students.map((s) => ({ ...s }))
     this.fees = fixture.fees.map((f) => ({ ...f }))
     this.payments = fixture.payments.map((p) => ({ ...p }))
+    this.unassigned = (fixture.unassigned ?? []).map((u) => ({ ...u }))
     this.batches = (fixture.batches ?? []).map((b) => ({ ...b, days: [...b.days] }))
     this.backups = []
-    const ids = [...this.students, ...this.fees, ...this.payments, ...this.batches].map(
+    const ids = [
+      ...this.students,
+      ...this.fees,
+      ...this.payments,
+      ...this.unassigned,
+      ...this.batches,
+    ].map(
       (row) => row.id,
     )
     this.nextId = Math.max(0, ...ids) + 1
@@ -643,6 +654,48 @@ export class MockDb {
     this.payments = this.payments.filter((p) => p.id !== id)
   }
 
+  // ---- Unassigned payments ----------------------------------------------------------------------
+
+  listUnassigned(): UnassignedPaymentRead[] {
+    return [...this.unassigned].sort((a, b) => a.paid_on.localeCompare(b.paid_on) || a.id - b.id)
+  }
+
+  assignUnassigned(id: number, studentId: number): PaymentRead {
+    const row = this.unassigned.find((u) => u.id === id)
+    if (!row) notFound('Unassigned payment')
+    const student = this.students.find((s) => s.id === studentId)
+    if (!student) invalid('student_id', 'That student no longer exists. Choose another.')
+    const duplicate = this.payments.some(
+      (p) =>
+        p.student_id === studentId &&
+        p.amount_paise === row.amount_paise &&
+        p.paid_on === row.paid_on &&
+        p.for_month === row.for_month,
+    )
+    if (duplicate) {
+      invalid(
+        'student_id',
+        `${student.name} already has this payment: the same amount, paid on the same day, ` +
+          `for ${formatMonth(row.for_month)}. If it's the same one, delete this one.`,
+      )
+    }
+    const payment = this.createPayment({
+      student_id: studentId,
+      amount_paise: row.amount_paise,
+      paid_on: row.paid_on,
+      for_month: row.for_month,
+      method: row.method,
+      note: row.note,
+    })
+    this.unassigned = this.unassigned.filter((u) => u.id !== id)
+    return payment
+  }
+
+  deleteUnassigned(id: number): void {
+    if (!this.unassigned.some((u) => u.id === id)) notFound('Unassigned payment')
+    this.unassigned = this.unassigned.filter((u) => u.id !== id)
+  }
+
   // ---- Dashboard ------------------------------------------------------------------------------
 
   dashboard(month?: string | null) {
@@ -881,11 +934,17 @@ export class MockDb {
 
   report(month?: string | null) {
     checkMonth('month', month)
-    return report(
-      this.students.map((s) => this.book(s)),
-      month ?? this.now(),
-      this.now(),
-      today(),
-    )
+    const shown = month ?? this.now()
+    const waiting = this.unassigned.filter((u) => u.for_month === shown)
+    return {
+      ...report(
+        this.students.map((s) => this.book(s)),
+        shown,
+        this.now(),
+        today(),
+      ),
+      unassigned_count: waiting.length,
+      unassigned_paise: waiting.reduce((sum, u) => sum + u.amount_paise, 0),
+    }
   }
 }

@@ -1,7 +1,7 @@
 """batches: a new table, and students.batch_id (the batch a student is in, or none)
 
 Revision ID: 0005
-Revises: 0002
+Revises: 0004
 Create Date: 2026-09-30 13:00:00
 
 Additive only (ADR 0004): a new `batches` table, a new nullable `students.batch_id` and an index
@@ -20,7 +20,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0005"
-down_revision: str | Sequence[str] | None = "0002"
+down_revision: str | Sequence[str] | None = "0004"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

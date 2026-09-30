@@ -63,8 +63,11 @@ backend/
                      students.py, payments.py, dashboard.py, report.py, batches.py: the
                      database work routers call; report_xlsx.py: the report as an Excel file
                      (openpyxl); bounds.py (input limits), text.py (case- and
-                     accent-insensitive matching)
-    routers/         health, students, payments, dashboard, report, batches
+                     accent-insensitive matching, and `student_matches`, the Python twin of
+                     lib/search.ts); exports.py (Excel downloads), spreadsheet.py (reading an
+                     uploaded file), imports.py (upload preview and add), matching.py (finding
+                     students quickly), unassigned.py (unassigned payments)
+    routers/         health, students, payments, dashboard, report, excel, unassigned, batches
     migrations/      Alembic env.py and versions/ (ships inside the package)
     static/          Built UI (git-ignored; `make build`)
     launcher.py      Desktop-shortcut entry point: health check, start the server, open the browser
@@ -82,13 +85,16 @@ frontend/src/
   pages/             Dashboard, Report, Payments, Students, StudentProfile (+ their tests)
   components/        App building blocks: log-payment (the form), student-form, payments-table,
                      month-picker, month-switcher, student-combobox, mark-left and come-back
-                     dialogs, status badges; batches/ (tabs, cards, batch form, labels to
-                     batches, the students table, the batch picker); layout/; ui/ (shadcn/ui)
+                     dialogs, status badges, excel-upload-dialog, excel-buttons,
+                     unassigned-payments (+ banner); batches/ (tabs, cards, batch form, labels
+                     to batches, the students table, the batch picker); layout/; ui/ (shadcn/ui)
   lib/format.ts      ₹, date and month formatting (the only place that formats them)
   lib/errors.ts      Plain-words messages for API errors, including "Can't reach Scrappy Records"
   lib/search.ts      The student search both lists use (words in any order, accents, phones)
   lib/fees.ts        Reading a fee history: the fee in a month, and "until …" sentences
   lib/report.ts      The monthly report's statuses, filters, sorting and totals row
+  lib/downloads.ts   The Excel download links (what each page shows); lib/upload.ts: the upload
+                     preview's counts and sentences
   lib/batches.ts     Batches in words ("Mon, Wed · 5:00–6:00 pm"), and the students table's
                      filters, sorting and grouping
   mocks/             The mock API (MSW) for `make dev-mock` and the tests. Never in the build
@@ -100,7 +106,8 @@ frontend/scripts/
 scripts/
   build_bundle.py    `make package`: the self-contained zip, self-tested
   shrink_screenshots.py  256-colour PNGs for the pictures in docs/
-  guide_server.py    The real app with the date frozen, for `make guide-screenshots`
+  guide_server.py    The real app with the date frozen, for `make guide-screenshots` (and a
+                     sample Excel file to upload over the demo data)
   make_icon.py       Draws the app icon (scrappy.ico / scrappy.png) at build time
   install.ps1        Windows installer and updater (`irm ... | iex`)
   install.sh         macOS installer and updater (`curl ... | sh`)
@@ -180,6 +187,8 @@ advance, Enter after clicking Cash, the Students search, the amount cap and the 
 `e2e/report.spec.ts` covers the monthly report: opening it from the dashboard, filtering and
 searching, the Excel download (read back with openpyxl through `uv run`), the print layout
 (print media emulated) and the wide table at 1280 and 800 px.
+`e2e/excel.spec.ts` downloads the Students and Payments lists, uploads them again (one student
+already there, one new), and gives a payment whose student wasn't found to another student.
 `e2e/batches.spec.ts` covers batches: creating one, adding a student from its tab with the fee
 filled in, its % paid after a payment, filtering and grouping, deleting a batch, and turning
 labels into batches.

@@ -263,6 +263,20 @@ def _formula(ws: Worksheet, row: int, col: int, formula: str, paise: bool) -> No
     cell.number_format = RUPEES_PAISE if paise else RUPEES
 
 
+_NOTE_FONT = Font(italic=True)
+
+
+def unassigned_words(report: ReportResponse) -> str:
+    """The note under the totals when uploaded payments for the month have no student yet."""
+    n = report.unassigned_count
+    what = "payment" if n == 1 else "payments"
+    return (
+        f"Also {rupees(report.unassigned_paise)} of {what} not yet matched to a student ({n} "
+        f"{what} for {month_long(report.month)} from an upload): not counted above. Give them "
+        "to a student in Payments → Unassigned payments."
+    )
+
+
 def filename(month: str) -> str:
     return f"scrappy-records-report-{month}.xlsx"
 
@@ -418,6 +432,11 @@ def workbook(
         bool(has_paise) or t.collected_paise % 100 != 0,
     )
     ws.cell(row=collected_row, column=_COL["Paid for this month ₹"]).font = _HEAD_FONT
+
+    if report.unassigned_count:
+        # Money from an upload that no student has yet: in no row and no total above.
+        _put(ws, collected_row + 1, 1, COLUMNS[0], unassigned_words(report))
+        ws.cell(row=collected_row + 1, column=1).font = _NOTE_FONT
 
     ws.freeze_panes = f"B{first}"
     ws.auto_filter.ref = f"A{HEADER_ROW}:{last_col}{max(last, HEADER_ROW)}"

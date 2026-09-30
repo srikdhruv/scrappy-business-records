@@ -246,6 +246,188 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/export/students.xlsx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Students
+         * @description The students on the Students page for this tab and search, as an Excel file.
+         */
+        get: operations["exportStudents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/export/payments.xlsx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Payments
+         * @description The payments on the Payments page for these filters, in its order, as an Excel file.
+         */
+        get: operations["exportPayments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/export/everything.xlsx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Everything
+         * @description Every record in one workbook: Students, Fee history, Payments and Unassigned payments.
+         *     Uploading it into an empty app restores everything.
+         */
+        get: operations["exportEverything"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/import/template.xlsx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Import Template
+         * @description A blank sheet to fill in and upload.
+         */
+        get: operations["importTemplate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/import/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Import
+         * @description What adding this file's students and payments would do, row by row. Nothing is saved.
+         *     A file that can't be read is a 422 with a plain message.
+         */
+        post: operations["previewImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/import/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Commit Import
+         * @description Add the rows from a preview, with the owner's choices, after checking all of them again
+         *     against the records as they are now. A `pre-import` backup is taken first, and it all
+         *     happens in one transaction: on any error nothing is added.
+         */
+        post: operations["commitImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/unassigned-payments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Unassigned
+         * @description Every payment waiting for a student, oldest paid first, each with likely students.
+         */
+        get: operations["listUnassignedPayments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/unassigned-payments/{unassigned_id}/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assign
+         * @description Give it to a student: the payment is added for them and this one removed, together.
+         *     422 if they already have the same payment (amount, paid-on date and month).
+         */
+        post: operations["assignUnassignedPayment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/unassigned-payments/{unassigned_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete */
+        delete: operations["deleteUnassignedPayment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/batches": {
         parameters: {
             query?: never;
@@ -316,6 +498,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/batches/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Students
+         * @description Put these students in a batch (or none), all at once. Their fees don't change.
+         */
+        post: operations["moveStudents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/batches/{batch_id}": {
         parameters: {
             query?: never;
@@ -342,6 +544,27 @@ export interface paths {
         patch: operations["updateBatch"];
         trace?: never;
     };
+    "/api/batches/{batch_id}/fee-plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Fee Plan
+         * @description What "Also charge the new usual fee" would do to each student of the batch, and who is
+         *     ticked at first. Changes nothing; `PATCH` with `apply_fee` uses the same rule.
+         */
+        get: operations["getFeePlan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -361,9 +584,14 @@ export interface components {
             from_month: string;
             /**
              * Student Ids
-             * @description The students to charge it to: all must be in this batch. The UI lists them first, so exactly those change.
+             * @description The students to charge it to: all must be in this batch. The UI lists them first (GET /batches/{id}/fee-plan), so exactly those change.
              */
             student_ids: number[];
+            /**
+             * Confirm Planned
+             * @description Of student_ids, those with a fee change planned for a later month that the owner ticked anyway. Any other student with one is a 422.
+             */
+            confirm_planned?: number[];
         };
         /**
          * BacklogItem
@@ -801,6 +1029,11 @@ export interface components {
             detail: string;
         };
         /**
+         * ExportTemplateKind
+         * @enum {string}
+         */
+        ExportTemplateKind: "students" | "payments";
+        /**
          * ExtraSent
          * @description Money paid above a month's fee that covers another month.
          */
@@ -844,6 +1077,90 @@ export interface components {
          * @enum {string}
          */
         FeeKind: "fee" | "away";
+        /** FeePlan */
+        FeePlan: {
+            /** Batch Id */
+            batch_id: number;
+            /**
+             * Fee Paise
+             * @description Amount in paise, 0 or more.
+             */
+            fee_paise: number;
+            /**
+             * From Month
+             * @description A month as "YYYY-MM".
+             * @example 2026-10
+             */
+            from_month: string;
+            /**
+             * Current Month
+             * @description A month as "YYYY-MM".
+             * @example 2026-10
+             */
+            current_month: string;
+            /**
+             * Usual Fee Paise
+             * @description The fee counted as the usual one: the batch's usual fee, or if it has none, the fee most of its students pay (null on a tie).
+             */
+            usual_fee_paise: number | null;
+            /**
+             * Students
+             * @description Everyone in it who hasn't left, A to Z.
+             */
+            students: components["schemas"]["FeePlanStudent"][];
+        };
+        /**
+         * FeePlanStatus
+         * @description What "Also charge the new usual fee" would do to one student (`GET /batches/{id}/fee-plan`).
+         *
+         *     - `usual`: pays the usual fee now (the batch's old one, or the most common one if it had
+         *       none): ticked at first.
+         *     - `own_fee`: pays a fee of their own (a discount, a free place): not ticked at first.
+         *     - `planned`: a fee change is set for a later month; the new fee would end at it, or replace
+         *       it. Not ticked at first, and only changed with `confirm_planned`.
+         *     - `already`: they'd already pay it from that month: nothing changes.
+         *     - `not_affected`: they leave before it would start: nothing changes.
+         * @enum {string}
+         */
+        FeePlanStatus: "usual" | "own_fee" | "planned" | "already" | "not_affected";
+        /** FeePlanStudent */
+        FeePlanStudent: {
+            /** Student Id */
+            student_id: number;
+            /** Student Name */
+            student_name: string;
+            /**
+             * Current Fee Paise
+             * @description Their fee this month.
+             */
+            current_fee_paise: number;
+            /**
+             * Start Month
+             * @description The month the new fee would start for them (their joining month if later; the month they came back if the chosen month is one of their months away). Null if they leave before it.
+             */
+            start_month: string | null;
+            status: components["schemas"]["FeePlanStatus"];
+            /**
+             * Selected
+             * @description Ticked at first (status `usual`).
+             */
+            selected: boolean;
+            /**
+             * Due Months
+             * @description Months already due (up to the current month) whose fee would change.
+             */
+            due_months: number;
+            /**
+             * Due Change Paise
+             * @description How much more those months would owe in total (less, if below 0).
+             */
+            due_change_paise: number;
+            /**
+             * Fee History
+             * @description Their fee changes, oldest first, so the UI can say how long it would last.
+             */
+            fee_history: components["schemas"]["FeeChangeRead"][];
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -867,6 +1184,245 @@ export interface components {
              */
             status: "ok";
         };
+        /**
+         * ImportCommit
+         * @description The same file again, and the owner's choices (only for the rows she chose something
+         *     for; every other row does what its status says). The file is read and every row checked
+         *     again, against the records as they are now, before anything is added.
+         */
+        ImportCommit: {
+            /**
+             * File
+             * @description The .xlsx file, base64-encoded (at most 5 MB before encoding).
+             */
+            file: string;
+            /**
+             * File Sha256
+             * @description The preview's `file_sha256`: Add is refused if the file isn't the one previewed.
+             */
+            file_sha256: string;
+            /** Filename */
+            filename?: string | null;
+            /**
+             * Students
+             * @default []
+             */
+            students: components["schemas"]["ImportStudentDecision"][];
+            /**
+             * Payments
+             * @default []
+             */
+            payments: components["schemas"]["ImportPaymentDecision"][];
+        };
+        /**
+         * ImportPaymentChoice
+         * @enum {string}
+         */
+        ImportPaymentChoice: "auto" | "student" | "unassigned" | "skip" | "add";
+        /** ImportPaymentDecision */
+        ImportPaymentDecision: {
+            /**
+             * Sheet
+             * @description The payment's sheet, as in the preview.
+             */
+            sheet: string;
+            /** Row */
+            row: number;
+            /** @default auto */
+            choice: components["schemas"]["ImportPaymentChoice"];
+            /** Student Id */
+            student_id?: number | null;
+        };
+        /** ImportPaymentPreview */
+        ImportPaymentPreview: {
+            /** Row */
+            row: number;
+            /** Sheet */
+            sheet: string;
+            /**
+             * Student Text
+             * @description The student as written.
+             */
+            student_text: string;
+            /** Amount Paise */
+            amount_paise: number | null;
+            /** Paid On */
+            paid_on: string | null;
+            /** For Month */
+            for_month: string | null;
+            method: components["schemas"]["PaymentMethod"] | null;
+            /** Note */
+            note: string | null;
+            status: components["schemas"]["ImportPaymentStatus"];
+            /** Reason */
+            reason: string | null;
+            /**
+             * Student Id
+             * @description `ready`: the student already here it goes to.
+             */
+            student_id: number | null;
+            /**
+             * Student Row
+             * @description `ready` or `follows_student`: the row of the student in this file it goes to.
+             */
+            student_row: number | null;
+            /**
+             * Candidate Ids
+             * @description `needs_student`: students it may be, best first, to offer first.
+             */
+            candidate_ids: number[];
+        };
+        /**
+         * ImportPaymentStatus
+         * @description What adding an uploaded payment row would do.
+         * @enum {string}
+         */
+        ImportPaymentStatus: "ready" | "needs_student" | "follows_student" | "unassigned" | "duplicate" | "possible_duplicate" | "problem";
+        /**
+         * ImportPreview
+         * @description What adding an uploaded file would do. Nothing has been saved.
+         */
+        ImportPreview: {
+            /** Filename */
+            filename: string | null;
+            /**
+             * Sheets
+             * @description The sheets that were read.
+             */
+            sheets: string[];
+            /**
+             * Ignored Sheets
+             * @description Sheets that weren't students or payments.
+             */
+            ignored_sheets: string[];
+            /**
+             * Hidden Sheets
+             * @description Hidden sheets, which are never read.
+             */
+            hidden_sheets: string[];
+            /**
+             * Students
+             * @description Every row that needs a choice (`similar`), and the first rows of each other status (all of them unless `all_rows_shown` is false).
+             */
+            students: components["schemas"]["ImportStudentPreview"][];
+            /**
+             * Payments
+             * @description Every row that needs a choice (`needs_student`, `follows_student`, `possible_duplicate`), and the first rows of each other status.
+             */
+            payments: components["schemas"]["ImportPaymentPreview"][];
+            /**
+             * Student Counts
+             * @description How many student rows have each status.
+             */
+            student_counts: {
+                [key: string]: number;
+            };
+            /**
+             * Payment Counts
+             * @description How many payment rows have each status.
+             */
+            payment_counts: {
+                [key: string]: number;
+            };
+            /**
+             * All Rows Shown
+             * @description False for a long file: some rows that need no choice aren't listed, only counted.
+             */
+            all_rows_shown: boolean;
+            /**
+             * Fee Changes
+             * @description Fee-history rows that come with the new students (restored exactly).
+             */
+            fee_changes: number;
+            /**
+             * Current Month
+             * @description A month as "YYYY-MM".
+             * @example 2026-10
+             */
+            current_month: string;
+            /**
+             * File Sha256
+             * @description The SHA-256 of the file previewed (hex). Add sends it back: the file sent with Add must be this very file.
+             */
+            file_sha256: string;
+        };
+        /** ImportResult */
+        ImportResult: {
+            /** Students Added */
+            students_added: number;
+            /**
+             * Fee Changes Added
+             * @description Fee-history rows added with the new students, first fees included.
+             */
+            fee_changes_added: number;
+            /** Payments Added */
+            payments_added: number;
+            /** Unassigned Added */
+            unassigned_added: number;
+            /**
+             * Skipped
+             * @description Rows not added (already here, problems, skipped).
+             */
+            skipped: number;
+            /**
+             * Backup File
+             * @description The backup taken first (records-pre-import-…), or null if nothing was added.
+             */
+            backup_file: string | null;
+        };
+        /** ImportStudentDecision */
+        ImportStudentDecision: {
+            /**
+             * Row
+             * @description The student's row in the file's students sheet.
+             */
+            row: number;
+            /**
+             * Add
+             * @description `true` adds a `similar` row as a new student; `false` skips any row.
+             */
+            add: boolean;
+        };
+        /** ImportStudentPreview */
+        ImportStudentPreview: {
+            /** Row */
+            row: number;
+            /** Sheet */
+            sheet: string;
+            /**
+             * Name
+             * @description As written (may be blank for a problem row).
+             */
+            name: string;
+            /** Phone */
+            phone: string | null;
+            /** Monthly Fee Paise */
+            monthly_fee_paise: number | null;
+            /** Joined Month */
+            joined_month: string | null;
+            status: components["schemas"]["ImportStudentStatus"];
+            /**
+             * Reason
+             * @description Why, in plain words (not for `new`).
+             */
+            reason: string | null;
+            /**
+             * Student Id
+             * @description The student already here that it is (`exists`) or looks like (`similar`).
+             */
+            student_id: number | null;
+            /**
+             * Add By Default
+             * @description `similar` only: added unless the owner says Skip (a brother or sister sharing a phone with an earlier row of the file).
+             */
+            add_by_default: boolean;
+        };
+        /**
+         * ImportStudentStatus
+         * @description What adding an uploaded student row would do.
+         * @enum {string}
+         */
+        ImportStudentStatus: "new" | "exists" | "similar" | "problem";
         /** LabelConversion */
         LabelConversion: {
             /** Batches Created */
@@ -901,6 +1457,16 @@ export interface components {
              * @description Sorted by name.
              */
             student_names: string[];
+            /**
+             * Left Student Names
+             * @description Those of student_names whose last month has passed (they have left).
+             */
+            left_student_names: string[];
+            /**
+             * Active Student Count
+             * @description Those still coming. 0: the batch would have nobody coming now.
+             */
+            active_student_count: number;
             /**
              * Existing Batch Id
              * @description A batch with this name already exists, so they go into it.
@@ -1005,6 +1571,24 @@ export interface components {
          * @enum {string}
          */
         MonthStatus: "paid" | "partial" | "unpaid" | "overpaid" | "not_applicable";
+        /** MoveResult */
+        MoveResult: {
+            /** Moved */
+            moved: number;
+        };
+        /**
+         * MoveStudents
+         * @description Put students in a batch (or none) at once. Their fees don't change.
+         */
+        MoveStudents: {
+            /** Student Ids */
+            student_ids: number[];
+            /**
+             * Batch Id
+             * @description The batch, or null for no batch.
+             */
+            batch_id: number | null;
+        };
         /**
          * NoFeeReason
          * @description Why a monthly report row says **No fee**.
@@ -1245,6 +1829,18 @@ export interface components {
              */
             rows: components["schemas"]["ReportRow"][];
             totals: components["schemas"]["ReportTotals"];
+            /**
+             * Unassigned Count
+             * @description Unassigned payments (from an upload, no student yet) for M. They belong to no student, so no row or total counts them: the report says so in a line.
+             * @default 0
+             */
+            unassigned_count: number;
+            /**
+             * Unassigned Paise
+             * @description What those unassigned payments add up to.
+             * @default 0
+             */
+            unassigned_paise: number;
         };
         /**
          * ReportRow
@@ -1808,6 +2404,62 @@ export interface components {
          * @enum {string}
          */
         SuggestionReason: "owed" | "next_unpaid" | "all_paid";
+        /** UnassignedAssign */
+        UnassignedAssign: {
+            /** Student Id */
+            student_id: number;
+        };
+        /**
+         * UnassignedPaymentRead
+         * @description A payment from an uploaded file whose student couldn't be matched. It belongs to no
+         *     student, so no total counts it, until it is assigned (`POST .../assign`).
+         */
+        UnassignedPaymentRead: {
+            /** Id */
+            id: number;
+            /**
+             * Student Text
+             * @description The student as written in the file.
+             */
+            student_text: string;
+            /** Phone */
+            phone: string | null;
+            /**
+             * Amount Paise
+             * @description Amount in paise, more than 0.
+             */
+            amount_paise: number;
+            /**
+             * Paid On
+             * Format: date
+             */
+            paid_on: string;
+            /**
+             * For Month
+             * @description A month as "YYYY-MM".
+             * @example 2026-10
+             */
+            for_month: string;
+            method: components["schemas"]["PaymentMethod"];
+            /** Note */
+            note: string | null;
+            /**
+             * Source
+             * @description Where it came from, e.g. "Upload: fees.xlsx".
+             */
+            source: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             * @description UTC timestamp, e.g. 2026-10-05T09:30:00Z
+             */
+            created_at: string;
+            /**
+             * Suggested Student Ids
+             * @description Students it may be, best first: the same name or phone, then anyone the Students search finds for the name as written.
+             */
+            suggested_student_ids: number[];
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1897,16 +2549,32 @@ export type CreditSource = components['schemas']['CreditSource'];
 export type DashboardResponse = components['schemas']['DashboardResponse'];
 export type DashboardSummary = components['schemas']['DashboardSummary'];
 export type ErrorResponse = components['schemas']['ErrorResponse'];
+export type ExportTemplateKind = components['schemas']['ExportTemplateKind'];
 export type ExtraSent = components['schemas']['ExtraSent'];
 export type FeeChangeRead = components['schemas']['FeeChangeRead'];
 export type FeeKind = components['schemas']['FeeKind'];
+export type FeePlan = components['schemas']['FeePlan'];
+export type FeePlanStatus = components['schemas']['FeePlanStatus'];
+export type FeePlanStudent = components['schemas']['FeePlanStudent'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];
 export type HealthResponse = components['schemas']['HealthResponse'];
+export type ImportCommit = components['schemas']['ImportCommit'];
+export type ImportPaymentChoice = components['schemas']['ImportPaymentChoice'];
+export type ImportPaymentDecision = components['schemas']['ImportPaymentDecision'];
+export type ImportPaymentPreview = components['schemas']['ImportPaymentPreview'];
+export type ImportPaymentStatus = components['schemas']['ImportPaymentStatus'];
+export type ImportPreview = components['schemas']['ImportPreview'];
+export type ImportResult = components['schemas']['ImportResult'];
+export type ImportStudentDecision = components['schemas']['ImportStudentDecision'];
+export type ImportStudentPreview = components['schemas']['ImportStudentPreview'];
+export type ImportStudentStatus = components['schemas']['ImportStudentStatus'];
 export type LabelConversion = components['schemas']['LabelConversion'];
 export type LabelGroup = components['schemas']['LabelGroup'];
 export type LabelPreview = components['schemas']['LabelPreview'];
 export type LedgerMonth = components['schemas']['LedgerMonth'];
 export type MonthStatus = components['schemas']['MonthStatus'];
+export type MoveResult = components['schemas']['MoveResult'];
+export type MoveStudents = components['schemas']['MoveStudents'];
 export type NoFeeReason = components['schemas']['NoFeeReason'];
 export type OverpaidItem = components['schemas']['OverpaidItem'];
 export type PaymentCreate = components['schemas']['PaymentCreate'];
@@ -1930,6 +2598,8 @@ export type StudentReturn = components['schemas']['StudentReturn'];
 export type StudentUpdate = components['schemas']['StudentUpdate'];
 export type SuggestedPayment = components['schemas']['SuggestedPayment'];
 export type SuggestionReason = components['schemas']['SuggestionReason'];
+export type UnassignedAssign = components['schemas']['UnassignedAssign'];
+export type UnassignedPaymentRead = components['schemas']['UnassignedPaymentRead'];
 export type ValidationError = components['schemas']['ValidationError'];
 export type Weekday = components['schemas']['Weekday'];
 export type YetToPayItem = components['schemas']['YetToPayItem'];
@@ -2576,6 +3246,298 @@ export interface operations {
             };
         };
     };
+    exportStudents: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["StudentListFilter"];
+                /** @description The Students page's search. */
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An Excel workbook (.xlsx), as a download. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    exportPayments: {
+        parameters: {
+            query?: {
+                student_id?: number | null;
+                month?: string | null;
+                q?: string | null;
+                method?: components["schemas"]["PaymentMethod"] | null;
+                sort?: components["schemas"]["PaymentSort"];
+                order?: components["schemas"]["SortOrder"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An Excel workbook (.xlsx), as a download. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    exportEverything: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An Excel workbook (.xlsx), as a download. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+        };
+    };
+    importTemplate: {
+        parameters: {
+            query: {
+                kind: components["schemas"]["ExportTemplateKind"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An Excel workbook (.xlsx), as a download. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    previewImport: {
+        parameters: {
+            query?: {
+                /** @description The file's name. */
+                filename?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The .xlsx file itself, as the request body (at most 5 MB). */
+        requestBody: {
+            content: {
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    commitImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportCommit"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listUnassignedPayments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnassignedPaymentRead"][];
+                };
+            };
+        };
+    };
+    assignUnassignedPayment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                unassigned_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnassignedAssign"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentRead"];
+                };
+            };
+            /** @description No unassigned payment with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deleteUnassignedPayment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                unassigned_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No unassigned payment with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     listBatches: {
         parameters: {
             query?: never;
@@ -2701,6 +3663,39 @@ export interface operations {
             };
         };
     };
+    moveStudents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveStudents"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MoveResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     getBatch: {
         parameters: {
             query?: never;
@@ -2801,6 +3796,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BatchRead"];
+                };
+            };
+            /** @description No batch with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getFeePlan: {
+        parameters: {
+            query: {
+                /** @description The new usual fee. */
+                fee_paise: number;
+                /** @description The first month of the new fee. */
+                from_month: string;
+            };
+            header?: never;
+            path: {
+                batch_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeePlan"];
                 };
             };
             /** @description No batch with this id */

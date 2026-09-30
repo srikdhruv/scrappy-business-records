@@ -37,6 +37,15 @@ EXPECTED_OPERATIONS = {
     ("post", "/api/batches/move"): "moveStudents",
     ("get", "/api/report"): "getReport",
     ("get", "/api/report.xlsx"): "downloadReport",
+    ("get", "/api/export/students.xlsx"): "exportStudents",
+    ("get", "/api/export/payments.xlsx"): "exportPayments",
+    ("get", "/api/export/everything.xlsx"): "exportEverything",
+    ("get", "/api/import/template.xlsx"): "importTemplate",
+    ("post", "/api/import/preview"): "previewImport",
+    ("post", "/api/import/commit"): "commitImport",
+    ("get", "/api/unassigned-payments"): "listUnassignedPayments",
+    ("post", "/api/unassigned-payments/{unassigned_id}/assign"): "assignUnassignedPayment",
+    ("delete", "/api/unassigned-payments/{unassigned_id}"): "deleteUnassignedPayment",
 }
 
 

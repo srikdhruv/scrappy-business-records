@@ -544,5 +544,13 @@ export function report(
           : 0) ||
       a.student_id - b.student_id,
   )
-  return { month, current_month: now, today, rows, totals: sumRows(rows) }
+  return {
+    month,
+    current_month: now,
+    today,
+    rows,
+    totals: sumRows(rows),
+    unassigned_count: 0,
+    unassigned_paise: 0,
+  }
 }
