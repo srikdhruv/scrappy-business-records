@@ -25,9 +25,11 @@ V0_1_0_HEAD = "0002"
 """The last migration in v0.1.0 (`20260930_0002_fee_change_kind`)."""
 
 
-# Since v0.1.0 only in-app feedback added to the database: a new table (0003, feedback), which
-# the ledger never reads. Credit allocation itself stores nothing.
-ADDED_SINCE_V0_1_0 = ("0003",)
+# Since v0.1.0 only these added to the database: Excel uploads, a new table (0003,
+# unassigned_payments) and a new nullable column (0004, students.uid); and in-app feedback,
+# a new table (0005, feedback). None is read by the ledger, and credit allocation itself
+# stores nothing.
+ADDED_SINCE_V0_1_0 = ("0003", "0004", "0005")
 
 
 def test_no_migration_since_v0_1_0() -> None:

@@ -1,5 +1,6 @@
 import {
   CloudOffIcon,
+  FileDownIcon,
   LayoutDashboardIcon,
   ReceiptIndianRupeeIcon,
   ShieldCheckIcon,
@@ -11,6 +12,7 @@ import { useEffect, useState } from 'react'
 
 import { useHealth, useServerReachable } from '@/api/queries'
 import { SettingsDialogs, SettingsMenu, type SettingsDialog } from '@/components/settings-menu'
+import { EVERYTHING_DOWNLOAD_URL } from '@/lib/downloads'
 import { UNREACHABLE_MESSAGE } from '@/lib/errors'
 import { cn } from '@/lib/utils'
 
@@ -134,6 +136,25 @@ export function AppShell() {
           </div>
 
           <div className="mt-auto hidden space-y-3 px-2 lg:block">
+            <section aria-labelledby="your-data" className="space-y-1">
+              <h2
+                id="your-data"
+                className="text-xs font-bold tracking-wide text-muted-foreground uppercase"
+              >
+                Your data
+              </h2>
+              <a
+                href={EVERYTHING_DOWNLOAD_URL}
+                download
+                className="-mx-1 flex items-center gap-2 rounded-lg px-1 py-1 text-sm font-bold outline-none hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-ring/50"
+              >
+                <FileDownIcon className="size-4 shrink-0 text-primary-strong" aria-hidden />
+                Download everything
+              </a>
+              <p className="text-xs text-muted-foreground">
+                Every student, fee and payment in one Excel file.
+              </p>
+            </section>
             <p className="flex items-start gap-2 text-sm text-muted-foreground">
               <ShieldCheckIcon className="mt-0.5 size-4 shrink-0 text-paid" aria-hidden />
               Your records stay on this laptop and are backed up every day.

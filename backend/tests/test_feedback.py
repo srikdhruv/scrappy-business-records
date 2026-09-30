@@ -276,7 +276,7 @@ def test_diagnostics_have_version_build_install_and_log(
     diag = json.loads(row(body["id"]).diagnostics)
     assert diag["server"]["app_version"] == __version__
     assert diag["server"]["build_id"] == app_package.build_id()
-    assert diag["server"]["db_revision"] == "0003"
+    assert diag["server"]["db_revision"] == "0005"
     assert diag["install_id"] == config.install_id_file().read_text().strip()
     assert "a line only the log has" in diag["log_tail"]
     payload = service.relay_payload(row(body["id"]))
@@ -787,12 +787,13 @@ def test_feedback_on_upgraded_v0_1_0_data() -> None:
     shutil.copyfile(source, config.db_path())
 
     def records(db: Path) -> list[tuple[Any, ...]]:
-        with sqlite3.connect(db) as conn:
-            return [
-                row
-                for table in ("students", "fee_changes", "payments")
-                for row in conn.execute(f"SELECT * FROM {table} ORDER BY id")
-            ]
+        """Every value v0.1.0 stored (later columns, like students.uid, aren't compared)."""
+        rows: list[tuple[Any, ...]] = []
+        with sqlite3.connect(source) as old, sqlite3.connect(db) as conn:
+            for table in ("students", "fee_changes", "payments"):
+                columns = ", ".join(r[1] for r in old.execute(f"PRAGMA table_info({table})"))
+                rows += conn.execute(f"SELECT {columns} FROM {table} ORDER BY id").fetchall()
+        return rows
 
     before = records(source)
     with TestClient(create_app()) as c:
@@ -801,7 +802,7 @@ def test_feedback_on_upgraded_v0_1_0_data() -> None:
     dispose_engines()
     assert records(config.db_path()) == before
     with sqlite3.connect(config.db_path()) as conn:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchone() == ("0003",)
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchone() == ("0005",)
         assert conn.execute("SELECT count(*) FROM feedback").fetchone() == (1,)
 
 

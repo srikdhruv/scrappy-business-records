@@ -77,11 +77,15 @@ function SortableHeader({
   )
 }
 
+const DEFAULT_SORTING: SortingState = [{ id: 'paid_on', desc: true }]
+
 export function PaymentsTable({
   payments,
   showStudent = true,
   month,
   empty,
+  sorting: sortingProp,
+  onSortingChange,
 }: {
   payments: PaymentRead[]
   showStudent?: boolean
@@ -89,9 +93,18 @@ export function PaymentsTable({
   empty?: ReactNode
   /** The month filter, if any: the total then says how much of it paid other months. */
   month?: string
+  /** The order, when the page needs to know it (Download Excel keeps it). */
+  sorting?: SortingState
+  onSortingChange?: (sorting: SortingState) => void
 }) {
   const { openEditPayment } = useLogPayment()
-  const [sorting, setSorting] = useState<SortingState>([{ id: 'paid_on', desc: true }])
+  const [ownSorting, setOwnSorting] = useState<SortingState>(DEFAULT_SORTING)
+  const sorting = sortingProp ?? ownSorting
+  const setSorting = (update: SortingState | ((old: SortingState) => SortingState)) => {
+    const next = typeof update === 'function' ? update(sorting) : update
+    if (onSortingChange) onSortingChange(next)
+    else setOwnSorting(next)
+  }
   const [toDelete, setToDelete] = useState<PaymentRead | null>(null)
   const deletePayment = useDeletePayment()
 

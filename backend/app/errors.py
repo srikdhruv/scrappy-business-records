@@ -56,10 +56,17 @@ async def integrity_error_handler(_request: Request, _exc: Exception) -> JSONRes
     return JSONResponse(status_code=status.HTTP_409_CONFLICT, content={"detail": CLASH_MESSAGE})
 
 
-async def validation_error_handler(_request: Request, exc: Exception) -> JSONResponse:
+QUIET_PATHS = ("/api/import/commit",)
+"""Where a 422 never echoes what was sent (a whole file, base64-encoded)."""
+
+
+async def validation_error_handler(request: Request, exc: Exception) -> JSONResponse:
     """FastAPI's own 422 body (`{"detail": exc.errors()}`), made safe to encode."""
     assert isinstance(exc, RequestValidationError)
-    detail = _printable(jsonable_encoder(exc.errors()))
+    errors = exc.errors()
+    if request.url.path in QUIET_PATHS:
+        errors = [{k: v for k, v in e.items() if k in ("loc", "msg", "type")} for e in errors]
+    detail = _printable(jsonable_encoder(errors))
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, content={"detail": detail}
     )

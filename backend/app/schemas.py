@@ -29,6 +29,7 @@ from pydantic import (
     Field,
     ValidationInfo,
     field_validator,
+    model_validator,
 )
 from pydantic_core import PydanticCustomError
 
@@ -81,6 +82,25 @@ __all__ = [
     "SuggestedPayment",
     "SuggestionReason",
     "YetToPayItem",
+]
+# Excel download and upload, and unassigned payments (at the end of this file).
+__all__ += [
+    "ExportTemplateKind",
+    "ImportCommit",
+    "ImportFee",
+    "ImportPayment",
+    "ImportPaymentChoice",
+    "ImportPaymentDecision",
+    "ImportPaymentPreview",
+    "ImportPaymentStatus",
+    "ImportPreview",
+    "ImportResult",
+    "ImportStudent",
+    "ImportStudentDecision",
+    "ImportStudentPreview",
+    "ImportStudentStatus",
+    "UnassignedAssign",
+    "UnassignedPaymentRead",
 ]
 
 
@@ -922,6 +942,284 @@ class ReportResponse(_ReadModel):
         "ReportStatus order), then by name."
     )
     totals: ReportTotals
+    unassigned_count: int = Field(
+        default=0,
+        ge=0,
+        description="Unassigned payments (from an upload, no student yet) for M. They belong to "
+        "no student, so no row or total counts them: the report says so in a line.",
+    )
+    unassigned_paise: NonNegativePaise = Field(
+        default=0, description="What those unassigned payments add up to."
+    )
+
+
+# --------------------------------------------------------------------------- unassigned payments
+
+
+class UnassignedPaymentRead(_ReadModel):
+    """A payment from an uploaded file whose student couldn't be matched. It belongs to no
+    student, so no total counts it, until it is assigned (`POST .../assign`)."""
+
+    id: int
+    student_text: str = Field(description="The student as written in the file.")
+    phone: str | None
+    amount_paise: PositivePaise
+    paid_on: dt.date
+    for_month: Month
+    method: PaymentMethod
+    note: str | None
+    source: str | None = Field(description='Where it came from, e.g. "Upload: fees.xlsx".')
+    created_at: UtcDatetime
+    suggested_student_ids: list[int] = Field(
+        description="Students it may be, best first: the same name or phone, then anyone the "
+        "Students search finds for the name as written."
+    )
+
+
+class UnassignedAssign(_Model):
+    student_id: int = Field(gt=0, strict=True)
+
+
+# --------------------------------------------------------------------------- Excel upload
+
+
+class ExportTemplateKind(enum.StrEnum):
+    students = "students"
+    payments = "payments"
+
+
+class ImportStudentStatus(enum.StrEnum):
+    """What adding an uploaded student row would do."""
+
+    new = "new"
+    """Will be added."""
+    exists = "exists"
+    """Already here (same name and phone, or same name and neither has a phone), or the same as
+    an earlier row in the file. Skipped; nothing is changed."""
+    similar = "similar"
+    """Same name with a different phone, or the same phone with a different name. Skipped
+    unless the owner chooses to add it as a new student."""
+    problem = "problem"
+    """Can't be added (see `reason`). Skipped."""
+
+
+class ImportPaymentStatus(enum.StrEnum):
+    """What adding an uploaded payment row would do."""
+
+    ready = "ready"
+    """Its student was found (or is being added from the same file): it will be added."""
+    needs_student = "needs_student"
+    """No student, or more than one, matches: kept as unassigned unless the owner picks a
+    student or skips it."""
+    follows_student = "follows_student"
+    """Its student is a "similar" row in the same file: it goes to them if they're added, and
+    is kept as unassigned if not."""
+    unassigned = "unassigned"
+    """From the file's Unassigned payments sheet: kept as unassigned."""
+    duplicate = "duplicate"
+    """Exactly like a payment already here, or an earlier row of the file: the same student,
+    amount, paid-on date, month, method and note. Skipped unless the owner says Add anyway."""
+    possible_duplicate = "possible_duplicate"
+    """The same student, amount, paid-on date and month as a payment already here (or an
+    earlier row), but a different method or note. Skipped unless the owner says Add anyway."""
+    problem = "problem"
+    """Can't be added (see `reason`). Skipped."""
+
+
+class ImportPaymentChoice(enum.StrEnum):
+    auto = "auto"
+    """What the status says: add `ready` rows, keep `needs_student` and `unassigned` rows as
+    unassigned, and let `follows_student` rows follow their student."""
+    student = "student"
+    """Give it to `student_id`."""
+    unassigned = "unassigned"
+    """Keep it as unassigned."""
+    skip = "skip"
+    """Don't add it."""
+    add = "add"
+    """Add it anyway, even though it looks like a duplicate (two instalments on one day)."""
+
+
+class ImportFee(_Model):
+    """One row of a student's fee history, from the file's Fee history sheet."""
+
+    effective_month: Month
+    amount_paise: FeePaise
+    kind: FeeKind = FeeKind.fee
+
+
+MAX_IMPORT_ROWS = 300_000
+MAX_UPLOAD_BASE64 = (5 * 1024 * 1024 * 4) // 3 + 8  # a 5 MB file, base64-encoded
+
+
+class ImportStudent(_Model):
+    """An uploaded student row, read and checked like `StudentCreate`."""
+
+    row: int = Field(ge=1, description="Its row number in the file's sheet.")
+    ref: ShortText = Field(
+        default=None, description="The file's Student ID, which links its fee history and payments."
+    )
+    name: Name
+    phone: ShortText = None
+    guardian_name: ShortText = None
+    batch_label: ShortText = None
+    notes: LongText = None
+    joined_month: Month
+    left_month: Month | None = None
+    monthly_fee_paise: FeePaise
+    fees: list[ImportFee] | None = Field(
+        default=None,
+        max_length=1200,
+        description="Their fee history from the file, oldest first, restored exactly. Without "
+        "it they get `monthly_fee_paise` from `joined_month`.",
+    )
+
+    @field_validator("left_month")
+    @classmethod
+    def _left_not_before_joined(cls, value: str | None, info: ValidationInfo) -> str | None:
+        return _check_left_month(value, info.data.get("joined_month"))
+
+
+class ImportPayment(_Model):
+    """An uploaded payment row, read and checked like `PaymentCreate`."""
+
+    row: int = Field(ge=1, description="Its row number in the file's sheet.")
+    student_text: Name = Field(description="The student as written in the file.")
+    phone: ShortText = None
+    student_ref: ShortText = Field(
+        default=None, description="The file's Student ID, from a Download everything file."
+    )
+    amount_paise: PaymentAmountPaise
+    paid_on: dt.date
+    for_month: Month
+    method: PaymentMethod
+    note: LongText = None
+    unassigned: bool = Field(
+        default=False, description="From the file's Unassigned payments sheet."
+    )
+    source: ShortText = Field(default=None, description="An unassigned payment's Came from.")
+    sheet: str = Field(default="", max_length=200, description="The sheet it's on.")
+
+
+class ImportStudentPreview(_ReadModel):
+    row: int
+    sheet: str
+    name: str = Field(description="As written (may be blank for a problem row).")
+    phone: str | None
+    monthly_fee_paise: int | None
+    joined_month: Month | None
+    status: ImportStudentStatus
+    reason: str | None = Field(description="Why, in plain words (not for `new`).")
+    student_id: int | None = Field(
+        description="The student already here that it is (`exists`) or looks like (`similar`)."
+    )
+    add_by_default: bool = Field(
+        description="`similar` only: added unless the owner says Skip (a brother or sister "
+        "sharing a phone with an earlier row of the file)."
+    )
+
+
+class ImportPaymentPreview(_ReadModel):
+    row: int
+    sheet: str
+    student_text: str = Field(description="The student as written.")
+    amount_paise: int | None
+    paid_on: dt.date | None
+    for_month: Month | None
+    method: PaymentMethod | None
+    note: str | None
+    status: ImportPaymentStatus
+    reason: str | None
+    student_id: int | None = Field(description="`ready`: the student already here it goes to.")
+    student_row: int | None = Field(
+        description="`ready` or `follows_student`: the row of the student in this file it goes to."
+    )
+    candidate_ids: list[int] = Field(
+        description="`needs_student`: students it may be, best first, to offer first."
+    )
+
+
+class ImportPreview(_ReadModel):
+    """What adding an uploaded file would do. Nothing has been saved."""
+
+    filename: str | None
+    sheets: list[str] = Field(description="The sheets that were read.")
+    ignored_sheets: list[str] = Field(description="Sheets that weren't students or payments.")
+    hidden_sheets: list[str] = Field(description="Hidden sheets, which are never read.")
+    students: list[ImportStudentPreview] = Field(
+        description="Every row that needs a choice (`similar`), and the first rows of each other "
+        "status (all of them unless `all_rows_shown` is false)."
+    )
+    payments: list[ImportPaymentPreview] = Field(
+        description="Every row that needs a choice (`needs_student`, `follows_student`, "
+        "`possible_duplicate`), and the first rows of each other status."
+    )
+    student_counts: dict[str, int] = Field(description="How many student rows have each status.")
+    payment_counts: dict[str, int] = Field(description="How many payment rows have each status.")
+    all_rows_shown: bool = Field(
+        description="False for a long file: some rows that need no choice aren't listed, only "
+        "counted."
+    )
+    fee_changes: int = Field(
+        ge=0, description="Fee-history rows that come with the new students (restored exactly)."
+    )
+    current_month: Month
+    file_sha256: str = Field(
+        description="The SHA-256 of the file previewed (hex). Add sends it back: the file sent "
+        "with Add must be this very file."
+    )
+
+
+class ImportStudentDecision(_Model):
+    row: int = Field(ge=1, description="The student's row in the file's students sheet.")
+    add: bool = Field(
+        description="`true` adds a `similar` row as a new student; `false` skips any row."
+    )
+
+
+class ImportPaymentDecision(_Model):
+    sheet: str = Field(max_length=200, description="The payment's sheet, as in the preview.")
+    row: int = Field(ge=1)
+    choice: ImportPaymentChoice = ImportPaymentChoice.auto
+    student_id: int | None = Field(default=None, gt=0, strict=True)
+
+    @model_validator(mode="after")
+    def _student_for_choice(self) -> ImportPaymentDecision:
+        if self.student_id is None and self.choice is ImportPaymentChoice.student:
+            raise ValueError("Choose a student")
+        return self
+
+
+class ImportCommit(_Model):
+    """The same file again, and the owner's choices (only for the rows she chose something
+    for; every other row does what its status says). The file is read and every row checked
+    again, against the records as they are now, before anything is added."""
+
+    file: str = Field(
+        max_length=MAX_UPLOAD_BASE64,
+        description="The .xlsx file, base64-encoded (at most 5 MB before encoding).",
+    )
+    file_sha256: str = Field(
+        pattern=r"^[0-9a-f]{64}$",
+        description="The preview's `file_sha256`: Add is refused if the file isn't the one "
+        "previewed.",
+    )
+    filename: ShortText = None
+    students: list[ImportStudentDecision] = Field(default=[], max_length=MAX_IMPORT_ROWS)
+    payments: list[ImportPaymentDecision] = Field(default=[], max_length=MAX_IMPORT_ROWS)
+
+
+class ImportResult(_ReadModel):
+    students_added: int = Field(ge=0)
+    fee_changes_added: int = Field(
+        ge=0, description="Fee-history rows added with the new students, first fees included."
+    )
+    payments_added: int = Field(ge=0)
+    unassigned_added: int = Field(ge=0)
+    skipped: int = Field(ge=0, description="Rows not added (already here, problems, skipped).")
+    backup_file: str | None = Field(
+        description="The backup taken first (records-pre-import-…), or null if nothing was added."
+    )
 
 
 # --------------------------------------------------------------------------- about / feedback

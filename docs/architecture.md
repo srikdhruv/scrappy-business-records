@@ -16,8 +16,8 @@ no Docker, no database server and no separate web server.
 │                            ▼                                               │
 │  ┌──────────── pythonw.exe -m app  (uvicorn, 127.0.0.1:8765) ───────────┐  │
 │  │  FastAPI                                                             │  │
-│  │   ├─ /api/health, /api/students, /api/payments, /api/dashboard,      │  │
-│  │   │  /api/about, /api/feedback                                       │  │
+│  │   ├─ /api/health, students, payments, dashboard, export, import, …   │  │
+│  │   │  about, feedback                                                 │  │
 │  │   ├─ services/ledger.py  (pure business rules: dues, statuses)       │  │
 │  │   ├─ SQLAlchemy ──► sqlite3 (built into Python) ──► data/records.db  │  │
 │  │   └─ /  → static/ (built React app, index.html fallback)             │  │
@@ -43,6 +43,7 @@ relay: a Cloudflare Worker (relay/) ──► GitHub issue in the private feedba
 | API types | Generated from FastAPI's OpenAPI schema (`openapi-typescript`) | `frontend/src/api/schema.d.ts` |
 | Launcher | Small Python script: health-check, spawn server, open browser, explain failures | `backend/app/launcher.py` |
 | Backups | SQLite online `backup()` API into the user's Documents folder | `backend/app/backup.py` |
+| Excel download and upload | `openpyxl` (pure Python): downloads, and uploads with a preview, checked again and added in one transaction after a `pre-import` backup | `backend/app/services/exports.py`, `spreadsheet.py`, `imports.py` |
 | Logging | Rotating `logs/server.log`, set up before anything else | `backend/app/logs.py` |
 | Server lifetime | One server per database (lock), polite stop, daily backup while running | `backend/app/lifetime.py` |
 | Packaging | Script that assembles a portable Python and the app into a zip, then self-tests it | `scripts/build_bundle.py` |
