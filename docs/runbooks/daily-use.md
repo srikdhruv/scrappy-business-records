@@ -41,8 +41,10 @@ When everyone has paid, you'll see **Everyone's paid for** the month 🎉.
    or Other too.)
 
 If the amount is more than what's left of that month's fee, the form says where the extra will
-go, for example "₹1,500 extra will cover August 2026 (unpaid)". If it's much more than their
-fee, it asks "Is it right?" first, in case of an extra zero. You can still save it.
+go, for example "₹1,500 more than the September fee: it will pay August 2026 (unpaid)". If
+it's much more than their fee, it asks "Is it right?" first, in case of an extra zero. You can
+still save it; the student's profile then says "Check: this ₹15,000 payment pays up to …" so you
+can look again.
 
 That's it. The dashboard updates straight away. If you saved by mistake, click **Undo** in the
 message that appears.

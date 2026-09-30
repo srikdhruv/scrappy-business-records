@@ -193,7 +193,12 @@ These rules decide every number the app shows.
     from the 5 Sep 2026 payment (for Sep 2026)"), the month it came from lists every month it
     paid ("₹1,500 extra → Aug 2026"), the payment says it ("₹1,500 went to Aug 2026"), the
     dashboard lists it (*Extra money used*), and *Log payment* previews it before saving
-    ("₹1,500 extra will cover August 2026 (unpaid)").
+    ("₹1,500 more than the September fee: it will pay August 2026 (unpaid)", this payment's
+    own money, as its row will say once saved). A payment that pays three or more other months,
+    or is three times its month's fee or more, is flagged gently on the profile and the
+    dashboard ("Check: this ₹15,000 payment pays up to Jun 2027"), because a slip of the finger
+    would otherwise just look paid ahead. The dashboard's Collected card and a month's Payments
+    total say how they differ (money from, or to, other months).
 
     *Superseded:* until this change, payments were "kept exactly as typed": extra money was
     only shown as credit next to what was owed ("Paid ₹X extra in Jul 2026") for the owner to

@@ -124,9 +124,9 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 | `LedgerMonth` | `month`, `expected_paise`, `paid_paise` (everything logged for the month, as typed), `paid_direct_paise` (the part of it that pays this month: at most the fee), `covered_by_credit_paise` (extra money from payments logged for other months that pays it), `credit_sources[]` (`CreditSource`: where that came from), `extra_sent[]` (`ExtraSent`: where this month's money above its fee went, one per month, oldest first), `extra_unused_paise` (this month's money no month needed: credit), `remaining_paise` (`max(0, expected − paid_direct − covered_by_credit)`), `excess_paise` (`max(0, paid − expected)` = Σ `extra_sent` + `extra_unused_paise`), `status`, `is_due` (month ≤ current month) |
 | `CreditSource` | `payment_id`, `paid_on`, `for_month` (the month that payment was logged for), `amount_paise` (how much of it pays this month) |
 | `ExtraSent` | `to_month`, `amount_paise` |
-| `PaymentRead` | `id`, `student_id`, `student_name`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `paid_direct_paise` (the part that pays `for_month`), `extra_sent[]` (`ExtraSent`: the rest, paying other months, oldest first), `extra_unused_paise` (credit), `created_at`, `updated_at`. Always `amount = paid_direct + Σ extra_sent + extra_unused` |
-| `DashboardResponse` | `month`, `summary` (`expected_paise`, `collected_paise` (what pays M: Σ `paid_direct + covered_by_credit` for M over every student), `paid_ahead_paise` (for a month after the current one, the same as `collected_paise`; 0 otherwise), `still_due_paise`, `not_fully_paid_count`, `active_student_count`), `current_month`, `yet_to_pay[]` (each with `paid_paise`, `covered_by_credit_paise` and `credit_paise`), `backlog[]` (each with `months[]` (`BacklogMonth`, with `covered_by_credit_paise`), `total_owed_paise` and `credit_paise`), `overpaid[]` (`OverpaidItem`: months holding credit, with `batch_label`, `phone`, `excess_paise` and `extra_unused_paise`) and `credit_moves[]` (`CreditMoveItem`) |
-| `CreditMoveItem` | Extra money moved into or out of M: `student_id`, `student_name`, `batch_label`, `phone`, `payment_id`, `paid_on`, `from_month` (the month the payment was logged for), `to_month` (the month it pays), `amount_paise`. One of the two months is M. Sorted by student name, then `to_month`, then the payment's `(paid_on, id)` |
+| `PaymentRead` | `id`, `student_id`, `student_name`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `paid_direct_paise` (the part that pays `for_month`), `needs_check` (worth a glance in case of a typo: it pays 3 or more other months, or it's 3× its month's fee or more; `ledger.needs_check`), `extra_sent[]` (`ExtraSent`: the rest, paying other months, oldest first), `extra_unused_paise` (credit), `created_at`, `updated_at`. Always `amount = paid_direct + Σ extra_sent + extra_unused` |
+| `DashboardResponse` | `month`, `summary` (`expected_paise`, `collected_paise` (what pays M: Σ `paid_direct + covered_by_credit` for M over every student), `paid_ahead_paise` (for a month after the current one, the same as `collected_paise`; 0 otherwise), `still_due_paise`, `not_fully_paid_count`, `active_student_count`, `logged_paise` (every payment logged for M, as typed: the Payments page's total for M), `covered_by_credit_paise` (the part of `collected_paise` from other months' payments), `sent_elsewhere_paise` (the part of `logged_paise` that paid other months)), `current_month`, `yet_to_pay[]` (each with `paid_paise`, `covered_by_credit_paise` and `credit_paise`), `backlog[]` (each with `months[]` (`BacklogMonth`, with `covered_by_credit_paise`), `total_owed_paise` and `credit_paise`), `overpaid[]` (`OverpaidItem`: months holding credit, with `batch_label`, `phone`, `excess_paise` and `extra_unused_paise`) and `credit_moves[]` (`CreditMoveItem`) |
+| `CreditMoveItem` | Extra money moved into or out of M: `student_id`, `student_name`, `batch_label`, `phone`, `payment_id`, `paid_on`, `from_month` (the month the payment was logged for), `to_month` (the month it pays), `amount_paise`, `payment_amount_paise` (the whole payment), `payment_pays_until` (the latest month the payment pays: `ledger.pays_until`), `payment_needs_check`. One per payment and month (the UI groups them by payment); one of the two months is M. Sorted by student name, then `to_month`, then the payment's `(paid_on, id)` |
 | `SuggestedPayment` | `for_month` (nullable), `amount_paise` (nullable), `reason` |
 | `StudentReturn` (request) | `from_month`, `monthly_fee_paise` (optional) |
 | `HealthResponse` | `app`, `version`, `status` |
@@ -291,6 +291,23 @@ the edges.
   `yet_to_pay[].credit_paise` and `backlog[].credit_paise` are 0 in practice (kept so the shape
   didn't change).
 
+- **`tenure_months`** is how long they have been (or were) a student. Still coming: whole
+  months since joining, `current_month − joined_month` (joined in August, now September: 1; 0
+  in the joining month and before it, when the UI says "New this month" or "Starts …"). Left
+  (`left_month` before the current month): the months enrolled, both ends counted,
+  `left_month − joined_month + 1` (March to June: 4; joined and left in May: 1).
+- **Current fee (`monthly_fee_paise`)** is the fee in effect this month, or in `joined_month`
+  for a student who hasn't joined yet.
+- **`is_active`** (and the `status=active|left` filter) is the PRD's ledger rule 8: true while
+  `left_month` is empty or `left_month ≥` the current month. A student leaving after December
+  is active through December and left from January. It depends on the current month, so it is
+  computed, never stored.
+- **Dashboard lists** are sorted by student name, ignoring case and accents. Overpaid rows are
+  oldest month first within a student.
+
+At this scale (hundreds of students, thousands of payments) computing it on every request is
+effectively instant.
+
 ### Credit allocation
 
 PRD ledger rule 10 ("extra money covers unpaid months"), in `ledger.allocate`. It is **computed,
@@ -333,22 +350,12 @@ Invariants (checked by property tests in `tests/test_allocation.py`):
   owed.
 
 Which months end up paid depends only on how much was logged for each month and in total, not
-on which payment it came from. The *Log payment* form uses that to preview a payment
-(`frontend/src/lib/allocation.ts`, a copy of the same rule, `previewPayment`): the difference
-between the student's payments with and without it.
-- **`tenure_months`** is how long they have been (or were) a student. Still coming: whole
-  months since joining, `current_month − joined_month` (joined in August, now September: 1; 0
-  in the joining month and before it, when the UI says "New this month" or "Starts …"). Left
-  (`left_month` before the current month): the months enrolled, both ends counted,
-  `left_month − joined_month + 1` (March to June: 4; joined and left in May: 1).
-- **Current fee (`monthly_fee_paise`)** is the fee in effect this month, or in `joined_month`
-  for a student who hasn't joined yet.
-- **`is_active`** (and the `status=active|left` filter) is the PRD's ledger rule 8: true while
-  `left_month` is empty or `left_month ≥` the current month. A student leaving after December
-  is active through December and left from January. It depends on the current month, so it is
-  computed, never stored.
-- **Dashboard lists** are sorted by student name, ignoring case and accents. Overpaid rows are
-  oldest month first within a student.
+on which payment it came from. The *Log payment* form previews a payment with a copy of the
+same rule (`frontend/src/lib/allocation.ts`, `previewPayment`): it allocates the student's
+payments with the new one added and shows what *that payment's own* money does (its
+`paid_direct`, `extra_sent` and `extra_unused`), exactly as its row will say once saved.
 
-At this scale (hundreds of students, thousands of payments) computing it on every request is
-effectively instant.
+**Needs a check.** `ledger.needs_check`: a payment that pays 3 or more other months, or is 3×
+the fee in effect for its month or more (`PaymentRead.needs_check`,
+`CreditMoveItem.payment_needs_check`). Extra money quietly pays months ahead, so an extra zero
+would otherwise just look paid ahead; the profile and the dashboard ask the owner to check it.

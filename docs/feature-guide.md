@@ -153,12 +153,12 @@ arrow on each side. Under it, one line:
 
 **The four summary boxes** are all about the month at the top.
 
-![Four summary boxes: Expected ₹42,200 from 24 students in September; Collected ₹33,750 with a green bar at 80% of what's expected; Still due ₹8,450 in red, left to collect for September; Not fully paid 6 of 24, students to follow up with.](images/feature-guide/dashboard-summary.png)
+![Four summary boxes: Expected ₹42,200 from 24 students in September; Collected ₹33,750 with a green bar at 80% of what's expected and a small line '₹2,000 logged for September paid other months.'; Still due ₹8,450 in red, left to collect for September; Not fully paid 6 of 24, students to follow up with.](images/feature-guide/dashboard-summary.png)
 
 | Box | What the number means | How it's worked out |
 |---|---|---|
 | **Expected** | What everyone enrolled that month should pay in total | Each student's fee for that month, added up, for everyone enrolled that month. "From 24 students in September" says how many of them have a fee that month (someone on a month off, or with a free place, isn't counted) |
-| **Collected** | What has come in for that month so far | What pays that month, added up, whatever day it was paid on: payments logged *for* that month (up to each fee), plus money paid above the fee in another month that went to this one (see [extra money](#extra-money-pays-the-months-still-owed)). The bar and percentage compare it with Expected (the bar stops at 100%) |
+| **Collected** | What has come in for that month so far | What pays that month, added up, whatever day it was paid on: payments logged *for* that month (up to each fee), plus money paid above the fee in another month that went to this one (see [extra money](#extra-money-pays-the-months-still-owed)). The bar and percentage compare it with Expected (the bar stops at 100%). When that differs from what was logged for the month, a small line under it says why: *"Includes ₹1,500 of extra money from other months' payments."*, *"₹1,500 logged for September paid other months."* |
 | **Still due** | What's still left to collect for that month | For each enrolled student, their fee minus what pays it (never below ₹0), added up. Red while anything is left, green at ₹0 |
 | **Not fully paid** | How many students haven't paid that month in full | The number of names in *Yet to pay*, "of" the number of students with a fee that month. Green with "Everyone has paid" at 0 |
 
@@ -189,12 +189,18 @@ Each row shows the total they owe from those months and one label per month: red
 with nothing paid, amber with *"· part paid"* for a month partly paid. Hover over a label to see
 what's left on it (*June 2026: ₹1,200 left*). Click a row to open the student's profile.
 
-**Extra money used** appears when money paid above a fee went to another month, in or out of
-the month at the top (see [extra money](#extra-money-pays-the-months-still-owed)). Each row
-says whose, how much, and which payment it came from: *Vihaan Joshi · ₹2,000 extra from the 2
-Sep 2026 payment for Sep 2026 → **Aug 2026***. In the picture, Vihaan paid ₹4,000 for
-September and nothing for August: August is paid with September's extra, so he isn't in
-*Earlier months still owed*. Click a row to open the profile.
+**Extra money used** (*"Money that paid a different month than it was logged for."*) appears
+when money paid above a fee went to another month, in or out of the month at the top (see
+[extra money](#extra-money-pays-the-months-still-owed)). There is one row per payment, however
+many months it paid; months in a row are shown as a range. Each row says whose, how much, and
+which payment it came from: *Vihaan Joshi · ₹2,000 extra from the 2 Sep 2026 payment for Sep
+2026 → **Aug 2026***. In the picture, Vihaan paid ₹4,000 for September and nothing for August:
+August is paid with September's extra, so he isn't in *Earlier months still owed*. Click a row
+to open the profile.
+
+A payment that pays three or more other months, or is three times its fee or more, gets an
+amber line in case it's a slip of the finger: *"Check: this ₹45,000 payment pays up to Sep
+2028"* (with *→ Oct 2026 to Sep 2028* on the right). If it's right, there's nothing to do.
 
 **Extra kept as credit** appears only when someone paid more than every fee they owe, so no
 month needed the money (usually someone who has left): *May 2026 · paid ₹2,500, fee ₹2,000*,
@@ -363,21 +369,23 @@ profile."*
 **Note (optional):** anything you want to remember, for example *"paid by grandmother"*.
 
 **Where extra money will go.** If the amount is more than what's left of the month's fee, a
-teal line under the amount says what the extra will pay, before you save (see
-[extra money](#extra-money-pays-the-months-still-owed)): *"₹1,200 extra will cover June 2026
-(unpaid)."* It names each month, oldest first: *(unpaid)* or *(part paid)* for a month owed,
-*(paid ahead)* for a later one. A long run is shortened (*"9 months ahead (November 2026 to
-July 2027)"*). If nothing is owed anywhere, it says the money *"will be kept as credit"*. It
-never stops you saving.
+teal line under the amount says what this payment's extra will pay, before you save (see
+[extra money](#extra-money-pays-the-months-still-owed)): *"₹1,200 more than the September fee:
+it will pay June 2026 (unpaid)."* It names each month, oldest first: *(unpaid)* or *(part
+paid)* for a month owed, then months *ahead*. A long run is shortened (*"9 months ahead
+(November 2026 to July 2027)"*). If nothing is owed anywhere, it says the money *"will be kept
+as credit"*. The amounts are exactly what the payment's row will say once saved. It never stops
+you saving.
 
-<img src="images/feature-guide/log-payment-extra.png" alt="The form for Arjun Menon, for September 2026, with ₹2400 typed, and under the amount, in teal: '₹1,200 extra will cover June 2026 (unpaid).'" width="420">
+<img src="images/feature-guide/log-payment-extra.png" alt="The form for Arjun Menon, for September 2026, with ₹2400 typed, and under the amount, in teal: '₹1,200 more than the September fee: it will pay June 2026 (unpaid).'" width="420">
 
 **The large-amount check.** If the amount is **three times the month's fee or more**, the same
 line starts, in amber, *"That's much more than the ₹1,500 fee. Is it right?"*, in case of an
-extra zero, then says where the extra would go (*"If so, ₹13,500 extra will cover …"*). It never
-stops you saving.
+extra zero, and then says where the extra would go. It never stops you saving. If it's saved
+anyway, the profile and the Dashboard ask you to check it once more (see
+[Student profile](#student-profile)).
 
-<img src="images/feature-guide/log-payment-large-amount.png" alt="The form for Ananya Rao with ₹15000 typed for October 2026, and under the amount: in amber 'That's much more than the ₹1,500 fee. Is it right?', then in teal 'If so, ₹13,500 extra will cover 9 months ahead (November 2026 to July 2027).'" width="420">
+<img src="images/feature-guide/log-payment-large-amount.png" alt="The form for Ananya Rao with ₹15000 typed for October 2026, and under the amount: in amber 'That's much more than the ₹1,500 fee. Is it right?', then in teal '₹13,500 more than the October fee: it will pay 9 months ahead (November 2026 to July 2027).'" width="420">
 
 **The amount rules.** You can type the amount the way you'd write it:
 
@@ -426,7 +434,7 @@ cursor in **Amount**, so you can check it and press **Enter**. It opens this way
 2. Change the student, amount, month, method, date or note.
 3. Click **Save changes**. You'll see *"Payment updated"*.
 
-![The Edit payment form for Vihaan Joshi: 'Now: ₹2,000 went to Aug 2026.' under the title, Amount ₹4000, For month September 2026, a teal line '₹2,000 extra will cover August 2026 (unpaid).', 'September: ₹2,000 fee, nothing else paid.', method UPI, paid on 2 Sep 2026, note 'Paid for two months', with Save changes.](images/feature-guide/edit-payment.png)
+![The Edit payment form for Vihaan Joshi: 'Now: ₹2,000 went to Aug 2026.' under the title, Amount ₹4000, For month September 2026, a teal line '₹2,000 more than the September fee: it will pay August 2026 (unpaid).', 'September: ₹2,000 fee, nothing else paid.', method UPI, paid on 2 Sep 2026, note 'Paid for two months', with Save changes.](images/feature-guide/edit-payment.png)
 
 When editing, a teal line under the title says what the payment does now, if some of it pays
 another month (*"Now: ₹2,000 went to Aug 2026."*). The line about the month leaves out the
@@ -470,9 +478,11 @@ saving.
   reads the amount with `parseRupees` to tell "too big" from "not an amount") and
   `lib/format.ts` (`rupeesToPaise`, `MAX_AMOUNT_PAISE`, `MONTHS_AHEAD`). Enter on a method
   button is `onMethodKeyDown`. The extra-money line is `previewPayment` in `lib/allocation.ts`
-  (a copy of `ledger.allocate`: the difference the payment makes to the student's other
-  payments) and `previewText` in `lib/credit.ts`; the month line comes from the same
-  allocation, without the payment being edited.
+  (a copy of `ledger.allocate`, run with the new payment added; it reports that payment's own
+  `extra_sent` and credit, as its row will say once saved) and `previewText` in
+  `lib/credit.ts`; the month line comes from the same allocation, without the payment being
+  edited. The profile and dashboard "Check: …" lines come from `needs_check` /
+  `payment_needs_check` (`ledger.needs_check`) and `checkText`.
 - **API:** `GET /api/students/{id}/suggest-payment` (`suggestPayment`) → `SuggestedPayment`
   (`reason`: `owed` / `next_unpaid` / `all_paid`); `GET /api/students/{id}` (`getStudent`) for
   the month facts, the fee and the month limits; `GET /api/students?status=all`
@@ -561,7 +571,8 @@ The month filter goes by the month a payment is **for**, not the day it was paid
 and it leaves out cash paid in September for other months. It isn't a count of the cash you
 received during September. The total adds up payments exactly as they were logged, so a
 payment whose extra went to another month counts in full here; the Dashboard's **Collected**
-counts that extra in the month it paid.
+counts that extra in the month it paid. With a month chosen, the last row says so: *"₹6,600
+total (as logged; ₹1,500 of it paid other months)"*.
 
 **Fix a payment**
 1. Click **Edit** on its row. The [Edit payment](#log-payment-and-edit-payment) form opens.
@@ -903,6 +914,9 @@ Under the headline:
 - one plain sentence: *"4 months not fully paid."*, *"Paid ₹500 more than every fee owed."*,
   *"Everything due is paid, and ahead to October 2026."* (a month with no fee in between
   doesn't stop the count) or *"Everything due so far has been paid."*;
+- if a payment may be a slip of the finger (it pays three or more other months, or is three
+  times its fee or more), an amber line for each: *"Check: this ₹15,000 payment pays up to Jun
+  2027"*, with **Edit payment**. If it's right, there's nothing to do;
 - if they owe, an **Oldest unpaid** box (*June 2026 · ₹1,200 left*) with **Log payment**;
 - if they have credit, a box **₹500 kept as credit** listing the payment it's in (*₹2,500 paid
   for Jul 2026, after they left · ₹500 of it not needed*), with **Edit payment**, and *"Extra
@@ -942,7 +956,7 @@ directly or with extra money).
 |---|---|
 | **Month** | The month |
 | **Fee** | The fee for that month (— if none was due) |
-| **Paid** | Everything logged for that month, exactly as typed (— if nothing) |
+| **Paid** | Everything logged for that month, exactly as typed. A month paid only by another payment's extra shows it in teal, *₹1,500 (credit)*; one paid by both shows *+ ₹700 credit* under the amount; — if nothing |
 | **Status** | A label (below), plus *₹600 left* for a part-paid month or *₹500 kept as credit*. Under it, a teal note for money that moved (see below) |
 | *(button)* | **Log payment** on a month still owed; **Edit payment** on a month with money kept as credit |
 
@@ -951,9 +965,10 @@ oldest month still owed (see [extra money](#extra-money-pays-the-months-still-ow
 months say so:
 - the month it paid: **Paid** (or **Partial**, if it paid only part), with *₹2,000 credit from
   the 2 Sep 2026 payment (for Sep 2026)*: how much, which payment, and the month that payment
-  was logged for. Its **Paid** column shows only what was logged for it, so a month paid
-  entirely with credit shows **—** there;
-- the month the payment was for: *₹2,000 extra → Aug 2026*, one note for each month it paid.
+  was logged for (payments made the same day for the same month are added together). Its
+  **Paid** column shows *₹2,000 (credit)* in teal;
+- the month the payment was for: *₹2,000 extra → Aug 2026*, with months in a row as a range
+  (*₹36,000 extra → Oct 2026 to Sep 2028*).
 
 ![Vihaan Joshi's Month by month: September 2026, fee ₹2,000, paid ₹4,000, Paid, with the note '₹2,000 extra → Aug 2026'; August 2026, fee ₹2,000, paid —, Paid, with the note '₹2,000 credit from the 2 Sep 2026 payment (for Sep 2026)'.](images/feature-guide/profile-credit-used.png)
 
@@ -1183,7 +1198,8 @@ The same word always has the same colour, everywhere in the app.
 | **… credit from the … payment (for …)** | Teal note | Profile *Month by month*; the Log payment form | Extra money from another month's payment that pays this month: "₹2,000 credit from the 2 Sep 2026 payment (for Sep 2026)" |
 | **… extra → …** | Teal note | Profile *Month by month* | Where this month's money above its fee went: "₹2,000 extra → Aug 2026" |
 | **… went to …** | Teal line | Payments page and the profile's *Payments*; "Now: …" in Edit payment | Where a payment's money above its month's fee went: "₹2,000 went to Aug 2026" |
-| **Extra money used** | Teal arrow (→ Aug 2026) | The Dashboard section of that name | Extra money that moved into or out of the month you're looking at |
+| **Extra money used** | Teal arrow (→ Aug 2026) | The Dashboard section of that name | Money that paid a different month than it was logged for, into or out of the month you're looking at |
+| **Check: this ₹X payment …** | Amber | Profile Balance card; Dashboard *Extra money used* | A payment that pays three or more other months, or is three times its fee or more: worth a glance in case of a typo. Nothing to do if it's right |
 | **Overpaid** | — | Not shown as a word. The app says **Paid extra** or **kept as credit** instead | Some of a month's money wasn't needed by any month (the rules' name for it) |
 | **Paid extra** | Teal, with a + | Profile *Month by month* | A month holding money that no month needed: it's kept as credit (the row also says "₹500 kept as credit") |
 | **Extra kept as credit** | Teal amounts (+₹500) | The Dashboard section of that name (shown only when there is some) | Every month holding credit, up to the one you're looking at |
@@ -1234,7 +1250,8 @@ Just **log it once**, with the whole amount:
 1. Click **Log payment** as usual. Leave **For month** on the month the form suggests (or the
    month they said it's for).
 2. Type the whole amount, for example ₹3,000 for two ₹1,500 months. The teal line under it
-   says where the extra goes: *"₹1,500 extra will cover August 2026 (unpaid)."*
+   says where the extra goes: *"₹1,500 more than the September fee: it will pay August 2026
+   (unpaid)."*
 3. Click **Save payment**.
 
 Both months now show **Paid**; the one paid with the extra says which payment it came from. See
@@ -1420,6 +1437,12 @@ Open their profile and look at **Month by month** to see which month shows as ow
   to how records are kept: what you typed in is never changed or removed, and before each new
   version is released it's checked against records saved by every earlier version. See
   [Updating](runbooks/update.md). The version you have is at the bottom of the side menu.
+
+  > **After the update that brings "extra money pays the months still owed":** nothing you
+  > typed changes, but money already recorded above a month's fee now pays the oldest months
+  > still owed, by itself. So some students' status may change (for example from **Owes** to
+  > **Up to date**). Glance at the Students page afterwards. If you had already sorted out a
+  > "Paid too much" by hand (by editing the payment), it stays as you left it.
 - **Deleting is for good.** Deleted payments and students can't be brought back from inside
   the app, which is why it always asks first. The daily backup is the safety net: see
   [troubleshooting](runbooks/troubleshooting.md#i-deleted-something-by-mistake).
