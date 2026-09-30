@@ -15,6 +15,7 @@ On macOS the home is `~/Library/Application Support/ScrappyRecords`.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -79,6 +80,14 @@ def static_dir() -> Path:
 
 
 def ensure_dirs() -> None:
-    """Create the data, log and backup folders if they are missing."""
-    for d in (data_dir(), log_dir(), backup_dir()):
+    """Create the data, log and backup folders if they are missing.
+
+    The backup folder is best-effort: if it can't be created (for example, macOS refuses access
+    to Documents), the app still starts and `app.backup` falls back to `data/backups`.
+    """
+    for d in (data_dir(), log_dir()):
         d.mkdir(parents=True, exist_ok=True)
+    try:
+        backup_dir().mkdir(parents=True, exist_ok=True)
+    except OSError:
+        logging.getLogger("scrappy").warning("Couldn't create the backup folder %s", backup_dir())

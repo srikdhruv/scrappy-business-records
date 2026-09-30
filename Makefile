@@ -50,11 +50,11 @@ e2e: build ## Build, then run the Playwright end-to-end tests against the produc
 	cd frontend && npx playwright test
 
 lint: ## Lint and type-check everything (ruff, eslint, prettier --check, tsc)
-	cd backend && uv run ruff check . && uv run ruff format --check .
+	cd backend && uv run ruff check . ../scripts && uv run ruff format --check . ../scripts
 	cd frontend && npm run lint && npm run typecheck
 
 fmt: ## Auto-format everything (ruff, prettier, eslint --fix)
-	cd backend && uv run ruff format . && uv run ruff check --fix .
+	cd backend && uv run ruff format . ../scripts && uv run ruff check --fix . ../scripts
 	cd frontend && npm run fmt
 
 gen-api: ## Regenerate frontend/src/api/schema.d.ts from the backend's OpenAPI (no server needed)
@@ -72,11 +72,7 @@ run: ## Serve the production build from :8765, as the user's laptop does (data i
 	@echo "Open http://127.0.0.1:$(PORT)"
 	$(DEV_ENV) $(UV) python -m app
 
-package: ## Build the self-contained bundle zip for this OS into dist/
-	@if [ ! -f scripts/build_bundle.py ]; then \
-		echo "make package: scripts/build_bundle.py doesn't exist yet (it arrives with the packaging PR)."; \
-		exit 1; \
-	fi
+package: build ## Build the UI, then the self-contained bundle zip for this OS into dist/ (self-tested)
 	$(UV) python scripts/build_bundle.py
 
 db-reset: ## Delete ./.devdata (dev database, logs and backups)

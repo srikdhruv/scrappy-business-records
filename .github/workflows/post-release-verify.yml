@@ -1,0 +1,68 @@
+name: Post-release check
+
+# After a release is published, install it exactly as a user would, on a fresh Windows machine
+# with no Python: main's install.ps1 from raw.githubusercontent.com, and the release asset.
+#   mode `tagged`: the -Version <tag> form (for a prerelease, before it becomes "latest");
+#   mode `latest`: the literal plain install line from the docs (releases/latest/download/),
+#                  which must install this tag, then also -Version.
+# See scripts/ci/verify_release_windows.ps1 and docs/runbooks/release.md.
+#
+# Triggers: a release published by hand; by hand (Actions -> Post-release check -> Run); and
+# called by release.yml after it publishes (a release made with the workflow's own token does
+# not trigger `release: published`).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to check (default: the latest release)'
+        required: false
+      mode:
+        description: 'latest = the plain install line (must install this tag); tagged = the -Version form only'
+        required: false
+        default: latest
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      mode:
+        type: string
+        required: false
+        default: latest
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Install the published release on Windows (the real one-liner)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      SCRAPPY_NO_BROWSER: '1'
+      SCRAPPY_NO_DIALOG: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - name: Which release
+        id: tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          MODE: ${{ inputs.mode || (github.event.release.prerelease && 'tagged') || 'latest' }}
+        run: |
+          if [ -z "$TAG" ]; then
+            TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          fi
+          echo "Checking $TAG ($MODE)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+      - name: Install, restart, update and -Version, like a user (Windows PowerShell 5.1)
+        shell: powershell
+        run: >-
+          powershell -NoProfile -ExecutionPolicy Bypass
+          -File scripts\ci\verify_release_windows.ps1
+          -Tag ${{ steps.tag.outputs.tag }}
+          -Mode ${{ steps.tag.outputs.mode }}

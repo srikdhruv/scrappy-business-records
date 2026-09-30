@@ -25,17 +25,16 @@ make setup
 | `make seed` | Fill `./.devdata/` with realistic, fictional demo students and payments (`python -m app.seed`). It refuses if there are students already: to start over, run `make db-reset` first. It only runs with `SCRAPPY_HOME` set, so it can't touch a real install, and `--force` first backs up the database into `$SCRAPPY_HOME/seed-backups/` |
 | `make test` | Backend pytest and frontend vitest |
 | `make e2e` | Build, then run the Playwright end-to-end tests (`frontend/playwright.config.ts`) against the production server |
-| `make lint` | `ruff check`, `ruff format --check`, ESLint, `prettier --check` and `tsc` |
+| `make lint` | `ruff check` and `ruff format --check` (backend and `scripts/`), ESLint, `prettier --check` and `tsc` |
 | `make fmt` | `ruff format`, `ruff check --fix`, Prettier and `eslint --fix` |
 | `make gen-api` | Regenerate `frontend/src/api/schema.d.ts` from the backend's OpenAPI. No server needed: it runs `python -m app.openapi_dump` |
 | `make build` | Build the UI into `backend/app/static/` |
 | `make run` | Serve the production build from :8765 with `python -m app`, as the user's laptop does. Uses `./.devdata/` |
-| `make package` | Build the self-contained bundle zip for this OS into `dist/` (`scripts/build_bundle.py`) |
+| `make package` | `make build`, then the self-contained bundle zip for this OS in `dist/` (`scripts/build_bundle.py`), which is then unpacked and self-tested. Add `--platform windows-x64` when running the script directly to cross-build the Windows zip (no self-test) |
 | `make db-reset` | Delete `./.devdata/` |
 | `make clean` | Remove build outputs and caches |
 
-`make e2e` and `make package` print a message and stop if the script they run hasn't been
-added yet.
+`make e2e` prints a message and stops if the script it runs hasn't been added yet.
 
 API docs: http://127.0.0.1:8765/api/docs while `make dev` is running.
 
@@ -64,8 +63,9 @@ backend/
     routers/         health, students, payments, dashboard
     migrations/      Alembic env.py and versions/ (ships inside the package)
     static/          Built UI (git-ignored; `make build`)
-    launcher.py      Desktop-shortcut entry point            (packaging PR)
-    backup.py        Backups, also `python -m app.backup`    (packaging PR)
+    launcher.py      Desktop-shortcut entry point: health check, start the server, open the browser
+    backup.py        Daily / pre-update / pre-migration backups, also `python -m app.backup`
+    logs.py          Rotating logs/server.log (set up first thing by `python -m app`)
   tests/             pytest; conftest.py points SCRAPPY_HOME at a temp folder
 frontend/src/
   main.tsx, App.tsx  Entry and router
@@ -78,7 +78,12 @@ frontend/src/
   index.css          Theme tokens (CSS variables) and Tailwind setup
   styles/            theme.test.ts checks the text contrast of the theme tokens
   test/              Vitest setup and render helpers
-scripts/             install.ps1, install.sh, build_bundle.py   (packaging PR)
+scripts/
+  build_bundle.py    `make package`: the self-contained zip, self-tested
+  make_icon.py       Draws the app icon (scrappy.ico / scrappy.png) at build time
+  install.ps1        Windows installer and updater (`irm ... | iex`)
+  install.sh         macOS installer and updater (`curl ... | sh`)
+  ci/                Install smoke tests CI runs on Windows and macOS (+ db_probe.py)
 ```
 
 ## Frontend conventions
@@ -127,13 +132,67 @@ the Alembic config in code, so it works from any install folder.
 3. Run `make gen-api`, commit `frontend/src/api/schema.d.ts`, and use the new types in
    `frontend/src/api/`. CI's `api-contract` job fails if that file is out of date.
 
-## Testing the Windows install without Windows
+## Testing the install
 
-CI's `windows-install` job:
-1. builds the bundle on `windows-latest`;
-2. removes Python from the PATH;
-3. runs `scripts/install.ps1 -ZipPath dist\...zip -NoLaunch`;
-4. starts the launcher and checks `/api/health`;
-5. creates a student, restarts the server, and checks that the student is still there.
+The installers can only really be tested on the OS they're for, so CI does it on every PR.
+Look at these jobs when you change anything in `scripts/`, `launcher.py`, `backup.py`, `logs.py`,
+`lifetime.py` or `__main__.py`.
 
-Look at that job when you change anything in `scripts/` or `launcher.py`.
+**`windows-install`** (on `windows-latest`) builds the UI and the bundle (with its self-test),
+then runs `scripts/ci/smoke_install_windows.ps1` in **Windows PowerShell 5.1** with PATH cut
+down to Windows' own folders, so no Python or uv can be used by accident. Every installer run
+happens in a fresh `powershell.exe` with default settings, using the published line's form (TLS
+prefix, then the script text piped into `iex`; test options come from `SCRAPPY_INSTALL_*`
+environment variables). The install folder's name has a space, an apostrophe and non-English
+letters. It checks, in order:
+
+1. Asking for a release that doesn't exist (a real download from GitHub) fails with the
+   friendly "The download was not found" message, and leaves no zip or app folder behind.
+2. The one-line install works.
+3. The shortcut exists and points at `pythonw.exe -m app.launcher`, with the icon and working
+   folder. `data\` doesn't exist yet.
+4. `pythonw.exe -m app` (no console at all) answers `/api/health` with the bundle's version, and
+   writes `server.log`. A second `pythonw -m app` for the same data exits cleanly (code 0).
+5. Two launchers started at the same moment, from another folder, start exactly one server.
+6. A student added straight into `records.db` (the bundled Python's `sqlite3`) survives a
+   restart, and today's daily backup exists and is a sound SQLite copy.
+7. Re-running the installer with the app running (the update path, `-Param` form, launching the
+   app) stops the old server **politely** (its log says the installer asked), takes a
+   pre-update backup containing the student, keeps the data, and leaves no `app.new` or
+   `app.old` behind.
+8. After a crash mid-save (`db_probe.py hot-journal` leaves a hot `records.db-journal`), an
+   update still takes a proper backup (not the file-copy fallback) without the half-saved
+   change, and the app starts with the data intact.
+9. With the app's own backup switched off (`SCRAPPY_TEST_FORCE_FILE_COPY_BACKUP=1`, a test-only
+   hook) and a hot journal present, the installer's **file-copy** fallback copies
+   `records.db` *and* its `-journal`; opening the copy gives a sound database with the student
+   and without the half-saved change.
+10. With port 8765 held by another program, the launcher exits with code 1 and `server.log` says
+   "Something else is using port 8765"; `pythonw -m app` itself logs "error while attempting to
+   bind".
+11. A failing one-line install prints the friendly message and throws a catchable error, but
+    doesn't end the PowerShell session (it never calls `exit`).
+
+**`post-release-verify.yml`** installs a published release on a fresh `windows-latest`
+(`scripts/ci/verify_release_windows.ps1`). `release.yml` calls it twice: mode `tagged`
+(`-Version <tag>`) while the release is still a prerelease, and mode `latest` (the *literal*
+published line, which downloads `main`'s `install.ps1` and the `releases/latest/download/` asset)
+after promoting it. Each checks the version, the shortcut, a restart and a re-run (the update,
+with its backup). It can also be run by hand from the Actions tab. It can't run before the first
+release exists.
+
+**`macos-install`** (on `macos-latest`) does the same for `scripts/install.sh` with
+`scripts/ci/smoke_install_mac.sh`, under `env -i PATH=/usr/bin:/bin`. Run it locally with:
+
+```bash
+make package
+scripts/ci/smoke_install_mac.sh dist/scrappy-records-macos-arm64.zip
+```
+
+On a Windows machine, the equivalent is:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ci\smoke_install_windows.ps1 -ZipPath dist\scrappy-records-windows-x64.zip
+```
+
+It uses port 8765, so stop any running copy of the app first.

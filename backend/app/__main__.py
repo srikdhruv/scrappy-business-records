@@ -5,7 +5,8 @@ This is how the server is always started, including by the Desktop launcher, whi
 None, and uvicorn's default logging config crashes on them ("Unable to configure formatter
 'default'"). So uvicorn gets `log_config=None` and `use_colors=False`, and we only attach a
 plain console handler when there is a console. uvicorn's loggers propagate to the root logger,
-so a file handler added there (the packaging PR's rotating log) receives them too.
+where the rotating `logs/server.log` handler (`app/logs.py`) is added first thing, so the log
+file also records startup failures and uncaught errors.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import sys
 
 import uvicorn
 
-from app import config
+from app import config, lifetime, logs
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
@@ -42,8 +43,21 @@ def server_config() -> uvicorn.Config:
 
 
 def main() -> None:
+    # The log file comes first: under pythonw it is the only place a startup failure (port in
+    # use, a migration error, a crash) can be seen. See app/logs.py.
+    logs.setup_server_log()
     configure_console_logging()
-    uvicorn.Server(server_config()).run()
+    # One server per database, taken before any backup or migration (app/lifetime.py).
+    lock = lifetime.acquire_server_lock()
+    if lock is None:
+        logging.getLogger("scrappy").info(
+            "Another Scrappy Records server is already running or starting; this one is exiting"
+        )
+        return
+    server = uvicorn.Server(server_config())
+    lifetime.start_housekeeping(server)  # polite stop requests, daily backup while running
+    server.run()
+    lock.close()
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ You do **not** need to install anything first.
 2. Copy this line, paste it into the blue window (right-click pastes), and press **Enter**:
 
    ```powershell
-   irm https://raw.githubusercontent.com/srikdhruv/scrappy-business-records/main/scripts/install.ps1 | iex
+   [Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor 3072; irm https://raw.githubusercontent.com/srikdhruv/scrappy-business-records/main/scripts/install.ps1 | iex
    ```
 
 3. Wait for the message **"Scrappy Records is installed"**. The app opens in your browser.

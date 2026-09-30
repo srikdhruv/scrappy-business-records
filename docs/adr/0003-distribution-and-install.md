@@ -17,7 +17,12 @@ For Windows the bundle is `scrappy-records-windows-x64.zip`. It contains:
 - every dependency preinstalled into its `site-packages`, from `uv export --frozen`;
 - the backend package, including migrations;
 - the built React UI in `app/static/`;
-- `VERSION` and `Start Scrappy Records.cmd`.
+- `VERSION`, the app icon (`scrappy.ico`, `scrappy.png`) and `Start Scrappy Records.cmd`;
+- a `.pth` file in `site-packages` that puts the bundle folder on `sys.path`, so
+  `python -m app.launcher` works whatever the current folder is.
+
+The macOS bundle is `scrappy-records-macos-arm64.zip`, with the same contents, and
+`scripts/install.sh` creates a small `Scrappy Records.app` in `~/Applications` to open it.
 
 The asset names carry no version, so
 `https://github.com/<owner>/<repo>/releases/latest/download/scrappy-records-windows-x64.zip`
@@ -26,17 +31,18 @@ always points at the newest build.
 **Install and update** is a single command:
 
 ```powershell
-irm https://raw.githubusercontent.com/srikdhruv/scrappy-business-records/main/scripts/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor 3072; irm https://raw.githubusercontent.com/srikdhruv/scrappy-business-records/main/scripts/install.ps1 | iex
 ```
 
 `install.ps1` is idempotent, needs no admin rights, and uses only built-in Windows tools. It:
 
-1. enables TLS 1.2;
-2. downloads the zip to `%TEMP%`;
-3. stops any running Scrappy Records server;
-4. takes a pre-update backup using the *old* bundle's Python, if an install exists;
-5. extracts the zip to a staging folder and swaps it into
-   `%LOCALAPPDATA%\ScrappyRecords\app` (never touching `data\`);
+1. enables TLS 1.2 (the install line does this too, before its own download, because older
+   Windows 10 doesn't offer TLS 1.2 by default and GitHub requires it);
+2. downloads the zip to `%TEMP%` and extracts it to a staging folder (`app.new`);
+3. stops any running Scrappy Records server (a polite stop request first, force after 10 s);
+4. takes a pre-update backup using the *old* bundle's Python, else the new one's, else a copy of
+   the database file with its journal; if none works, it stops without changing anything;
+5. swaps the staging folder into `%LOCALAPPDATA%\ScrappyRecords\app` (never touching `data\`);
 6. creates the Desktop shortcut;
 7. deletes the zip;
 8. launches the app.
@@ -59,9 +65,21 @@ run from disk.
 
 ## Consequences
 
-- Downloads are larger (about 40–60 MB), and we build once per platform (windows-x64 first, macOS
-  arm64 as secondary).
-- What runs on the user's laptop is exactly the artifact CI tested. A Windows CI job installs the bundle
-  on a runner with no Python on its PATH and checks it.
+- Downloads are larger (about 25 MB for Windows, 32 MB for macOS), and we build once per platform
+  (windows-x64 first, macOS arm64 as secondary).
+- What runs on the user's laptop is exactly the artifact CI tested. What CI covers, and what it
+  doesn't:
+  - On every PR, `windows-install` builds the bundle and installs it with Windows PowerShell 5.1
+    on a runner with no Python on its PATH, from the local zip (the `-ZipPath` test hook), into
+    a folder whose name has a space, an apostrophe and non-English letters. It checks restart,
+    update, a crash mid-save, the friendly message for a release that doesn't exist, and more
+    (see the development runbook). `macos-install` does the same on a Mac.
+  - The literal published command (`irm` of `main`'s `install.ps1` from
+    raw.githubusercontent.com, and the `releases/latest/download/` asset) can only be tested
+    once a release exists. `release.yml` publishes each release as a prerelease, checks it on
+    Windows with `-Version`, only then makes it "latest", checks the literal line, and turns it
+    back into a prerelease if that fails (`post-release-verify.yml`).
+  - Not covered: the real Desktop of a user whose Desktop is redirected to OneDrive (handled
+    with `GetFolderPath('Desktop')`), antivirus products, and very old Windows 10 builds.
 - The Start Menu entry and an Edge `--app` window are deferred. The MVP has a Desktop shortcut
   only.

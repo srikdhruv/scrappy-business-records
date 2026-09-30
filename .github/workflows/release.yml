@@ -1,0 +1,171 @@
+name: Release
+
+# Push a tag like v0.2.0 (matching `version` in backend/pyproject.toml) to publish a release.
+# See docs/runbooks/release.md.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24'
+
+jobs:
+  ui:
+    name: Tests, then build the UI (once, shared by both bundles)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: The tag must match the version in backend/pyproject.toml
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('backend/pyproject.toml', 'rb'))['project']['version'])")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match backend/pyproject.toml version $version. Bump the version (and run uv lock) first."
+            exit 1
+          fi
+      # setup-uv publishes no floating major tag (e.g. v10), so pin the exact release.
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Backend tests
+        working-directory: backend
+        run: |
+          uv sync --frozen
+          uv run pytest
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frontend tests and build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test
+          npm run build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ui-static
+          path: backend/app/static/
+          if-no-files-found: error
+
+  bundle:
+    name: Bundle ${{ matrix.platform }}
+    needs: ui
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+          - os: macos-latest
+            platform: macos-arm64
+    steps:
+      - uses: actions/checkout@v7
+      # setup-uv publishes no floating major tag (e.g. v10), so pin the exact release.
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/download-artifact@v8
+        with:
+          name: ui-static
+          path: backend/app/static
+      - name: Build the bundle (the script self-tests it)
+        run: uv run --project backend python scripts/build_bundle.py --platform ${{ matrix.platform }}
+      - name: Install and run it like a user (Windows)
+        if: matrix.platform == 'windows-x64'
+        shell: powershell
+        run: >-
+          powershell -NoProfile -ExecutionPolicy Bypass
+          -File scripts\ci\smoke_install_windows.ps1
+          -ZipPath dist\scrappy-records-windows-x64.zip
+      - name: Install and run it like a user (macOS)
+        if: matrix.platform == 'macos-arm64'
+        run: scripts/ci/smoke_install_mac.sh dist/scrappy-records-macos-arm64.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bundle-${{ matrix.platform }}
+          path: dist/scrappy-records-${{ matrix.platform }}.zip
+          if-no-files-found: error
+
+  publish:
+    # Published as a *prerelease* first: `releases/latest/download/...` (what the install line
+    # uses) ignores prereleases, so users keep getting the previous version until the checks
+    # below have installed this one on a real Windows machine.
+    name: Publish the GitHub Release (as a prerelease)
+    needs: bundle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: bundle-*
+          path: dist
+          merge-multiple: true
+      - name: Create the release with both zips
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          gh release create "$GITHUB_REF_NAME" \
+            dist/scrappy-records-windows-x64.zip \
+            dist/scrappy-records-macos-arm64.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Scrappy Records $GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag \
+            --prerelease
+
+  verify-candidate:
+    name: Install the new release by its tag (-Version), like a user
+    needs: publish
+    uses: ./.github/workflows/post-release-verify.yml
+    with:
+      tag: ${{ github.ref_name }}
+      mode: tagged
+
+  promote:
+    name: Make it the latest release
+    needs: verify-candidate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest
+
+  verify-latest:
+    name: Install the latest release with the plain install line, like a user
+    needs: promote
+    uses: ./.github/workflows/post-release-verify.yml
+    with:
+      tag: ${{ github.ref_name }}
+      mode: latest
+
+  rollback:
+    # Never leave a bad "latest": if the plain install line fails after promotion, turn the
+    # release back into a prerelease, so `latest` points at the previous version again.
+    name: Undo "latest" (the plain install line failed)
+    needs: [promote, verify-latest]
+    if: failure() && needs.promote.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --prerelease
+          echo "::error::The plain install line failed for $GITHUB_REF_NAME; it is a prerelease again and users still get the previous version."
