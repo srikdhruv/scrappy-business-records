@@ -1,0 +1,113 @@
+name: Release
+
+# Push a tag like v0.2.0 (matching `version` in backend/pyproject.toml) to publish a release.
+# See docs/runbooks/release.md.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24'
+
+jobs:
+  ui:
+    name: Build the UI (once, shared by both bundles)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: The tag must match the version in backend/pyproject.toml
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('backend/pyproject.toml', 'rb'))['project']['version'])")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match backend/pyproject.toml version $version. Bump the version (and run uv lock) first."
+            exit 1
+          fi
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ui-static
+          path: backend/app/static/
+          if-no-files-found: error
+
+  bundle:
+    name: Bundle ${{ matrix.platform }}
+    needs: ui
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+          - os: macos-latest
+            platform: macos-arm64
+    steps:
+      - uses: actions/checkout@v7
+      # setup-uv publishes no floating major tag (e.g. v10), so pin the exact release.
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/download-artifact@v8
+        with:
+          name: ui-static
+          path: backend/app/static
+      - name: Build the bundle (the script self-tests it)
+        run: uv run --project backend python scripts/build_bundle.py --platform ${{ matrix.platform }}
+      - name: Install and run it like a user (Windows)
+        if: matrix.platform == 'windows-x64'
+        shell: powershell
+        run: >-
+          powershell -NoProfile -ExecutionPolicy Bypass
+          -File scripts\ci\smoke_install_windows.ps1
+          -ZipPath dist\scrappy-records-windows-x64.zip
+      - name: Install and run it like a user (macOS)
+        if: matrix.platform == 'macos-arm64'
+        run: scripts/ci/smoke_install_mac.sh dist/scrappy-records-macos-arm64.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bundle-${{ matrix.platform }}
+          path: dist/scrappy-records-${{ matrix.platform }}.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish the GitHub Release
+    needs: bundle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: bundle-*
+          path: dist
+          merge-multiple: true
+      - name: Create the release with both zips
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          gh release create "$GITHUB_REF_NAME" \
+            dist/scrappy-records-windows-x64.zip \
+            dist/scrappy-records-macos-arm64.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Scrappy Records $GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag
