@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # every tag, to find the previous release
       - name: The tag must match the version in backend/pyproject.toml
         run: |
           version=$(python3 -c "import tomllib; print(tomllib.load(open('backend/pyproject.toml', 'rb'))['project']['version'])")
@@ -29,6 +31,13 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME doesn't match backend/pyproject.toml version $version. Bump the version (and run uv lock) first."
             exit 1
           fi
+      # ADR 0004: every release's data must upgrade intact. The release before this one must
+      # have its saved-data sample (backend/tests/fixtures/releases/), which the backend tests
+      # below upgrade with this code. After releasing vX: scripts/make_release_fixture.py vX.
+      - name: The previous release has its saved-data sample
+        run: python3 scripts/ci/check_release_fixture.py --tag "$GITHUB_REF_NAME"
+      - name: Migrations only add
+        run: python3 scripts/ci/check_migrations_only_add.py
       # setup-uv publishes no floating major tag (e.g. v10), so pin the exact release.
       - uses: astral-sh/setup-uv@v10.2.0
         with:

@@ -56,6 +56,37 @@ jobs:
       - name: Tests
         run: uv run pytest
 
+  data-safety:
+    # The owner's data is never lost (docs/adr/0004-data-is-never-lost.md): migrations may only
+    # add, and every released version's saved data must upgrade intact with this code.
+    name: Data safety
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the release tags, for the saved-data sample reminder
+      - name: Migrations only add (no drops, renames, type changes or deleting SQL)
+        run: python3 scripts/ci/check_migrations_only_add.py
+      - name: The newest release has its saved-data sample (a reminder; the release enforces it)
+        run: python3 scripts/ci/check_release_fixture.py --latest --warn
+      # setup-uv publishes no floating major tag (e.g. v10), so pin the exact release.
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install Python and dependencies
+        working-directory: backend
+        run: uv sync --frozen
+      - name: Every release's data upgrades intact; migrations keep data; the checks' own tests
+        working-directory: backend
+        run: >-
+          uv run pytest -v
+          tests/test_release_upgrades.py
+          tests/test_migration_safety.py
+          tests/test_migrations.py
+          tests/test_check_migrations_only_add.py
+          tests/test_check_release_fixture.py
+
   frontend:
     name: Frontend (eslint, tsc, vitest, build)
     runs-on: ubuntu-latest
