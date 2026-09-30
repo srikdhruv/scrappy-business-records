@@ -19,12 +19,22 @@ import sys
 GUIDE = "docs/feature-guide.md"
 SKIP_LABEL = "no-guide-change"
 
-# Changes here can change what the user sees or can do.
+# Changes here can change what the user sees or can do: the screens, the API they use, and what
+# happens when the app starts, backs up, installs or updates.
 USER_FACING = (
     "frontend/src/*",
+    "frontend/index.html",
+    "frontend/public/*",
     "backend/app/routers/*",
     "backend/app/services/*",
     "backend/app/schemas.py",
+    "backend/app/launcher.py",
+    "backend/app/backup.py",
+    "backend/app/main.py",
+    "backend/app/clock.py",
+    "backend/app/months.py",
+    "scripts/install.ps1",
+    "scripts/install.sh",
 )
 # ...except these, which never reach the user.
 NOT_USER_FACING = (
@@ -32,12 +42,20 @@ NOT_USER_FACING = (
     "frontend/src/test/*",
     "frontend/src/mocks/*",
 )
+# These follow from other changes. A PR that changes only these (regenerating the API types, or
+# refreshing the shadcn/ui building blocks) needn't touch the guide.
+INCIDENTAL = (
+    "frontend/src/api/schema.d.ts",
+    "frontend/src/components/ui/*",
+)
+
+
+def _matches(path: str, patterns: tuple[str, ...]) -> bool:
+    return any(fnmatch.fnmatchcase(path, p) for p in patterns)
 
 
 def user_facing(path: str) -> bool:
-    return any(fnmatch.fnmatchcase(path, p) for p in USER_FACING) and not any(
-        fnmatch.fnmatchcase(path, p) for p in NOT_USER_FACING
-    )
+    return _matches(path, USER_FACING) and not _matches(path, NOT_USER_FACING)
 
 
 def changed_files(base: str, head: str) -> list[str]:
@@ -58,6 +76,11 @@ def check(files: list[str], labels: list[str]) -> tuple[bool, str]:
     touched = [f for f in files if user_facing(f)]
     if not touched:
         return True, "Nothing the user sees has changed, so the feature guide needn't change."
+    if all(_matches(f, INCIDENTAL) for f in touched):
+        return True, (
+            "Only regenerated API types or shadcn/ui building blocks changed, so the feature "
+            "guide needn't change."
+        )
     if GUIDE in files:
         return True, f"The feature guide is updated ({len(touched)} user-facing file(s) changed)."
     listing = "\n".join(f"  - {f}" for f in touched[:20])

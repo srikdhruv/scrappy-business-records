@@ -23,9 +23,12 @@
 
 ## Checklist
 
+<!-- The same list as CONTRIBUTING.md. Open as a draft; mark ready once reviewed and CI is green. -->
+
 - [ ] `make fmt`, `make lint` and `make test` pass
 - [ ] `make gen-api` run and `frontend/src/api/schema.d.ts` committed, if the API changed
 - [ ] A migration added, if the database models changed (never edit a released one)
-- [ ] Feature guide (`docs/feature-guide.md`) updated, or this PR doesn't change what the user sees
+- [ ] Feature guide (`docs/feature-guide.md`) updated, with new pictures if a screen changed
+      noticeably, or this PR doesn't change what the user sees
 - [ ] Other docs updated if they no longer match (`daily-use.md`, the PRD, the data model)
 - [ ] No personal information: demo data only, with made-up names and numbers
