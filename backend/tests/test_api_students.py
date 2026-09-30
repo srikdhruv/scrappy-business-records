@@ -17,7 +17,7 @@ def test_create_returns_detail_with_first_fee_change(api: TestClient) -> None:
     s = make_student(
         api,
         name="  Kabir Mehta ",
-        phone="98765 43210",
+        phone="90000 00010",
         guardian_name="",
         batch_label="Sat 10am - Jayanagar Studio",
         joined_month="2026-04",
@@ -104,7 +104,7 @@ def test_detail_ledger_with_payments(api: TestClient) -> None:
 
 
 def test_list_filters_search_and_sorting(api: TestClient) -> None:
-    make_student(api, name="meera Iyer", phone="98765 40001", joined_month="2026-06")
+    make_student(api, name="meera Iyer", phone="90000 00001", joined_month="2026-06")
     make_student(api, name="Ananya Rao", guardian_name="Lakshmi Rao")
     left = make_student(api, name="Rohan Desai", left_month="2026-03")
     make_student(api, name="Zara Khan", monthly_fee_paise=0)
@@ -115,8 +115,8 @@ def test_list_filters_search_and_sorting(api: TestClient) -> None:
     assert names(status="all") == ["Ananya Rao", "meera Iyer", "Rohan Desai", "Zara Khan"]
     assert names(q="MEERA") == ["meera Iyer"]
     assert names(q="lakshmi") == ["Ananya Rao"]  # guardian
-    assert names(q="9876540001") == ["meera Iyer"]  # phone, spaces ignored
-    assert names(q="40001") == ["meera Iyer"]
+    assert names(q="9000000001") == ["meera Iyer"]  # phone, spaces ignored
+    assert names(q="00001") == ["meera Iyer"]
     assert names(q="rohan") == []  # archived students need status=left/all
     assert names(q="rohan", status="all") == ["Rohan Desai"]
     assert names(q="   ") == ["Ananya Rao", "meera Iyer", "Zara Khan"]
@@ -145,10 +145,10 @@ def test_balance_status_credit(api: TestClient) -> None:
 
 
 def test_patch_is_partial(api: TestClient) -> None:
-    s = make_student(api, phone="98765 43210", notes="Loves tabla")
+    s = make_student(api, phone="90000 00010", notes="Loves tabla")
     updated = api.patch(f"/api/students/{s['id']}", json={"batch_label": "Tue/Thu 6pm"}).json()
     assert updated["batch_label"] == "Tue/Thu 6pm"
-    assert updated["phone"] == "98765 43210"
+    assert updated["phone"] == "90000 00010"
     assert updated["notes"] == "Loves tabla"
     cleared = api.patch(f"/api/students/{s['id']}", json={"phone": "", "notes": None}).json()
     assert (cleared["phone"], cleared["notes"]) == (None, None)

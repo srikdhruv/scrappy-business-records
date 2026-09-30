@@ -128,10 +128,12 @@ These rules decide every number the app shows.
      hasn't paid, with its fee (or what's left of it, if it is partly paid ahead). Usually that
      is next month. If they have paid ahead, it is the first month after what they have
      prepaid. If that month's fee is 0, no amount is suggested;
-   - if nothing is left to pay in the months they are enrolled in (they have left and paid
-     everything), nothing is suggested.
+   - if nothing is left to pay in the months they are enrolled in, up to the latest month a
+     payment can be logged for (two years ahead), nothing is suggested. That happens when they
+     have left and paid everything, or have paid that far ahead.
 
-   It never suggests a month that is already fully paid, or one they aren't enrolled in.
+   It never suggests a month that is already fully paid, one they aren't enrolled in, or one
+   more than two years ahead.
 10. **Credit.** Money in overpaid months up to the current month: the sum of
     `max(0, paid − expected)` over those months, including payments for months the student
     wasn't enrolled in. Payments for future months are "paid ahead", not credit. Payments stay

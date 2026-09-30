@@ -141,7 +141,8 @@ def test_main(capsys: pytest.CaptureFixture[str], scrappy_home: Path) -> None:
     assert seed.main(["--force"]) == 0
     out = capsys.readouterr().out
     assert "Backed up the database" in out
-    [backup] = (scrappy_home / "backups").glob("records-before-seed-*.db")
+    [backup] = (scrappy_home / "seed-backups").glob("records-before-seed-*.db")
+    assert not list((scrappy_home / "backups").glob("records-before-seed-*"))
     with sqlite3.connect(backup) as conn:
         assert conn.execute("SELECT count(*) FROM students").fetchone() == (25,)
 

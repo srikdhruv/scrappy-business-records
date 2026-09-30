@@ -5,7 +5,8 @@
 
 It only runs when `SCRAPPY_HOME` is set explicitly (`make seed` sets it to `./.devdata`), so it
 can never touch a real install's data by accident. It creates and migrates the database if
-needed. Before `--force` deletes anything, it copies the database into the backup folder.
+needed. Before `--force` deletes anything, it copies the database into
+`$SCRAPPY_HOME/seed-backups/`.
 
 Everything is relative to today's month and deterministic: the same day
 always gives the same data.
@@ -240,8 +241,10 @@ def seed(session: Session, today: dt.date, *, force: bool = False) -> int:
 
 
 def backup_before_wipe() -> Path:
-    """Copy the database into the backup folder (SQLite's online backup) and return the copy."""
-    target = config.backup_dir() / f"records-before-seed-{dt.datetime.now():%Y%m%d-%H%M%S}.db"
+    """Copy the database (SQLite's online backup) into `$SCRAPPY_HOME/seed-backups/` and return
+    the copy. Never the normal backup folder, which may be the user's real Documents."""
+    stamp = f"{dt.datetime.now():%Y%m%d-%H%M%S}"
+    target = config.home_dir() / "seed-backups" / f"records-before-seed-{stamp}.db"
     target.parent.mkdir(parents=True, exist_ok=True)
     src = sqlite3.connect(config.db_path())
     dst = sqlite3.connect(target)

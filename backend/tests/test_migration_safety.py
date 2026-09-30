@@ -42,7 +42,7 @@ def seeded() -> None:
     """Head schema with one student, one fee change and one payment."""
     migrate.upgrade_to_head()
     with Session(get_engine()) as s:
-        student = Student(name="Ananya Rao", phone="98765 43210", joined_month=dt.date(2026, 1, 1))
+        student = Student(name="Ananya Rao", phone="90000 00010", joined_month=dt.date(2026, 1, 1))
         student.fee_changes.append(
             FeeChange(effective_month=dt.date(2026, 1, 1), amount_paise=150000)
         )
@@ -90,7 +90,7 @@ def test_batch_migration_recreating_students_keeps_children(seeded: None, tmp_pa
     with get_engine().connect() as conn:
         assert conn.execute(text("PRAGMA foreign_keys")).scalar() == 1
         assert conn.execute(text("PRAGMA foreign_key_check")).fetchall() == []
-        assert conn.execute(text("SELECT phone FROM students")).scalar() == "98765 43210"
+        assert conn.execute(text("SELECT phone FROM students")).scalar() == "90000 00010"
 
 
 def test_migration_breaking_foreign_keys_is_rolled_back(seeded: None, tmp_path: Path) -> None:

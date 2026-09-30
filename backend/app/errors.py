@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import math
+
 from fastapi import HTTPException, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -29,8 +31,11 @@ def not_found(what: str, id_: int) -> HTTPException:
 
 
 def _printable(value: object) -> object:
-    """`value` with any character that can't be written as UTF-8 (e.g. a lone "\\ud800" sent
-    in JSON) replaced by "?", so an error that echoes the bad input can still be sent."""
+    """`value` made JSON-safe, so an error that echoes the bad input can still be sent:
+    characters that can't be written as UTF-8 (e.g. a lone "\\ud800") become "?", and NaN,
+    Infinity or an overflowing number like 1e400 become strings."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
     if isinstance(value, str):
         return value.encode("utf-8", "replace").decode("utf-8")
     if isinstance(value, list | tuple):

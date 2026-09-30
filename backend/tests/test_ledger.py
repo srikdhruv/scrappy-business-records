@@ -342,6 +342,14 @@ def test_suggest_for_students_who_are_leaving_or_left() -> None:
     assert ledger.suggest_payment(owing, NOW) == owed(MAR, 1500_00)
 
 
+def test_suggest_never_beyond_the_months_that_can_be_logged() -> None:
+    latest = add_months(NOW, ledger.MONTHS_AHEAD)  # June 2028
+    upto = tuple((m, 1500_00) for m in month_range(JAN, add_months(latest, -1)))
+    assert ledger.suggest_payment(student(pays=upto), NOW) == next_unpaid(latest, 1500_00)
+    everything = (*upto, (latest, 1500_00))
+    assert ledger.suggest_payment(student(pays=everything), NOW) == ALL_PAID
+
+
 def test_suggest_for_future_joiner() -> None:
     s = student(joined=AUG)
     assert ledger.suggest_payment(s, NOW) == next_unpaid(AUG, 1500_00)
@@ -564,12 +572,19 @@ def test_student_invariants(s: StudentRecord, current: dt.date) -> None:
         assert sug == owed(owing[0].month, owing[0].remaining_paise)
     elif sug.reason is SuggestionReason.all_paid:
         assert (sug.for_month, sug.amount_paise) == (None, None)
-        assert s.left_month is not None
+        # Every enrolled month from next month up to the last loggable one is paid.
+        last = add_months(current, ledger.MONTHS_AHEAD)
+        if s.left_month is not None:
+            last = min(last, s.left_month)
+        start = max(add_months(current, 1), s.joined_month)
+        remaining = month_range(start, last) if start <= last else []
+        assert all(ledger.month_line(s, m, current).status in (PAID, OVER) for m in remaining)
     else:
         assert sug.reason is SuggestionReason.next_unpaid and sug.for_month is not None
         line = ledger.month_line(s, sug.for_month, current)
         # Later than now, enrolled, and not already paid.
         assert sug.for_month > current and s.is_active(sug.for_month)
+        assert sug.for_month <= add_months(current, ledger.MONTHS_AHEAD)
         assert line.status in (UNPAID, PART, NA)
         assert sug.amount_paise == (line.remaining_paise or None)
         start = max(add_months(current, 1), s.joined_month)

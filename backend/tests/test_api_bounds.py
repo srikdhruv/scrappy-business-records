@@ -178,3 +178,54 @@ def test_explicit_null_names_the_field(api: TestClient, body: Json) -> None:
     s = make_student(api)
     [field] = body
     assert error(api.patch(f"/api/students/{s['id']}", json=body))[0] == ["body", field]
+
+
+# --------------------------------------------------------------------------- odd JSON values
+
+
+def send_raw(api: TestClient, method: str, path: str, raw: str) -> object:
+    headers = {"content-type": "application/json"}
+    return api.request(method, path, content=raw.encode(), headers=headers)
+
+
+@pytest.mark.parametrize("number", ["NaN", "Infinity", "-Infinity", "1e400"])
+def test_non_finite_numbers_are_422(api: TestClient, number: str) -> None:
+    s = make_student(api)
+    raw = (
+        f'{{"student_id": {s["id"]}, "amount_paise": {number}, "paid_on": "2026-06-01",'
+        ' "for_month": "2026-06", "method": "upi"}'
+    )
+    assert error(send_raw(api, "post", "/api/payments", raw))[0] == ["body", "amount_paise"]
+    raw = f'{{"monthly_fee_paise": {number}}}'
+    path = f"/api/students/{s['id']}"
+    assert error(send_raw(api, "patch", path, raw))[0] == ["body", "monthly_fee_paise"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("name", "\x00"), ("name", "x\x00"), ("phone", "90000\x0000001"), ("notes", "a\x07b")],
+)
+def test_control_characters_are_422(api: TestClient, field: str, value: str) -> None:
+    s = make_student(api)
+    loc, msg = error(api.patch(f"/api/students/{s['id']}", json={field: value}))
+    assert (loc, msg) == (["body", field], "This text has a character that can't be saved")
+    p = pay(api, s["id"], "2026-06")
+    assert error(api.patch(f"/api/payments/{p['id']}", json={"note": value}))[0] == [
+        "body",
+        "note",
+    ]
+
+
+def test_tabs_and_line_breaks_are_fine(api: TestClient) -> None:
+    s = make_student(api, notes="Line one\nLine two\r\n\tindented")
+    assert s["notes"] == "Line one\nLine two\r\n\tindented"
+
+
+@pytest.mark.parametrize("field", ["student_id", "amount_paise"])
+@pytest.mark.parametrize("value", [True, 1.5, "100"])
+def test_ids_and_amounts_must_be_whole_numbers(api: TestClient, field: str, value: object) -> None:
+    s = make_student(api)
+    body = {**PAYMENT, "student_id": s["id"], field: value}
+    assert error(api.post("/api/payments", json=body))[0] == ["body", field]
+    fee = {"name": "A", "monthly_fee_paise": value, "joined_month": "2026-01"}
+    assert error(api.post("/api/students", json=fee))[0] == ["body", "monthly_fee_paise"]

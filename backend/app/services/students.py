@@ -132,7 +132,7 @@ def student_detail(student: Student, current_month: dt.date) -> StudentDetail:
 
 def _matches(student: Student, q: str) -> bool:
     """Match on name, phone or guardian, ignoring case and accents. Spaces in phone numbers are
-    ignored, so "9876543210" finds "98765 43210"."""
+    ignored, so "9000000010" finds "90000 00010"."""
     needle = fold(q)
     texts = (student.name, student.guardian_name, student.phone)
     if any(t and needle in fold(t) for t in texts):

@@ -17,8 +17,8 @@ import datetime as dt
 
 from app.errors import unprocessable
 from app.months import add_months
+from app.services.ledger import MONTHS_AHEAD
 
-MONTHS_AHEAD = 24
 EARLIEST_DATE = dt.date(2000, 1, 1)
 MAX_ID = 2**63 - 1  # SQLite's largest INTEGER
 

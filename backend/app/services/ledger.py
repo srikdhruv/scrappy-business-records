@@ -55,6 +55,10 @@ __all__ = [
     "tenure_months",
 ]
 
+MONTHS_AHEAD = 24
+"""Payments can be logged for at most this many months after the current month (see
+app/services/bounds.py), so nothing later is ever suggested."""
+
 # --------------------------------------------------------------------------- inputs
 
 
@@ -335,7 +339,9 @@ def suggest_payment(student: StudentRecord, current_month: dt.date) -> Suggestio
        paid yet (Unpaid, Partial, or a 0 fee with nothing paid), with what's left on it: usually
        next month, or the month after what they've paid ahead. The amount is None if the fee
        for that month is 0.
-    3. `all_paid`: nothing is left in the enrolled months (they have left and paid up).
+    3. `all_paid`: nothing is left in the enrolled months up to the latest month a payment
+       can be logged for (`MONTHS_AHEAD` after the current month): they have left and paid
+       up, or paid that far ahead.
     """
     for m in due_months(student, current_month):
         line = month_line(student, m, current_month)
@@ -348,6 +354,7 @@ def suggest_payment(student: StudentRecord, current_month: dt.date) -> Suggestio
     else:
         # The month after the last paid one has nothing paid, so the search always ends.
         end = max(start, add_months(max(student.paid_by_month, default=start), 1))
+    end = min(end, add_months(current_month, MONTHS_AHEAD))  # never a month that can't be logged
     for m in month_range(start, end) if start <= end else []:
         line = month_line(student, m, current_month)
         if line.is_owing or line.status is MonthStatus.not_applicable:

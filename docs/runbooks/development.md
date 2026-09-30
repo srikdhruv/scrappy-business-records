@@ -22,7 +22,7 @@ make setup
 | `make help` | List every target |
 | `make setup` | `uv sync --locked` in `backend/` and `npm ci` in `frontend/` |
 | `make dev` | API with auto-reload on http://127.0.0.1:8765 and the Vite UI on http://localhost:5173 (open this one; it proxies `/api`). Data and backups go in `./.devdata/`. Ctrl-C stops both |
-| `make seed` | Fill `./.devdata/` with realistic, fictional demo students and payments (`python -m app.seed`). It refuses if there are students already: to start over, run `make db-reset` first. It only runs with `SCRAPPY_HOME` set, so it can't touch a real install, and `--force` backs up before deleting |
+| `make seed` | Fill `./.devdata/` with realistic, fictional demo students and payments (`python -m app.seed`). It refuses if there are students already: to start over, run `make db-reset` first. It only runs with `SCRAPPY_HOME` set, so it can't touch a real install, and `--force` first backs up the database into `$SCRAPPY_HOME/seed-backups/` |
 | `make test` | Backend pytest and frontend vitest |
 | `make e2e` | Build, then run the Playwright end-to-end tests (`frontend/playwright.config.ts`) against the production server |
 | `make lint` | `ruff check`, `ruff format --check`, ESLint, `prettier --check` and `tsc` |

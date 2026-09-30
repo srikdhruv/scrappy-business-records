@@ -31,7 +31,7 @@ def test_dashboard_sections(api: TestClient) -> None:
     ananya = make_student(
         api,
         name="Ananya Rao",
-        phone="98765 40001",
+        phone="90000 00001",
         batch_label="Mon/Wed 5pm",
         joined_month="2026-03",
     )["id"]
@@ -90,7 +90,7 @@ def test_dashboard_sections(api: TestClient) -> None:
             "student_id": ananya,
             "student_name": "Ananya Rao",
             "batch_label": "Mon/Wed 5pm",
-            "phone": "98765 40001",
+            "phone": "90000 00001",
             "months": [
                 {
                     "month": "2026-03",
@@ -133,7 +133,7 @@ def test_dashboard_sections(api: TestClient) -> None:
             "student_id": ananya,
             "student_name": "Ananya Rao",
             "batch_label": "Mon/Wed 5pm",
-            "phone": "98765 40001",
+            "phone": "90000 00001",
             "month": "2026-05",
             "expected_paise": 150000,
             "paid_paise": 200000,

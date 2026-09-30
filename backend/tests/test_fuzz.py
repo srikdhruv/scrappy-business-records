@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -31,8 +32,12 @@ scalars = st.one_of(
     st.none(),
     st.booleans(),
     st.integers(min_value=-(2**70), max_value=2**70),
-    st.floats(allow_nan=False, allow_infinity=False),
+    st.floats(),  # including NaN and Infinity
+    st.just(float("inf")),  # also what 1e400 parses to
     st.text(max_size=20),
+    # Any code point: control characters (NUL...) and lone surrogates too.
+    st.text(st.characters(codec=None, exclude_categories=()), max_size=8),
+    st.sampled_from(["\x00", "x\x00", "\ud800", "a\x07b", "\x7f", "\x1b[31m"]),
     st.from_regex(r"\A\d{1,5}-\d{1,3}\Z"),  # month-ish
     st.from_regex(r"\A\d{1,5}-\d{1,2}-\d{1,2}\Z"),  # date-ish
     st.sampled_from(["2026-06", "2028-12", "2026-06-10", "upi", "cash", "", " "]),
@@ -89,11 +94,14 @@ def test_no_500_from_json(
 ) -> None:
     _seed(api)
     method, path = route
+    # Raw JSON, so NaN / Infinity and lone surrogates (as \\ud800 escapes) get through.
+    content = json.dumps(body).encode() if method in ("post", "patch") else None
     response = api.request(
         method,
         path.format(id=id_),
         params=query,
-        json=body if method in ("post", "patch") else None,
+        content=content,
+        headers={"content-type": "application/json"},
     )
     assert response.status_code < 500, (method, path, body, query, response.text)
 

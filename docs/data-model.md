@@ -86,7 +86,7 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 | `POST /payments` | Create. Body: `student_id`, `amount_paise`, `paid_on`, `for_month`, `method`, `note?`. 404 if the student doesn't exist. Any `for_month` within the [limits](#limits) is accepted, even one the student isn't active in (it then shows as overpaid) |
 | `GET /payments/{id}` · `PATCH /payments/{id}` · `DELETE /payments/{id}` | `PATCH` may move a payment to another student (404 if that student doesn't exist) |
 | `GET /dashboard?month=YYYY-MM` | See the PRD's "Dashboard for a selected month M" section. Returns `month`, `current_month`, `summary`, `yet_to_pay[]`, `backlog[]` and `overpaid[]` |
-| `GET /students/{id}/suggest-payment` | `{for_month, amount_paise, reason}`, as in the PRD's ledger rule 9. `reason` is `owed` (the oldest *due* month that is unpaid or partial, and what's left on it), `next_unpaid` (nothing is owed yet: the first enrolled month after the current month that isn't paid, and what's left on it), or `all_paid` (nothing is left in the enrolled months; `for_month` and `amount_paise` are `null`). `amount_paise` is also `null` for a month whose fee is 0. It never suggests a month that is already fully paid, or one outside the months the student is enrolled in |
+| `GET /students/{id}/suggest-payment` | `{for_month, amount_paise, reason}`, as in the PRD's ledger rule 9. `reason` is `owed` (the oldest *due* month that is unpaid or partial, and what's left on it), `next_unpaid` (nothing is owed yet: the first enrolled month after the current month that isn't paid, and what's left on it), or `all_paid` (nothing is left in the enrolled months up to 24 months ahead, the latest month a payment can be logged for; `for_month` and `amount_paise` are `null`). `amount_paise` is also `null` for a month whose fee is 0. It never suggests a month that is already fully paid, one outside the months the student is enrolled in, or one more than 24 months ahead |
 
 **Errors.**
 - **404** (missing resource): `{"detail": "No student with id 3"}` (`ErrorResponse`).
@@ -155,9 +155,14 @@ Typo guards, checked against today's date in `app/services/bounds.py`. Each give
   `for_month`) can be at most **24 months after the current month**.
 - A payment's `paid_on` must be between **2000-01-01** and **tomorrow** (one day of slack for a
   laptop clock that is a little behind).
-- Text with characters that can't be saved (a lone half of a UTF-16 pair, sent as `"\ud800"`)
-  is a 422, "This text has a character that can't be saved".
+- Text with characters that can't be saved is a 422, "This text has a character that can't
+  be saved". That means a lone half of a UTF-16 pair (sent as `"\ud800"`), or any control
+  character (NUL, escape, …) except tab and line breaks (`\t`, `\n`, `\r`).
+- Ids and amounts (`student_id`, `amount_paise`, `monthly_fee_paise`) must be JSON whole
+  numbers: `true`, `1.5`, `"100"`, `NaN`, `Infinity` and `1e400` are all 422s.
 - Ids too large for the database are simply "not found" (404), or match nothing in a filter.
+- A 422 that echoes the bad input is always sendable: unencodable characters become `?`, and
+  non-finite numbers become strings (`app.errors.validation_error_handler`).
 
 No input may cause a 500. `tests/test_fuzz.py` sends random bodies, ids, query strings and raw
 bytes to every endpoint to check this.

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 import enum
+import unicodedata
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -63,12 +64,19 @@ __all__ = [
 # --------------------------------------------------------------------------- shared types
 
 
+_ALLOWED_CONTROL = frozenset("\t\n\r")
+
+
 def _savable(value: str) -> str:
-    # JSON can carry half of a character pair ("\ud800"), which the database can't store.
+    # JSON can carry half of a character pair ("\ud800"), which the database can't store, and
+    # invisible control characters (NUL and friends) that have no place in a name or note.
+    # Tab and line breaks are fine.
     try:
         value.encode("utf-8")
     except UnicodeEncodeError:
         raise _field_error("This text has a character that can't be saved") from None
+    if any(unicodedata.category(c) == "Cc" and c not in _ALLOWED_CONTROL for c in value):
+        raise _field_error("This text has a character that can't be saved")
     return value
 
 
@@ -170,6 +178,7 @@ PaymentAmountPaise = Annotated[
     Field(
         gt=0,
         le=MAX_AMOUNT_PAISE,
+        strict=True,  # a whole number: not true/false, 1.5 or "100"
         description="Amount in paise: more than 0, at most 100000000 (₹10,00,000).",
     ),
 ]
@@ -178,6 +187,7 @@ FeePaise = Annotated[
     Field(
         ge=0,
         le=MAX_AMOUNT_PAISE,
+        strict=True,
         description="Monthly fee in paise: 0 or more, at most 100000000 (₹10,00,000).",
     ),
 ]
@@ -220,7 +230,8 @@ class SuggestionReason(enum.StrEnum):
     next_unpaid = "next_unpaid"
     """Nothing is owed yet: the first later month that isn't fully paid."""
     all_paid = "all_paid"
-    """Nothing is left to pay in the months they are enrolled (they have left and paid up)."""
+    """Nothing is left to pay in the months they are enrolled, up to the latest month a payment
+    can be logged for (24 months ahead): they have left and paid up, or paid that far ahead."""
 
 
 class StudentListFilter(enum.StrEnum):
@@ -433,7 +444,7 @@ class SuggestedPayment(_ReadModel):
 
 
 class PaymentCreate(_Model):
-    student_id: int = Field(gt=0)
+    student_id: int = Field(gt=0, strict=True)
     amount_paise: PaymentAmountPaise
     paid_on: dt.date
     for_month: Month
@@ -444,7 +455,7 @@ class PaymentCreate(_Model):
 class PaymentUpdate(_Model):
     """Partial update. Only fields that are sent change."""
 
-    student_id: int | None = Field(default=None, gt=0)
+    student_id: int | None = Field(default=None, gt=0, strict=True)
     amount_paise: PaymentAmountPaise | None = None
     paid_on: dt.date | None = None
     for_month: Month | None = None
