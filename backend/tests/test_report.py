@@ -60,6 +60,9 @@ def assert_reconciles(api: TestClient, months: list[str] = MONTHS) -> None:
         assert t["short_paise"] == s["still_due_paise"], month
         assert t["not_fully_paid_count"] == s["not_fully_paid_count"], month
         assert t["active_student_count"] == s["active_student_count"], month
+        assert t["paid_paise"] == s["logged_paise"], month
+        assert t["covered_by_credit_paise"] == s["covered_by_credit_paise"], month
+        assert t["extra_sent_paise"] == s["sent_elsewhere_paise"], month
         if month > body["current_month"]:
             assert t["collected_paise"] == s["paid_ahead_paise"], month
         # ...and the sums of the rows.

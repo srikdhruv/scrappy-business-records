@@ -808,10 +808,10 @@ class ReportRow(_ReadModel):
 
 
 class ReportTotals(_ReadModel):
-    """Sums over every row. `fee_paise`, `collected_paise`, `short_paise`,
-    `not_fully_paid_count` and `active_student_count` are the dashboard summary's
-    `expected_paise`, `collected_paise`, `still_due_paise`, `not_fully_paid_count` and
-    `active_student_count` for M."""
+    """Sums over every row. They are the dashboard summary for M: `fee_paise` is its
+    `expected_paise`, `paid_paise` its `logged_paise`, `extra_sent_paise` its
+    `sent_elsewhere_paise`, `short_paise` its `still_due_paise`, and `collected_paise`,
+    `covered_by_credit_paise`, `not_fully_paid_count` and `active_student_count` are the same."""
 
     student_count: int = Field(ge=0, description="How many rows.")
     fee_paise: NonNegativePaise

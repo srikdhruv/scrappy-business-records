@@ -147,6 +147,9 @@ describe('report totals', () => {
         expect(report.totals.short_paise).toBe(board.summary.still_due_paise)
         expect(report.totals.not_fully_paid_count).toBe(board.summary.not_fully_paid_count)
         expect(report.totals.active_student_count).toBe(board.summary.active_student_count)
+        expect(report.totals.paid_paise).toBe(board.summary.logged_paise)
+        expect(report.totals.covered_by_credit_paise).toBe(board.summary.covered_by_credit_paise)
+        expect(report.totals.extra_sent_paise).toBe(board.summary.sent_elsewhere_paise)
         expect(report.totals.owed_before_paise).toBe(
           board.backlog.reduce((sum, b) => sum + b.total_owed_paise, 0),
         )

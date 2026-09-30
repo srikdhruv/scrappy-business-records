@@ -944,10 +944,10 @@ export interface components {
         ReportStatus: "unpaid" | "partial" | "not_due_yet" | "paid_with_credit" | "paid" | "no_fee" | "left";
         /**
          * ReportTotals
-         * @description Sums over every row. `fee_paise`, `collected_paise`, `short_paise`,
-         *     `not_fully_paid_count` and `active_student_count` are the dashboard summary's
-         *     `expected_paise`, `collected_paise`, `still_due_paise`, `not_fully_paid_count` and
-         *     `active_student_count` for M.
+         * @description Sums over every row. They are the dashboard summary for M: `fee_paise` is its
+         *     `expected_paise`, `paid_paise` its `logged_paise`, `extra_sent_paise` its
+         *     `sent_elsewhere_paise`, `short_paise` its `still_due_paise`, and `collected_paise`,
+         *     `covered_by_credit_paise`, `not_fully_paid_count` and `active_student_count` are the same.
          */
         ReportTotals: {
             /**
