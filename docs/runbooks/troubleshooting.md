@@ -14,7 +14,7 @@ most problems.
    errors directly. You can also run it in the foreground:
    ```powershell
    cd "$env:LOCALAPPDATA\ScrappyRecords\app"
-   .\python\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8765
+   .\python\python.exe -m app
    ```
 
 ## "Port 8765 is already in use"

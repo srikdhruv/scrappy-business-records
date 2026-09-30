@@ -52,7 +52,9 @@ Creating a student inserts the first row at `joined_month`.
 
 The database itself rejects bad rows, as a last line of defence behind the API's validation:
 
-- Every month column holds the **first of the month** (a CHECK on the day).
+- Every month column holds a real **first-of-month date**:
+  `CHECK (col IS date(col, 'start of month'))`. This rejects `'garbage'`, `'2026-10'`,
+  `20261001` and `'2026-10-05'`. `paid_on` must be a real date (`paid_on IS date(paid_on)`).
 - `students.left_month ≥ joined_month`, and `name` isn't blank.
 - `fee_changes.amount_paise ≥ 0`, and `(student_id, effective_month)` is unique.
 - `payments.amount_paise > 0`, and `method` is one of `upi`, `cash`, `other`.
@@ -83,7 +85,14 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 | `GET /dashboard?month=YYYY-MM` | See the PRD's "Dashboard for a selected month M" section. Returns `summary`, `yet_to_pay[]`, `backlog[]` and `overpaid[]` |
 | `GET /students/{id}/suggest-payment` | `{for_month, amount_paise}`: the oldest unpaid or partial month and its remaining amount, otherwise the current month and its fee |
 
-**Errors** use FastAPI's standard shape: 422 for validation, 404 for a missing resource.
+**Errors.**
+- **404** (missing resource): `{"detail": "No student with id 3"}` (`ErrorResponse`).
+- **422**: always FastAPI's validation shape (`HTTPValidationError`),
+  `{"detail": [{"loc": ["body", "left_month"], "msg": "...", "type": "value_error"}]}`. This
+  includes business rules that routers check against stored data; raise those with
+  `app.errors.unprocessable(msg, field=...)`. Never let a database CHECK surface as a 500.
+- The UI's `ApiError` (`frontend/src/api/client.ts`) turns either shape into readable `messages`
+  and a per-field `fields` map.
 
 **Status codes.** `POST` answers 201 with the created object. `DELETE` answers 204 with no body.
 
@@ -104,8 +113,14 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 - `BalanceStatus`: `up_to_date`, `owes`, `credit`.
 - `PaymentMethod`: `upi`, `cash`, `other`.
 
-**Lists.** `GET /students` and `GET /payments` return plain JSON arrays. Students are sorted by
-name. Payments default to `sort=paid_on&order=desc`.
+**Lists.** `GET /students` and `GET /payments` return plain JSON arrays, **unpaginated**: at
+this scale (thousands of payments at most) one response is small and fast. Students are sorted by
+name. Payments default to `sort=paid_on&order=desc`. The server filters by `student_id`,
+`month` and `q`. The UI filters by **method** and **paid-on date range** on the client, over the
+list it already has, so there are no query parameters for those.
+
+**Timestamps.** `created_at` and `updated_at` are UTC with a trailing `Z`, e.g.
+`"2026-10-05T09:30:00Z"`.
 
 **Validation.**
 - Months must match `YYYY-MM`.
@@ -113,6 +128,18 @@ name. Payments default to `sort=paid_on&order=desc`.
 - Blank optional text becomes `null`, and unknown fields are rejected.
 - `PATCH` bodies are partial: only the fields that are sent change. Sending `left_month: null`
   un-archives a student.
+
+**Editing a student (`PATCH /students/{id}`).** These rules need the stored student, so the
+router checks them. Each failure is a 422 in the shape above:
+
+1. **Moving `joined_month`** moves the earliest fee change's `effective_month` with it, so the
+   first owed month always has a fee. If the new joined month is on or after a *later* fee
+   change, answer 422, because the earliest fee would be lost.
+2. **`fee_effective_month` before `joined_month`** → 422. Use the new `joined_month` if one is
+   sent, otherwise the stored one. A fee change for a month that already has one replaces its
+   amount.
+3. **`left_month` before `joined_month`** → 422. Again, use the new `joined_month` if sent,
+   otherwise the stored one. This must be a 422, not a 500 from the database CHECK.
 
 ## Ledger computation
 

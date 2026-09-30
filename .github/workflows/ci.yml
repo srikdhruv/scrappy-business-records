@@ -38,6 +38,24 @@ jobs:
       - name: Tests
         run: uv run pytest
 
+  backend-windows:
+    # The user's laptop runs Windows: paths, SQLite file handling and startup must work there.
+    name: Backend on Windows (pytest)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install Python and dependencies
+        run: uv sync --frozen
+      - name: Tests
+        run: uv run pytest
+
   frontend:
     name: Frontend (eslint, tsc, vitest, build)
     runs-on: ubuntu-latest

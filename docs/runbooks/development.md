@@ -53,6 +53,7 @@ backend/
     models.py        SQLAlchemy models
     schemas.py       Pydantic request and response models — the API contract
     months.py        "YYYY-MM" <-> first-of-month date helpers
+    errors.py        unprocessable() / not_found(): consistent 422 and 404 bodies
     migrate.py       Run Alembic from code (no alembic.ini, no CWD assumptions)
     openapi_dump.py  Print the OpenAPI JSON (used by `make gen-api`)
     services/        Pure business rules, e.g. ledger.py (dues, statuses, dashboard)
