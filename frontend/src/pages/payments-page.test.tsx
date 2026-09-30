@@ -113,6 +113,14 @@ describe('payments page', () => {
     await waitFor(() => expect(column('Student')).toHaveLength(1))
   })
 
+  it('says where money above a month’s fee went', async () => {
+    renderApp('/payments?q=aarav')
+    const rows = await table()
+    // Aarav's ₹3,000 for October: ₹1,500 pays October, ₹1,500 pays September.
+    const row = within(rows.getByText('₹3,000').closest('tr')!)
+    expect(row.getByText('₹1,500 went to Sep 2026')).toBeInTheDocument()
+  })
+
   it('edits a payment in the same form', async () => {
     const user = userEvent.setup()
     renderApp('/payments?q=Zara')

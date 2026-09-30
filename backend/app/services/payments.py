@@ -82,7 +82,7 @@ def list_payments(
     order: SortOrder = SortOrder.desc,
 ) -> list[PaymentRead]:
     """Payments matching every filter given, with where their money went, in three queries
-(the students, their fee changes and their payments) however many rows there are.
+    (the students, their fee changes and their payments) however many rows there are.
 
     - `month` matches `for_month`.
     - `q` searches the student's name and the payment's note, ignoring case and accents.

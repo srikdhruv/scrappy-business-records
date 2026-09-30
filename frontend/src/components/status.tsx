@@ -11,6 +11,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
+import type { ReactNode } from 'react'
+
 import type { MonthStatus } from '@/api/types'
 import { formatMonthShort, formatRupees } from '@/lib/format'
 import { balanceTone, standingLabel, type Standing, type Tone } from '@/lib/status'
@@ -125,28 +127,19 @@ export function PaidAheadNote({
 }
 
 /**
- * "Paid ₹1,500 extra in Feb 2026" (or "₹1,500 paid extra" when the month isn't known): money
- * paid too much for a month, shown next to a student who also owes, so the two can be matched.
+ * A small teal note about extra money that pays another month (PRD ledger rule 10), e.g.
+ * "₹1,500 credit from the 5 Sep 2026 payment (for Sep 2026)" or "₹1,500 extra → Aug 2026".
+ * The words come from `lib/credit.ts`.
  */
-export function ExtraPaidNote({
-  paise,
-  month,
-  className,
-}: {
-  paise: number
-  month?: string
-  className?: string
-}) {
+export function CreditNote({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <span
       className={cn(
-        'inline-flex max-w-full items-center rounded-full bg-credit-soft px-2 py-0.5 text-xs font-bold text-credit',
+        'inline-flex max-w-full items-center rounded-lg bg-credit-soft px-2 py-0.5 text-xs font-bold wrap-break-word text-credit',
         className,
       )}
     >
-      {month
-        ? `Paid ${formatRupees(paise)} extra in ${formatMonthShort(month)}`
-        : `${formatRupees(paise)} paid extra`}
+      {children}
     </span>
   )
 }

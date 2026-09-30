@@ -6,6 +6,7 @@ import {
   isStillActive,
   ledgerMonths,
   monthStatus,
+  owedPaise,
   paidAheadPaise,
   suggestPayment,
   tenureMonths,
@@ -125,13 +126,16 @@ describe('mock ledger', () => {
     expect(tenureMonths(b('2026-03', '2026-10'), NOW)).toBe(7) // leaving after now: elapsed
   })
 
-  it('counts a payment for a month after leaving as credit, not paid ahead', () => {
+  it('uses a payment for a month after leaving for the month still owed, never paid ahead', () => {
     const b = book({ joined_month: '2026-07', left_month: '2026-08' }, [
       ['2026-07', 1500],
       ['2026-12', 1500],
     ])
     expect(paidAheadPaise(b, NOW)).toBe(0)
-    expect(creditPaise(b, NOW)).toBe(150000)
+    expect(creditPaise(b, NOW)).toBe(0)
+    expect(owedPaise(b, NOW)).toBe(0)
+    const august = ledgerMonths(b, NOW).find((m) => m.month === '2026-08')!
+    expect(august).toMatchObject({ status: 'paid', paid_paise: 0, covered_by_credit_paise: 150000 })
   })
 
   it('is active until the left month has passed (rule 8)', () => {
@@ -141,7 +145,7 @@ describe('mock ledger', () => {
 
   it('builds the dashboard sections', () => {
     const kabir = book({ id: 2, name: 'Kabir Mehta' }, [
-      ['2026-07', 2000], // ₹500 extra
+      ['2026-07', 2000], // ₹500 extra: it pays part of August
       ['2026-09', 1000], // partial
     ])
     const d = dashboard([kabir], NOW, NOW)
@@ -154,27 +158,58 @@ describe('mock ledger', () => {
       active_student_count: 1,
     })
     expect(d.yet_to_pay[0]).toMatchObject({ status: 'unpaid', remaining_paise: 180000 })
-    expect(d.backlog[0]!.months.map((m) => [m.month, m.status])).toEqual([
-      ['2026-08', 'unpaid'],
-      ['2026-09', 'partial'],
+    expect(d.backlog[0]!.months.map((m) => [m.month, m.status, m.covered_by_credit_paise])).toEqual(
+      [
+        ['2026-08', 'partial', 50000],
+        ['2026-09', 'partial', 0],
+      ],
+    )
+    expect(d.backlog[0]!.total_owed_paise).toBe(100000 + 80000)
+    expect(d.overpaid).toEqual([])
+    expect(creditPaise(kabir, NOW)).toBe(0)
+    // August's dashboard says where its ₹500 came from.
+    expect(dashboard([kabir], '2026-08', NOW).credit_moves).toEqual([
+      expect.objectContaining({ from_month: '2026-07', to_month: '2026-08', amount_paise: 50000 }),
     ])
-    expect(d.backlog[0]!.total_owed_paise).toBe(150000 + 80000)
-    expect(d.overpaid).toEqual([expect.objectContaining({ month: '2026-07', excess_paise: 50000 })])
-    expect(creditPaise(kabir, NOW)).toBe(50000)
   })
 })
 
 describe('paid ahead and credit for later months', () => {
-  it('counts paid ahead up to the fee, and the rest as credit', () => {
-    const b = book({}, [['2026-11', 2000]]) // ₹1,800 fee in November
-    expect(paidAheadPaise(b, NOW)).toBe(180000)
-    expect(creditPaise(b, NOW)).toBe(20000)
+  const upToNow: [string, number][] = [
+    ['2026-07', 1500],
+    ['2026-08', 1500],
+    ['2026-09', 1800],
+    ['2026-10', 1800],
+  ]
+
+  it('uses extra on a later month to pay the next one ahead', () => {
+    const b = book({}, [...upToNow, ['2026-11', 2000]]) // ₹1,800 fee in November
+    expect(paidAheadPaise(b, NOW)).toBe(200000)
+    expect(creditPaise(b, NOW)).toBe(0)
   })
 
-  it('counts a payment for a later month with no fee (a month away) as credit', () => {
+  it('uses extra on a later month for the oldest month owed first', () => {
+    const b = book({}, [['2026-11', 2000]])
+    expect(paidAheadPaise(b, NOW)).toBe(180000)
+    expect(ledgerMonths(b, NOW)[0]).toMatchObject({
+      month: '2026-07',
+      covered_by_credit_paise: 20000,
+    })
+  })
+
+  it('uses a payment for a later month with no fee (a month away) for months owed', () => {
     const b = book({}, [['2026-12', 1800]])
     b.fees.push({ id: 3, student_id: 1, effective_month: '2026-12', amount_paise: 0, kind: 'away' })
     expect(paidAheadPaise(b, NOW)).toBe(0)
-    expect(creditPaise(b, NOW)).toBe(180000)
+    expect(creditPaise(b, NOW)).toBe(0)
+    expect(owedPaise(b, NOW)).toBe(150000 * 2 + 180000 * 2 - 180000)
+  })
+
+  it('keeps money no month needs as credit', () => {
+    const b = book({ left_month: '2026-10' }, [...upToNow, ['2026-10', 500]])
+    expect(creditPaise(b, NOW)).toBe(50000)
+    expect(dashboard([b], NOW, NOW).overpaid).toEqual([
+      expect.objectContaining({ month: '2026-10', extra_unused_paise: 50000 }),
+    ])
   })
 })

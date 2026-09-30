@@ -11,7 +11,7 @@ import { PageHeader } from '@/components/layout/page-header'
 import { Panel } from '@/components/panel'
 import { FeeNow } from '@/components/fee-now'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
-import { BalanceChip, ExtraPaidNote, PaidAheadNote } from '@/components/status'
+import { BalanceChip, PaidAheadNote } from '@/components/status'
 import { StudentAvatar } from '@/components/student-avatar'
 import { StudentFormDialog } from '@/components/student-form'
 import { Button } from '@/components/ui/button'
@@ -182,9 +182,6 @@ export function StudentsPage() {
                   <TableCell>
                     <div className="flex flex-col items-start gap-1">
                       <BalanceChip student={s} />
-                      {s.status === 'owes' && s.credit_paise > 0 && (
-                        <ExtraPaidNote paise={s.credit_paise} />
-                      )}
                       {s.paid_ahead_paise > 0 && <PaidAheadNote paise={s.paid_ahead_paise} />}
                     </div>
                   </TableCell>

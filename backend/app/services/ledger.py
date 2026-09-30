@@ -230,9 +230,7 @@ class Allocation:
         sources: dict[dt.date, list[CreditSource]] = defaultdict(list)
         for mv in self.moves:
             p = mv.payment
-            sources[mv.to_month].append(
-                CreditSource(p.id, p.paid_on, p.for_month, mv.amount_paise)
-            )
+            sources[mv.to_month].append(CreditSource(p.id, p.paid_on, p.for_month, mv.amount_paise))
         return {m: tuple(v) for m, v in sources.items()}
 
     @cached_property

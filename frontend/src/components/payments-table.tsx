@@ -1,6 +1,7 @@
 /**
  * A list of payments, sortable by clicking a column heading (P3), with Edit and Delete on each
- * row (P4). Used on the Payments page and on each student's profile.
+ * row (P4). Used on the Payments page and on each student's profile. A payment with money above
+ * its month's fee says where that went ("₹1,500 went to Aug 2026", PRD ledger rule 10).
  */
 import {
   createColumnHelper,
@@ -30,6 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { paymentUseText } from '@/lib/credit'
 import { formatDate, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
 import { METHOD_LABELS, plural } from '@/lib/labels'
 import { cn } from '@/lib/utils'
@@ -131,9 +133,21 @@ export function PaymentsTable({
         column.accessor('for_month', {
           header: 'For month',
           sortFn: (a, b) => compare(a.original.for_month, b.original.for_month),
-          cell: (info) => (
-            <span title={formatMonth(info.getValue())}>{formatMonthShort(info.getValue())}</span>
-          ),
+          cell: (info) => {
+            const went = paymentUseText(info.row.original)
+            return (
+              <>
+                <span title={formatMonth(info.getValue())}>
+                  {formatMonthShort(info.getValue())}
+                </span>
+                {went && (
+                  <span className="block max-w-56 text-xs font-bold whitespace-normal text-credit">
+                    {went}
+                  </span>
+                )}
+              </>
+            )
+          },
         }),
         column.accessor('method', {
           header: 'Method',

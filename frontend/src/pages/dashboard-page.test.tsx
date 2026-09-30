@@ -25,14 +25,16 @@ describe('dashboard', () => {
       expect(list.getByRole('link', { name: 'Diya Sharma' })).toBeInTheDocument()
       // Paid in full this month, so not listed.
       expect(list.queryByRole('link', { name: 'Ananya Rao' })).not.toBeInTheDocument()
+      // Aarav paid for September and October at once: October is paid.
+      expect(list.queryByRole('link', { name: 'Aarav Gupta' })).not.toBeInTheDocument()
 
       const summary = screen.getByRole('group', { name: 'Summary' })
       expect(within(summary).getByText('Expected')).toBeInTheDocument()
       expect(within(summary).getByText('Still due')).toBeInTheDocument()
-      expect(within(summary).getByText('7')).toBeInTheDocument() // not fully paid
+      expect(within(summary).getByText('6')).toBeInTheDocument() // not fully paid
     })
 
-    it('lists earlier months still owed and overpayments', async () => {
+    it('lists earlier months still owed, where extra money went, and credit', async () => {
       renderApp('/')
       const backlog = within(
         (await screen.findByRole('heading', { name: /Earlier months still owed/ })).closest(
@@ -43,11 +45,21 @@ describe('dashboard', () => {
         backlog.getByRole('link', { name: /Rohan Kulkarni owes ₹3,000 from 2 earlier months/ }),
       ).toBeInTheDocument()
       expect(backlog.getByText('Jul 2026')).toBeInTheDocument()
+      // Aarav's September was paid by the extra on his October payment, so it isn't owed.
+      expect(backlog.queryByRole('link', { name: /Aarav Gupta/ })).not.toBeInTheDocument()
 
-      const overpaid = within(
-        screen.getByRole('heading', { name: /Paid too much/ }).closest('section')!,
+      const used = within(
+        screen.getByRole('heading', { name: /Extra money used/ }).closest('section')!,
       )
-      expect(overpaid.getByText('+₹300')).toBeInTheDocument()
+      const aarav = used.getByRole('link', { name: /Aarav Gupta/ })
+      expect(aarav).toHaveTextContent(/₹1,500 extra from the \d+ Oct 2026 payment for Oct 2026/)
+      expect(aarav).toHaveTextContent('Sep 2026')
+
+      // Dev left; ₹200 of his last payment wasn't needed by any month.
+      const credit = within(
+        screen.getByRole('heading', { name: /Extra kept as credit/ }).closest('section')!,
+      )
+      expect(credit.getByRole('link', { name: /Dev Malhotra/ })).toHaveTextContent('+₹200')
     })
 
     it('logs a payment from the dashboard: prefilled, saved, and the list updates', async () => {
@@ -103,11 +115,14 @@ describe('dashboard', () => {
       expect(list.getAllByText('Not due yet').length).toBeGreaterThan(0)
     })
 
-    it('says how much extra someone paid, and in which month', async () => {
-      renderApp('/')
+    it('shows the month that extra money paid, looking back', async () => {
+      renderApp('/?month=2026-09')
+      const used = within(
+        (await screen.findByRole('heading', { name: /Extra money used/ })).closest('section')!,
+      )
+      expect(used.getByRole('link', { name: /Aarav Gupta/ })).toHaveTextContent('Sep 2026')
       const list = await yetToPay()
-      // Aarav owes part of October but paid ₹1,500 too much in March.
-      expect(list.getByText('Paid ₹1,500 extra in Mar 2026')).toBeInTheDocument()
+      expect(list.queryByRole('link', { name: 'Aarav Gupta' })).not.toBeInTheDocument()
     })
 
     it('moves between months', async () => {
@@ -128,6 +143,11 @@ describe('dashboard', () => {
       renderApp('/')
       expect(await screen.findByText('Everyone’s paid for October!')).toBeInTheDocument()
       expect(screen.getByText('Nothing owed from earlier months.')).toBeInTheDocument()
+      // Nothing moved and nothing is kept: those sections aren't shown at all.
+      expect(screen.queryByRole('heading', { name: /Extra money used/ })).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('heading', { name: /Extra kept as credit/ }),
+      ).not.toBeInTheDocument()
     })
   })
 

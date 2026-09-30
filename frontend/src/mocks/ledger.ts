@@ -9,6 +9,7 @@
 import type {
   BacklogItem,
   BalanceStatus,
+  CreditMoveItem,
   DashboardResponse,
   LedgerMonth,
   MonthStatus,
@@ -17,6 +18,7 @@ import type {
   SuggestedPayment,
   YetToPayItem,
 } from '@/api/types'
+import { allocate, monthShare, type Allocation } from '@/lib/allocation'
 import { addMonths, monthsBetween, MONTHS_AHEAD } from '@/lib/format'
 
 export interface StudentRow {
@@ -60,10 +62,6 @@ export interface StudentBook {
   payments: PaymentRow[]
 }
 
-/** A month after the student's last month (a payment for it can't be for that month). */
-const afterLeaving = (student: StudentRow, month: string) =>
-  student.left_month !== null && month > student.left_month
-
 /** Rule 1: active from joined_month up to and including left_month. */
 export function isActive(student: StudentRow, month: string): boolean {
   return (
@@ -89,6 +87,11 @@ export function expectedFor(book: StudentBook, month: string): number {
   return isActive(book.student, month) ? feeFor(book.fees, month) : 0
 }
 
+/** Rule 10: where every payment's money goes (backend `allocate`), as of `now`. */
+export function allocation(book: StudentBook, now: string): Allocation {
+  return allocate(book.payments, book.student, (m) => expectedFor(book, m), now)
+}
+
 /** Rule 3, for every month at once. */
 export function paidByMonth(payments: PaymentRow[]): Map<string, number> {
   const paid = new Map<string, number>()
@@ -110,26 +113,39 @@ function monthRange(from: string, to: string): string[] {
   return months
 }
 
-/** One row per month from joined_month to the current month (or the last paid month, if later). */
+/** One month after extra money has been handed out (backend `month_line`). */
+function monthLine(book: StudentBook, alloc: Allocation, month: string, now: string): LedgerMonth {
+  const expected = expectedFor(book, month)
+  const paid = book.payments
+    .filter((p) => p.for_month === month)
+    .reduce((sum, p) => sum + p.amount_paise, 0)
+  const share = monthShare(alloc, month)
+  const counted = share.paid_direct_paise + share.covered_by_credit_paise
+  return {
+    month,
+    expected_paise: expected,
+    paid_paise: paid,
+    ...share,
+    remaining_paise: Math.max(0, expected - counted),
+    excess_paise: Math.max(0, paid - expected),
+    status: monthStatus(expected, counted + share.extra_unused_paise),
+    is_due: month <= now,
+  }
+}
+
+/**
+ * One row per month from joined_month (or the first paid month, if earlier) to the latest of
+ * the current month, the last paid month and the last month extra money pays.
+ */
 export function ledgerMonths(book: StudentBook, now: string): LedgerMonth[] {
   const paid = paidByMonth(book.payments)
+  const alloc = allocation(book, now)
   let last = now > book.student.joined_month ? now : book.student.joined_month
   for (const m of paid.keys()) if (m > last) last = m
+  for (const mv of alloc.moves) if (mv.to_month > last) last = mv.to_month
   let first = book.student.joined_month
   for (const m of paid.keys()) if (m < first) first = m
-  return monthRange(first, last).map((month) => {
-    const expected = expectedFor(book, month)
-    const p = paid.get(month) ?? 0
-    return {
-      month,
-      expected_paise: expected,
-      paid_paise: p,
-      remaining_paise: Math.max(0, expected - p),
-      excess_paise: Math.max(0, p - expected),
-      status: monthStatus(expected, p),
-      is_due: month <= now,
-    }
-  })
+  return monthRange(first, last).map((month) => monthLine(book, alloc, month, now))
 }
 
 /** Rule 6: all payments minus everything expected up to the current month. */
@@ -144,26 +160,24 @@ export function balance(book: StudentBook, now: string): number {
   return totalPaid - expected
 }
 
-/** What's left on every due month that is Unpaid or Partial (backend `owed`). */
+/** What's left on every due month after extra money (backend `owed`). */
 export function owedPaise(book: StudentBook, now: string): number {
-  const paid = paidByMonth(book.payments)
+  const alloc = allocation(book, now)
   const { joined_month, left_month } = book.student
   const end = left_month !== null && left_month < now ? left_month : now
   let owed = 0
   if (joined_month <= end) {
     for (const m of monthRange(joined_month, end)) {
-      owed += Math.max(0, expectedFor(book, m) - (paid.get(m) ?? 0))
+      owed += Math.max(0, expectedFor(book, m) - (alloc.counted.get(m) ?? 0))
     }
   }
   return owed
 }
 
-/** Money paid for months after the current one, up to each month's fee (backend `paid_ahead`). */
+/** What pays months after the current one, extra money included (backend `paid_ahead`). */
 export function paidAheadPaise(book: StudentBook, now: string): number {
   let ahead = 0
-  for (const [m, p] of paidByMonth(book.payments)) {
-    if (m > now && !afterLeaving(book.student, m)) ahead += Math.min(p, expectedFor(book, m))
-  }
+  for (const [m, counted] of allocation(book, now).counted) if (m > now) ahead += counted
   return ahead
 }
 
@@ -185,12 +199,11 @@ export { MONTHS_AHEAD }
  * 3. `all_paid`: nothing left up to the latest month a payment can be logged for.
  */
 export function suggestPayment(book: StudentBook, now: string): SuggestedPayment {
-  const paid = paidByMonth(book.payments)
+  const alloc = allocation(book, now)
   const { joined_month, left_month } = book.student
   const line = (month: string) => {
-    const expected = expectedFor(book, month)
-    const p = paid.get(month) ?? 0
-    return { expected, remaining: Math.max(0, expected - p), status: monthStatus(expected, p) }
+    const l = monthLine(book, alloc, month, now)
+    return { remaining: l.remaining_paise, status: l.status }
   }
   const lastDue = left_month !== null && left_month < now ? left_month : now
   if (joined_month <= lastDue) {
@@ -229,17 +242,9 @@ export function tenureMonths(student: StudentRow, now: string): number {
   return Math.max(0, monthsBetween(joined_month, now))
 }
 
-/**
- * Backend `credit`: what was paid above the fee, in every month with a payment (all of it
- * where the fee is 0: before joining, after leaving, a month away), including later months.
- */
+/** Backend `credit`: money no month needed once extra money has paid what it can. */
 export function creditPaise(book: StudentBook, now: string): number {
-  void now
-  let credit = 0
-  for (const [month, p] of paidByMonth(book.payments)) {
-    credit += Math.max(0, p - expectedFor(book, month))
-  }
-  return credit
+  return allocation(book, now).uses.reduce((sum, u) => sum + u.extra_unused_paise, 0)
 }
 
 /** Active until the left month has passed (PRD ledger rule 8). */
@@ -263,32 +268,36 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
   const yetToPay: YetToPayItem[] = []
   const backlog: BacklogItem[] = []
   const overpaid: OverpaidItem[] = []
+  const creditMoves: CreditMoveItem[] = []
 
   for (const book of books) {
     const { student } = book
-    const paid = paidByMonth(book.payments)
-    const paidInMonth = paid.get(month) ?? 0
-    summary.collected_paise += paidInMonth
+    const alloc = allocation(book, now)
+    const line = monthLine(book, alloc, month, now)
+    const counted = line.paid_direct_paise + line.covered_by_credit_paise
+    summary.collected_paise += counted
+    const who = {
+      student_id: student.id,
+      student_name: student.name,
+      batch_label: student.batch_label,
+      phone: student.phone,
+    }
 
     if (isActive(student, month)) {
-      const expected = expectedFor(book, month)
-      if (expected > 0) summary.active_student_count += 1 // only those with a fee due
-      if (month > now) summary.paid_ahead_paise += Math.min(paidInMonth, expected)
-      summary.expected_paise += expected
-      summary.still_due_paise += Math.max(0, expected - paidInMonth)
-      const status = monthStatus(expected, paidInMonth)
-      if (status === 'unpaid' || status === 'partial') {
+      if (line.expected_paise > 0) summary.active_student_count += 1 // only those with a fee due
+      if (month > now) summary.paid_ahead_paise += counted
+      summary.expected_paise += line.expected_paise
+      summary.still_due_paise += line.remaining_paise
+      if (line.status === 'unpaid' || line.status === 'partial') {
         summary.not_fully_paid_count += 1
         yetToPay.push({
-          student_id: student.id,
-          student_name: student.name,
-          batch_label: student.batch_label,
-          phone: student.phone,
+          ...who,
           credit_paise: creditPaise(book, now),
-          expected_paise: expected,
-          paid_paise: paidInMonth,
-          remaining_paise: expected - paidInMonth,
-          status,
+          expected_paise: line.expected_paise,
+          paid_paise: line.paid_paise,
+          covered_by_credit_paise: line.covered_by_credit_paise,
+          remaining_paise: line.remaining_paise,
+          status: line.status,
         })
       }
     }
@@ -296,18 +305,21 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
     // Backlog: due months before M that are Unpaid or Partial.
     const lastBacklogMonth = addMonths(month, -1) < now ? addMonths(month, -1) : now
     const owed: BacklogItem['months'] = []
-    if (student.joined_month <= lastBacklogMonth) {
-      for (const m of monthRange(student.joined_month, lastBacklogMonth)) {
-        const expected = expectedFor(book, m)
-        const p = paid.get(m) ?? 0
-        const status = monthStatus(expected, p)
-        if (status === 'unpaid' || status === 'partial') {
+    const end =
+      student.left_month !== null && student.left_month < lastBacklogMonth
+        ? student.left_month
+        : lastBacklogMonth
+    if (student.joined_month <= end) {
+      for (const m of monthRange(student.joined_month, end)) {
+        const l = monthLine(book, alloc, m, now)
+        if (l.status === 'unpaid' || l.status === 'partial') {
           owed.push({
             month: m,
-            expected_paise: expected,
-            paid_paise: p,
-            remaining_paise: expected - p,
-            status,
+            expected_paise: l.expected_paise,
+            paid_paise: l.paid_paise,
+            covered_by_credit_paise: l.covered_by_credit_paise,
+            remaining_paise: l.remaining_paise,
+            status: l.status,
           })
         }
       }
@@ -324,29 +336,56 @@ export function dashboard(books: StudentBook[], month: string, now: string): Das
       })
     }
 
-    // Overpaid: months up to M (and not after now) where paid > expected; from the current
-    // month on, also every later month paid above its fee (backend `build_dashboard`).
-    for (const [m, p] of paid) {
+    // Overpaid (credit): months up to M (and not after now) holding money no month needed;
+    // from the current month on, also later months (backend `build_dashboard`).
+    for (const m of new Set(book.payments.map((p) => p.for_month))) {
       const later = m > now && month >= now
       if ((m > month || m > now) && !later) continue
-      const expected = expectedFor(book, m)
-      if (p > expected) {
+      const l = monthLine(book, alloc, m, now)
+      if (l.extra_unused_paise > 0) {
         overpaid.push({
-          student_id: student.id,
-          student_name: student.name,
-          batch_label: student.batch_label,
-          phone: student.phone,
+          ...who,
           month: m,
-          expected_paise: expected,
-          paid_paise: p,
-          excess_paise: p - expected,
+          expected_paise: l.expected_paise,
+          paid_paise: l.paid_paise,
+          excess_paise: l.excess_paise,
+          extra_unused_paise: l.extra_unused_paise,
         })
       }
+    }
+
+    // Extra money moved into or out of M.
+    const mine = alloc.moves
+      .filter((mv) => mv.to_month === month || mv.payment.for_month === month)
+      .sort(
+        (a, b) =>
+          a.to_month.localeCompare(b.to_month) ||
+          a.payment.paid_on.localeCompare(b.payment.paid_on) ||
+          a.payment.id - b.payment.id,
+      )
+    for (const mv of mine) {
+      creditMoves.push({
+        ...who,
+        payment_id: mv.payment.id,
+        paid_on: mv.payment.paid_on,
+        from_month: mv.payment.for_month,
+        to_month: mv.to_month,
+        amount_paise: mv.amount_paise,
+      })
     }
   }
 
   yetToPay.sort(byName)
   backlog.sort(byName)
   overpaid.sort((a, b) => byName(a, b) || a.month.localeCompare(b.month))
-  return { month, current_month: now, summary, yet_to_pay: yetToPay, backlog, overpaid }
+  creditMoves.sort(byName) // stable: each student's moves keep their order
+  return {
+    month,
+    current_month: now,
+    summary,
+    yet_to_pay: yetToPay,
+    backlog,
+    overpaid,
+    credit_moves: creditMoves,
+  }
 }

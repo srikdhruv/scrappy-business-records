@@ -32,7 +32,7 @@ import { Panel } from '@/components/panel'
 import { PaymentsTable } from '@/components/payments-table'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
 import { FeeNow } from '@/components/fee-now'
-import { ExtraPaidNote, MonthStatusBadge, PaidAheadNote, StatusPill } from '@/components/status'
+import { CreditNote, MonthStatusBadge, PaidAheadNote, StatusPill } from '@/components/status'
 import { TONE_TEXT, balanceTone, standingLabel } from '@/lib/status'
 import { StudentAvatar } from '@/components/student-avatar'
 import { StudentFormDialog } from '@/components/student-form'
@@ -46,6 +46,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { creditSourceText, extraSentText } from '@/lib/credit'
 import { errorMessage } from '@/lib/errors'
 import { feeAt, newFeeSentence } from '@/lib/fees'
 import { addMonths, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
@@ -134,7 +135,7 @@ function Profile({ student }: { student: StudentDetail }) {
   const [editOpen, setEditOpen] = useState(false)
   const [leftOpen, setLeftOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
-  // When a month was overpaid and has several payments, the Payments list shows just those.
+  // When a month holds credit and has several payments, the Payments list shows just those.
   const [paymentsMonth, setPaymentsMonth] = useState<string | null>(null)
   const leaving = student.left_month !== null && student.is_active
 
@@ -152,7 +153,7 @@ function Profile({ student }: { student: StudentDetail }) {
   const logFor = (m: LedgerMonth) =>
     openLogPayment({ studentId: student.id, forMonth: m.month, amountPaise: m.remaining_paise })
 
-  // An overpaid month is fixed by editing its payment (usually its month or amount).
+  // Credit (money no month needed) is fixed by editing its payment (its month or amount).
   const fixMonth = (month: string) => {
     const forMonth = (payments.data ?? []).filter((p) => p.for_month === month)
     if (forMonth.length === 1) {
@@ -351,8 +352,8 @@ function BalanceCard({
   onFix?: (month: string) => void
 }) {
   const afterLeft = (month: string) => student.left_month !== null && month > student.left_month
-  // Money paid too much: any month paid above its fee (all of it where the fee is 0).
-  const overpaid = student.months.filter((m) => m.status === 'overpaid')
+  // Credit: months holding money that no month needed (extra money pays owed months first).
+  const withCredit = student.months.filter((m) => m.extra_unused_paise > 0)
   const credit = student.credit_paise
   const tone = balanceTone(student.status)
   // Paid ahead: the last month, after this one and still enrolled, paid in full without a gap.
@@ -401,25 +402,16 @@ function BalanceCard({
             <span className="ml-2 text-xl font-bold whitespace-nowrap">{owedMonths}</span>
           )}
         </p>
-        {(student.paid_ahead_paise > 0 || (credit > 0 && student.status === 'owes')) && (
+        {student.paid_ahead_paise > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {student.paid_ahead_paise > 0 && (
-              <PaidAheadNote paise={student.paid_ahead_paise} to={aheadTo} className="text-sm" />
-            )}
-            {credit > 0 && student.status === 'owes' && (
-              <ExtraPaidNote
-                paise={credit}
-                month={overpaid.length === 1 ? overpaid[0]!.month : undefined}
-                className="text-sm"
-              />
-            )}
+            <PaidAheadNote paise={student.paid_ahead_paise} to={aheadTo} className="text-sm" />
           </div>
         )}
         <p className="mt-2 text-base text-foreground/80">
           {student.status === 'owes'
             ? `${plural(owed.length, 'month')} not fully paid.`
             : student.status === 'credit'
-              ? `Paid ${formatRupees(credit)} more than the fee.`
+              ? `Paid ${formatRupees(credit)} more than every fee owed.`
               : aheadTo
                 ? `Everything due is paid, and ahead to ${formatMonth(aheadTo)}.`
                 : 'Everything due so far has been paid.'}
@@ -442,32 +434,20 @@ function BalanceCard({
           </Button>
         </div>
       )}
-      {credit > 0 && overpaid.length > 0 && (
+      {credit > 0 && withCredit.length > 0 && (
         <div className="grid gap-2 rounded-xl bg-card/80 px-4 py-3">
-          <p className="text-sm font-bold text-credit">{formatRupees(credit)} paid extra</p>
+          <p className="text-sm font-bold text-credit">{formatRupees(credit)} kept as credit</p>
           <ul className="grid gap-1.5">
-            {overpaid.map((m) => (
+            {withCredit.map((m) => (
               <li key={m.month} className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-base">
-                  {afterLeft(m.month) ? (
-                    // Nothing is owed after leaving: this was probably meant for another month.
-                    <>
-                      <span className="font-bold tabular-nums">
-                        {formatRupees(m.paid_paise)} paid for {formatMonthShort(m.month)}
-                      </span>
-                      <span className="text-muted-foreground">
-                        , after they left{oldest ? ` — was it for ${abbr(oldest.month)}?` : '.'}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="font-bold">{formatMonth(m.month)}</span>{' '}
-                      <span className="text-muted-foreground tabular-nums">
-                        · {formatRupees(m.paid_paise)} paid for a {formatRupees(m.expected_paise)}{' '}
-                        fee
-                      </span>
-                    </>
-                  )}
+                  <span className="font-bold tabular-nums">
+                    {formatRupees(m.paid_paise)} paid for {formatMonthShort(m.month)}
+                  </span>
+                  <span className="text-muted-foreground tabular-nums">
+                    {afterLeft(m.month) ? ', after they left' : ''} ·{' '}
+                    {formatRupees(m.extra_unused_paise)} of it not needed
+                  </span>
                 </span>
                 <Button
                   variant="outline"
@@ -482,7 +462,8 @@ function BalanceCard({
             ))}
           </ul>
           <p className="text-sm text-muted-foreground">
-            If it was meant for another month, change that payment’s month.
+            Extra money pays any month still owed first. Nothing is owed now for this to pay, so
+            it’s kept. If it was a mistake, change that payment.
           </p>
         </div>
       )}
@@ -684,7 +665,12 @@ function MonthHistory({
         {rows.map((m) => {
           const owes = m.is_due && (m.status === 'unpaid' || m.status === 'partial')
           const afterLeaving = student.left_month !== null && m.month > student.left_month
-          const extra = m.status === 'overpaid'
+          // Some of this month's money wasn't needed by any month: credit.
+          const extra = m.extra_unused_paise > 0
+          const notes = [
+            ...m.credit_sources.map((c) => creditSourceText(c)),
+            ...m.extra_sent.map((e) => extraSentText(e)),
+          ]
           return (
             <TableRow key={m.month} className={cn(extra && 'bg-credit-soft/40')}>
               <TableCell className="pl-6 font-semibold">{formatMonth(m.month)}</TableCell>
@@ -704,10 +690,19 @@ function MonthHistory({
                   )}
                   {extra && (
                     <span className="text-sm text-muted-foreground tabular-nums">
-                      {formatRupees(m.excess_paise)} extra
+                      {formatRupees(m.extra_unused_paise)} kept as credit
                     </span>
                   )}
                 </div>
+                {notes.length > 0 && (
+                  <ul className="mt-1.5 grid justify-items-start gap-1">
+                    {notes.map((text) => (
+                      <li key={text}>
+                        <CreditNote>{text}</CreditNote>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </TableCell>
               <TableCell className="pr-6 text-right">
                 {owes && (

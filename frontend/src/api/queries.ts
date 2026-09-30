@@ -242,6 +242,21 @@ export function usePayments(filters: PaymentFilters = {}) {
   })
 }
 
+/**
+ * One student's payments, or nothing until a student is chosen. Unlike `usePayments`, it never
+ * shows the previous student's payments while the next one's load (the Log payment preview
+ * must not mix two students up).
+ */
+export function useStudentPayments(studentId: number | undefined) {
+  const filters: PaymentFilters = { student_id: studentId }
+  return useQuery({
+    queryKey: queryKeys.payments.list(filters),
+    queryFn: async () =>
+      unwrap(await api.GET('/api/payments', { params: { query: { student_id: studentId } } })),
+    enabled: studentId !== undefined,
+  })
+}
+
 export function useCreatePayment() {
   const queryClient = useQueryClient()
   return useMutation({

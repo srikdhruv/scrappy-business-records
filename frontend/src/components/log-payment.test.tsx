@@ -214,6 +214,47 @@ describe('Log payment form', () => {
     expect(await screen.findByText('Payment saved')).toBeInTheDocument()
   })
 
+  it('previews where money above the month’s fee will go, without blocking', async () => {
+    // Kabir owes September and October. Paying October twice over pays September too.
+    const user = userEvent.setup()
+    renderApp('/')
+    const heading = await screen.findByRole('heading', { name: /Yet to pay/ })
+    await user.click(
+      within(heading.closest('section')!).getByRole('button', {
+        name: 'Log payment for Kabir Mehta',
+      }),
+    )
+    const dialog = await findDialog('Log a payment')
+    await dialog.findByText('Oldest unpaid: September 2026')
+    expect(dialog.queryByText(/extra will cover/)).not.toBeInTheDocument()
+    const amount = dialog.getByLabelText('Amount')
+    await user.clear(amount)
+    await user.type(amount, '3000')
+    expect(
+      await dialog.findByText('₹1,500 extra will cover September 2026 (unpaid).'),
+    ).toBeVisible()
+    expect(amount).toHaveAccessibleDescription(/₹1,500 extra will cover September 2026/)
+    // Far above the fee: the same line asks first.
+    await user.clear(amount)
+    await user.type(amount, '6000')
+    expect(
+      await dialog.findByText(
+        /If so, ₹4,500 extra will cover September 2026 \(unpaid\) and 2 months ahead/,
+      ),
+    ).toBeVisible()
+    expect(dialog.getByText(/That’s much more than the ₹1,500 fee/)).toBeVisible()
+    await user.clear(amount)
+    await user.type(amount, '3000{Enter}')
+    expect(await screen.findByText('Payment saved')).toBeInTheDocument()
+    // September is paid now, by October's extra, so Kabir owes nothing from earlier months.
+    const backlog = within(
+      screen.getByRole('heading', { name: /Earlier months still owed/ }).closest('section')!,
+    )
+    await waitFor(() =>
+      expect(backlog.queryByRole('link', { name: /Kabir Mehta/ })).not.toBeInTheDocument(),
+    )
+  })
+
   it('shows Undo that removes the payment, even after the form has closed', async () => {
     const { user, dialog } = await openFromHeader()
     dialog.getByRole('combobox', { name: /Student/ }).focus()

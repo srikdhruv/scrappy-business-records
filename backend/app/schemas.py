@@ -670,9 +670,7 @@ class OverpaidItem(_ReadModel):
     expected_paise: NonNegativePaise
     paid_paise: PositivePaise
     excess_paise: PositivePaise = Field(description="max(0, paid - expected), as on LedgerMonth.")
-    extra_unused_paise: PositivePaise = Field(
-        description="The part of it no month needed: credit."
-    )
+    extra_unused_paise: PositivePaise = Field(description="The part of it no month needed: credit.")
 
 
 class CreditMoveItem(_ReadModel):
