@@ -245,21 +245,26 @@ def _looks_like_port_clash() -> bool:
     return False
 
 
-def wait_until_up(port: int, proc: subprocess.Popen[bytes] | None) -> None:
+def wait_until_up(
+    port: int, proc: subprocess.Popen[bytes] | None
+) -> subprocess.Popen[bytes] | None:
     """Poll /api/health until the app answers. Raises LaunchError with a friendly message.
 
-    `proc` is the server we just started, or None when waiting for one that already exists.
+    `proc` is the server we just started, or None when waiting for one that already exists. If
+    that one goes away instead (say it was shutting down for an update), start a new one.
+    Returns the server process we started, if any.
     """
     started = time.monotonic()
+    restarts = 0
     while True:
         status = check_health(port, timeout=1.0)
         if status is Status.OURS:
             log.info("The server is up after %.1f s", time.monotonic() - started)
-            return
+            return proc
         if proc is not None and proc.poll() is not None:
             # One more look: another launcher's server may have won the race for the port.
             if check_health(port) is Status.OURS:
-                return
+                return None
             if proc.returncode == 0:
                 # It found another server holding the server lock (app/lifetime.py), which is
                 # still starting. Wait for that one instead.
@@ -270,8 +275,17 @@ def wait_until_up(port: int, proc: subprocess.Popen[bytes] | None) -> None:
                 if _looks_like_port_clash():
                     raise LaunchError(_port_in_use_message(port))
                 raise LaunchError(f"{APP_TITLE} couldn't start.")
+        lock_held = lifetime.server_lock_held()
+        if proc is None and not lock_held and port_is_free(port) and restarts < 2:
+            # The server we were waiting for has gone (it was stopping, or crashed). We hold
+            # the launcher lock, so nobody else will start one: do it now.
+            log.info("The server we were waiting for has stopped; starting a new one")
+            restarts += 1
+            proc = start_server(port)
+            started = time.monotonic()
+            continue
         # 20 s for a server that has vanished; 60 s while one is visibly still starting.
-        still_starting = (proc is not None) or lifetime.server_lock_held()
+        still_starting = (proc is not None) or lock_held
         limit = SLOW_START_TIMEOUT if still_starting else START_TIMEOUT
         elapsed = time.monotonic() - started
         if elapsed >= limit:
@@ -291,8 +305,7 @@ def ensure_server(port: int) -> subprocess.Popen[bytes] | None:
             if lifetime.server_lock_held():
                 # Our own server has the port but isn't answering: busy, or stuck.
                 log.warning("Our server holds port %d but isn't answering; waiting", port)
-                wait_until_up(port, None)
-                return None
+                return wait_until_up(port, None)
             if status is Status.OTHER:
                 log.error("Something else is using port %d", port)
                 raise LaunchError(_port_in_use_message(port))
@@ -300,11 +313,8 @@ def ensure_server(port: int) -> subprocess.Popen[bytes] | None:
         elif lifetime.server_lock_held():
             # Our server is starting (backups, migrations) and hasn't opened the port yet.
             log.info("Scrappy Records is starting; waiting for it")
-            wait_until_up(port, None)
-            return None
-        proc = start_server(port)
-        wait_until_up(port, proc)
-        return proc
+            return wait_until_up(port, None)
+        return wait_until_up(port, start_server(port))
 
 
 # --------------------------------------------------------------------------- telling the user

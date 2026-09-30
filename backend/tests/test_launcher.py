@@ -27,7 +27,7 @@ def _free_port() -> int:
 
 
 @contextlib.contextmanager
-def _fake_server(body: bytes, status: int = 200) -> Iterator[int]:
+def _fake_server(body: bytes, status: int = 200, port: int = 0) -> Iterator[int]:
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             self.send_response(status)
@@ -38,7 +38,7 @@ def _fake_server(body: bytes, status: int = 200) -> Iterator[int]:
         def log_message(self, *args: object) -> None:
             pass
 
-    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    server = http.server.HTTPServer(("127.0.0.1", port), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -156,6 +156,37 @@ def test_a_server_stuck_in_startup_for_minutes_is_called_stuck(
     err = capsys.readouterr().err
     assert "seems to be stuck" in err
     assert "wait a minute" not in err
+
+
+def test_a_server_that_goes_away_while_we_wait_is_replaced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Double-clicking while the old server is still shutting down (say, for an update): the
+    launcher first waits for it, then starts a new one once it has gone."""
+    port = _free_port()
+    monkeypatch.setenv("SCRAPPY_PORT", str(port))
+    ours = json.dumps({"app": "scrappy-records", "version": "0.1.0", "status": "ok"}).encode()
+    started: list[int] = []
+
+    class StillRunning:
+        returncode = None
+
+        def poll(self) -> None:
+            return None
+
+    with contextlib.ExitStack() as stack:
+
+        def fake_start(p: int) -> StillRunning:
+            started.append(p)
+            stack.enter_context(_fake_server(ours, port=p))
+            return StillRunning()
+
+        monkeypatch.setattr(launcher, "start_server", fake_start)
+        old_server = lifetime.acquire_server_lock()  # still shutting down...
+        assert old_server is not None
+        threading.Timer(1.0, old_server.close).start()  # ...and gone a second later
+        assert launcher.main() == 0
+    assert started == [port]
 
 
 def test_bad_port_setting_shows_a_message(
