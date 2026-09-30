@@ -1,4 +1,5 @@
-"""Students: list, create, detail, update, delete, and payment suggestion.
+"""Students: list, create, detail, update, delete, coming back after leaving, removing a
+scheduled fee change, and payment suggestion.
 
 Routers stay thin: the work is in `app/services/students.py`, and the rules (dues, statuses,
 balances) in `app/services/ledger.py`.
@@ -14,6 +15,7 @@ from app.schemas import (
     StudentDetail,
     StudentListFilter,
     StudentRead,
+    StudentReturn,
     StudentUpdate,
     SuggestedPayment,
 )
@@ -89,6 +91,34 @@ def update_student(
 def delete_student(student_id: int, session: SessionDep) -> None:
     """Hard delete. Their fee changes and payments are deleted too."""
     service.delete_student(session, student_id)
+
+
+@router.post(
+    "/{student_id}/return",
+    response_model=StudentDetail,
+    responses=NOT_FOUND,
+    operation_id="returnStudent",
+)
+def return_student(
+    student_id: int, body: StudentReturn, session: SessionDep, current: CurrentMonthDep
+) -> StudentDetail:
+    """A student who left is coming again from `from_month`. The months they were away get a
+    0 fee (never owed), their fee carries on from `from_month`, and `left_month` is cleared,
+    all at once."""
+    return service.return_student(session, student_id, body, current)
+
+
+@router.delete(
+    "/{student_id}/fee-changes/{fee_change_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={404: {"model": ErrorResponse, "description": "No such student or fee change"}},
+    operation_id="deleteFeeChange",
+)
+def delete_fee_change(
+    student_id: int, fee_change_id: int, session: SessionDep, current: CurrentMonthDep
+) -> None:
+    """Remove a fee change that hasn't started yet. Never the first (joining) fee."""
+    service.delete_fee_change(session, student_id, fee_change_id, current)
 
 
 @router.get(

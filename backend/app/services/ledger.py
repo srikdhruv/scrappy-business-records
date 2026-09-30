@@ -385,13 +385,13 @@ def suggest_payment(student: StudentRecord, current_month: dt.date) -> Suggestio
 
     1. `owed`: the oldest due month (up to the current month) that is Unpaid or Partial, with
        what's left on it.
-    2. `next_unpaid`: otherwise the first enrolled month after the current month that isn't
-       paid yet (Unpaid, Partial, or a 0 fee with nothing paid), with what's left on it: usually
-       next month, or the month after what they've paid ahead. The amount is None if the fee
-       for that month is 0.
+    2. `next_unpaid`: otherwise the first enrolled month after the current month that has a
+       fee and isn't fully paid (Unpaid or Partial), with what's left on it: usually next
+       month, or the month after what they've paid ahead. Months with a 0 fee (a free place,
+       or the months away before they came back) are skipped: nothing is ever due for them.
     3. `all_paid`: nothing is left in the enrolled months up to the latest month a payment
        can be logged for (`MONTHS_AHEAD` after the current month): they have left and paid
-       up, or paid that far ahead.
+       up, paid that far ahead, or have no fee to pay.
     """
     for m in due_months(student, current_month):
         line = month_line(student, m, current_month)
@@ -399,16 +399,13 @@ def suggest_payment(student: StudentRecord, current_month: dt.date) -> Suggestio
             return Suggestion(SuggestionReason.owed, m, line.remaining_paise)
 
     start = max(add_months(current_month, 1), student.joined_month)
+    end = add_months(current_month, MONTHS_AHEAD)  # never a month that can't be logged
     if student.left_month is not None:
-        end = student.left_month
-    else:
-        # The month after the last paid one has nothing paid, so the search always ends.
-        end = max(start, add_months(max(student.paid_by_month, default=start), 1))
-    end = min(end, add_months(current_month, MONTHS_AHEAD))  # never a month that can't be logged
+        end = min(end, student.left_month)
     for m in month_range(start, end) if start <= end else []:
         line = month_line(student, m, current_month)
-        if line.is_owing or line.status is MonthStatus.not_applicable:
-            return Suggestion(SuggestionReason.next_unpaid, m, line.remaining_paise or None)
+        if line.is_owing:  # a fee is due and isn't fully paid; 0-fee months never are
+            return Suggestion(SuggestionReason.next_unpaid, m, line.remaining_paise)
     return Suggestion(SuggestionReason.all_paid)
 
 

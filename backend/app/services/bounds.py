@@ -3,9 +3,9 @@
 Every limit answers a plain-words 422 that names the field (never a 500):
 
 - Months must be within 2000-01 .. 2099-12 (the `Month` pattern), and a month the user sets
-  (`joined_month`, `left_month`, `fee_effective_month`, a payment's `for_month`) can be at
-  most **24 months after the current month**. That catches "2062" for "2026", and keeps every
-  month range the ledger walks small.
+  (`joined_month`, `left_month`, `fee_effective_month`, `from_month`, a payment's `for_month`)
+  can be at most **24 months after the current month**. That catches "2062" for "2026", and
+  keeps every month range the ledger walks small.
 - A payment's `paid_on` must be between 2000-01-01 and tomorrow (one day of slack for a laptop
   clock that is slightly behind).
 - Ids larger than SQLite can store are treated as "not found".
@@ -26,6 +26,7 @@ _LABELS = {
     "joined_month": "Joined month",
     "left_month": "Left month",
     "fee_effective_month": "The month the new fee starts",
+    "from_month": "The month they're back from",
     "for_month": "Month",
 }
 

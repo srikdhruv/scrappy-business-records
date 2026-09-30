@@ -78,6 +78,48 @@ export interface paths {
         patch: operations["updateStudent"];
         trace?: never;
     };
+    "/api/students/{student_id}/return": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Return Student
+         * @description A student who left is coming again from `from_month`. The months they were away get a
+         *     0 fee (never owed), their fee carries on from `from_month`, and `left_month` is cleared,
+         *     all at once.
+         */
+        post: operations["returnStudent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/students/{student_id}/fee-changes/{fee_change_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Fee Change
+         * @description Remove a fee change that hasn't started yet. Never the first (joining) fee.
+         */
+        delete: operations["deleteFeeChange"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/students/{student_id}/suggest-payment": {
         parameters: {
             query?: never;
@@ -718,12 +760,28 @@ export interface components {
             updated_at: string;
         };
         /**
+         * StudentReturn
+         * @description Body of `POST /students/{id}/return`: a student who left is coming again (PRD ledger
+         *     rule 11). The months between `left_month` and `from_month` get a 0 fee, so they are never
+         *     owed; their fee carries on from `from_month`.
+         */
+        StudentReturn: {
+            /**
+             * From Month
+             * @description The first month they owe again: after left_month, at most 24 months after the current month.
+             * @example 2026-10
+             */
+            from_month: string;
+        };
+        /**
          * StudentUpdate
          * @description Partial update. Only fields that are sent change.
          *
          *     To change the fee, send `monthly_fee_paise`, and optionally `fee_effective_month` (defaults
-         *     to the current month). Earlier months keep their old fee. Send `left_month: null` to
-         *     un-archive a student.
+         *     to the current month). Earlier months keep their fee, and the new fee lasts until the next
+         *     fee change already set after it, if any. Send `left_month: null` to un-archive a student
+         *     as if they never left (every month since counts); `POST /students/{id}/return` instead
+         *     skips the months they were away.
          *
          *     Edit rules. This model checks what it can on its own. The router checks the rest against the
          *     stored student and answers **422** in the standard validation shape (`app.errors`), never a
@@ -766,10 +824,9 @@ export interface components {
          *     already fully paid, and never one outside the months the student is enrolled in.
          *
          *     - `owed`: the oldest month up to now that is Unpaid or Partial, and what's left on it.
-         *     - `next_unpaid`: the first later month that isn't fully paid, and what's left on it.
+         *     - `next_unpaid`: the first later month with a fee that isn't fully paid, and what's left on
+         *       it. Months with a 0 fee are skipped.
          *     - `all_paid`: nothing left to pay; `for_month` and `amount_paise` are null.
-         *
-         *     `amount_paise` is also null for a month whose fee is 0.
          */
         SuggestedPayment: {
             /** For Month */
@@ -865,6 +922,7 @@ export type StudentCreate = components['schemas']['StudentCreate'];
 export type StudentDetail = components['schemas']['StudentDetail'];
 export type StudentListFilter = components['schemas']['StudentListFilter'];
 export type StudentRead = components['schemas']['StudentRead'];
+export type StudentReturn = components['schemas']['StudentReturn'];
 export type StudentUpdate = components['schemas']['StudentUpdate'];
 export type SuggestedPayment = components['schemas']['SuggestedPayment'];
 export type SuggestionReason = components['schemas']['SuggestionReason'];
@@ -1062,6 +1120,89 @@ export interface operations {
                 };
             };
             /** @description No student with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    returnStudent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StudentReturn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentDetail"];
+                };
+            };
+            /** @description No student with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deleteFeeChange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+                fee_change_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such student or fee change */
             404: {
                 headers: {
                     [name: string]: unknown;

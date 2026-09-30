@@ -364,11 +364,12 @@ def test_suggest_payment(api: TestClient) -> None:
 
 
 def test_suggest_payment_zero_fee(api: TestClient) -> None:
+    # A free place never owes anything, so nothing is suggested.
     s = make_student(api, joined_month="2026-06", monthly_fee_paise=0)
     assert api.get(f"/api/students/{s['id']}/suggest-payment").json() == {
-        "for_month": "2026-07",
+        "for_month": None,
         "amount_paise": None,
-        "reason": "next_unpaid",
+        "reason": "all_paid",
     }
 
 

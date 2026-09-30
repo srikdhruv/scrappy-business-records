@@ -54,6 +54,7 @@ __all__ = [
     "StudentDetail",
     "StudentListFilter",
     "StudentRead",
+    "StudentReturn",
     "StudentUpdate",
     "SuggestedPayment",
     "SuggestionReason",
@@ -228,7 +229,7 @@ class SuggestionReason(enum.StrEnum):
     owed = "owed"
     """The oldest month up to now that is Unpaid or Partial."""
     next_unpaid = "next_unpaid"
-    """Nothing is owed yet: the first later month that isn't fully paid."""
+    """Nothing is owed yet: the first later month with a fee that isn't fully paid."""
     all_paid = "all_paid"
     """Nothing is left to pay in the months they are enrolled, up to the latest month a payment
     can be logged for (24 months ahead): they have left and paid up, or paid that far ahead."""
@@ -300,8 +301,10 @@ class StudentUpdate(_Model):
     """Partial update. Only fields that are sent change.
 
     To change the fee, send `monthly_fee_paise`, and optionally `fee_effective_month` (defaults
-    to the current month). Earlier months keep their old fee. Send `left_month: null` to
-    un-archive a student.
+    to the current month). Earlier months keep their fee, and the new fee lasts until the next
+    fee change already set after it, if any. Send `left_month: null` to un-archive a student
+    as if they never left (every month since counts); `POST /students/{id}/return` instead
+    skips the months they were away.
 
     Edit rules. This model checks what it can on its own. The router checks the rest against the
     stored student and answers **422** in the standard validation shape (`app.errors`), never a
@@ -353,6 +356,17 @@ class StudentUpdate(_Model):
         if value is not None and info.data.get("monthly_fee_paise", 0) is None:
             raise _field_error("Send the new monthly fee together with the month it starts")
         return value
+
+
+class StudentReturn(_Model):
+    """Body of `POST /students/{id}/return`: a student who left is coming again (PRD ledger
+    rule 11). The months between `left_month` and `from_month` get a 0 fee, so they are never
+    owed; their fee carries on from `from_month`."""
+
+    from_month: Month = Field(
+        description="The first month they owe again: after left_month, at most 24 months "
+        "after the current month."
+    )
 
 
 class StudentRead(_ReadModel):
@@ -442,10 +456,9 @@ class SuggestedPayment(_ReadModel):
     already fully paid, and never one outside the months the student is enrolled in.
 
     - `owed`: the oldest month up to now that is Unpaid or Partial, and what's left on it.
-    - `next_unpaid`: the first later month that isn't fully paid, and what's left on it.
+    - `next_unpaid`: the first later month with a fee that isn't fully paid, and what's left on
+      it. Months with a 0 fee are skipped.
     - `all_paid`: nothing left to pay; `for_month` and `amount_paise` are null.
-
-    `amount_paise` is also null for a month whose fee is 0.
     """
 
     for_month: Month | None

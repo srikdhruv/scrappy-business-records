@@ -255,11 +255,10 @@ def test_zero_fee() -> None:
     assert board.summary.active_student_count == 1
     assert board.summary.expected_paise == 0
     assert board.yet_to_pay == ()
-    # Nothing is ever owed; next month is suggested with no amount (its fee is 0).
-    assert ledger.suggest_payment(s, NOW) == next_unpaid(JUL, None)
-    # ... unless next month has been paid (a tip), then the one after.
+    # Nothing is ever owed, so nothing is suggested: a 0-fee month is never "next due".
+    assert ledger.suggest_payment(s, NOW) == ALL_PAID
     tipped_ahead = student(fee=0, pays=((JUL, 100_00),))
-    assert ledger.suggest_payment(tipped_ahead, NOW) == next_unpaid(AUG, None)
+    assert ledger.suggest_payment(tipped_ahead, NOW) == ALL_PAID
     # A zero fee that has left and paid nothing: nothing to suggest.
     assert ledger.suggest_payment(student(fee=0, left=MAR), NOW) == ALL_PAID
 
@@ -351,6 +350,12 @@ def test_suggest_never_beyond_the_months_that_can_be_logged() -> None:
     assert ledger.suggest_payment(student(pays=upto), NOW) == next_unpaid(latest, 1500_00)
     everything = (*upto, (latest, 1500_00))
     assert ledger.suggest_payment(student(pays=everything), NOW) == ALL_PAID
+
+
+def test_suggest_skips_months_with_no_fee() -> None:
+    # Away from July to September (a 0 fee), back from October: October is next, not July.
+    s = student(joined=JUN, fees=((JUL, 0), (OCT, 1500_00)), pays=((JUN, 1500_00),))
+    assert ledger.suggest_payment(s, NOW) == next_unpaid(OCT, 1500_00)
 
 
 def test_suggest_for_future_joiner() -> None:
@@ -603,20 +608,18 @@ def test_student_invariants(s: StudentRecord, current: dt.date) -> None:
             last = min(last, s.left_month)
         start = max(add_months(current, 1), s.joined_month)
         remaining = month_range(start, last) if start <= last else []
-        assert all(ledger.month_line(s, m, current).status in (PAID, OVER) for m in remaining)
+        assert not any(ledger.month_line(s, m, current).is_owing for m in remaining)
     else:
         assert sug.reason is SuggestionReason.next_unpaid and sug.for_month is not None
         line = ledger.month_line(s, sug.for_month, current)
-        # Later than now, enrolled, and not already paid.
+        # Later than now, enrolled, with a fee that isn't fully paid.
         assert sug.for_month > current and s.is_active(sug.for_month)
         assert sug.for_month <= add_months(current, ledger.MONTHS_AHEAD)
-        assert line.status in (UNPAID, PART, NA)
-        assert sug.amount_paise == (line.remaining_paise or None)
+        assert line.status in (UNPAID, PART)
+        assert sug.amount_paise == line.remaining_paise > 0
         start = max(add_months(current, 1), s.joined_month)
         skipped = month_range(start, add_months(sug.for_month, -1))
-        assert not any(
-            ledger.month_line(s, m, current).status in (UNPAID, PART, NA) for m in skipped
-        )
+        assert not any(ledger.month_line(s, m, current).is_owing for m in skipped)
 
 
 @settings(max_examples=200, deadline=None)

@@ -5,7 +5,9 @@ API's response models.
 
 Fee schedule invariant: a student's **earliest fee change is at `joined_month`**, so they always
 have a fee in effect from the month they join. Creating a student inserts that first row, and
-moving `joined_month` moves it along (see `update_student`).
+moving `joined_month` moves it along (see `update_student`). That first row can never be
+removed (`delete_fee_change`), and coming back after leaving (`return_student`) only touches
+months after `left_month`.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.errors import not_found, unprocessable
 from app.models import FeeChange, Student
-from app.months import format_month, parse_month
+from app.months import add_months, format_month, parse_month
 from app.schemas import (
     FeeChangeRead,
     LedgerMonth,
@@ -25,6 +27,7 @@ from app.schemas import (
     StudentDetail,
     StudentListFilter,
     StudentRead,
+    StudentReturn,
     StudentUpdate,
     SuggestedPayment,
 )
@@ -283,6 +286,85 @@ def _set_fee_from(session: Session, student: Student, month: dt.date, amount: in
     elif to_record(student).fee_in_effect(month) != amount:
         student.fee_changes.append(FeeChange(effective_month=month, amount_paise=amount))
     session.flush()
+
+
+def return_student(
+    session: Session, student_id: int, body: StudentReturn, current_month: dt.date
+) -> StudentDetail:
+    """A student who left is coming again from `from_month` (PRD ledger rule 11), in one
+    transaction. The months they were away are never owed:
+
+    - the months between `left_month` and `from_month` get a 0 fee (one fee change at the month
+      after `left_month`; none if they're back straight away);
+    - from `from_month` their fee carries on: the fee their schedule already had for that month
+      (usually the fee they paid when they left);
+    - fee changes already set for a month in the gap are replaced by the 0 fee (the latest of
+      them is the fee they come back on); fee changes from `from_month` on are kept;
+    - `left_month` is cleared.
+
+    422 (on `from_month`) if they haven't been marked as left, if `from_month` isn't after
+    `left_month`, or if it is more than 24 months ahead. The first fee (at `joined_month`) is
+    never touched: it is always on or before `left_month`.
+    """
+    student = get_student_row(session, student_id)
+    left = student.left_month
+    if left is None:
+        raise unprocessable("They haven't been marked as left", field="from_month")
+    back = parse_month(body.from_month)
+    first_away = add_months(left, 1)
+    if back < first_away:
+        raise unprocessable(
+            f"They can only be back from {first_away:%B %Y} on, the month after they left",
+            field="from_month",
+        )
+    check_month("from_month", back, current_month)
+
+    fee_back = to_record(student).fee_in_effect(back)
+    for change in [f for f in student.fee_changes if left < f.effective_month < back]:
+        student.fee_changes.remove(change)  # delete-orphan: the row is deleted
+    session.flush()  # delete before inserting, so a change at `first_away` can't clash
+    if back > first_away:
+        student.fee_changes.append(FeeChange(effective_month=first_away, amount_paise=0))
+        session.flush()
+    _set_fee_from(session, student, back, fee_back)
+    student.left_month = None
+
+    session.commit()
+    session.expire(student)
+    return get_student(session, student.id, current_month)
+
+
+def delete_fee_change(
+    session: Session, student_id: int, fee_change_id: int, current_month: dt.date
+) -> None:
+    """Remove a fee change that hasn't started yet (PRD ledger rule 7). The fee before it then
+    carries on until the next fee change, if any.
+
+    404 if the student, or that fee change of theirs, doesn't exist. 422 for the first fee (at
+    `joined_month`, which every student must have) and for a fee change that has already
+    started (its month is the current month or earlier), since that would rewrite what past
+    months were owed.
+    """
+    student = get_student_row(session, student_id)
+    fees = sorted(student.fee_changes, key=lambda f: f.effective_month)
+    change = next((f for f in fees if f.id == fee_change_id), None)
+    if change is None:
+        raise not_found("fee change", fee_change_id)
+    if change is fees[0]:
+        raise unprocessable(
+            "The first fee can't be removed. To change it, use Edit.",
+            field="fee_change_id",
+            location="path",
+        )
+    if change.effective_month <= current_month:
+        raise unprocessable(
+            "Only a fee change that hasn't started yet can be removed. To change a fee that has "
+            "started, set a new fee with Edit.",
+            field="fee_change_id",
+            location="path",
+        )
+    student.fee_changes.remove(change)
+    session.commit()
 
 
 def delete_student(session: Session, student_id: int) -> None:
