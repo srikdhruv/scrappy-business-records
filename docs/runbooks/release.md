@@ -18,10 +18,12 @@ version tag.
    ```
 4. The `release` workflow (`.github/workflows/release.yml`):
    - checks that the tag matches the version in `backend/pyproject.toml`, and stops if not;
-   - checks that the **previous release has its saved-data sample** in
-     `backend/tests/fixtures/releases/` (step 8 of the last release), and stops if not
+   - checks that **every earlier release has its saved-data sample** in
+     `backend/tests/fixtures/releases/` (step 8), and stops if not, naming the missing ones
      (`scripts/ci/check_release_fixture.py`). The first time, that's `v0.1.0`'s sample, which
-     must be on `main` before `v0.1.1` can be released;
+     must be on `main` before `v0.1.1` can be released. Only `vMAJOR.MINOR.PATCH` tags are
+     releases: a tag like `v1.0.0-rc1` is refused with a message, and isn't counted as an
+     earlier release;
    - checks that every migration only adds (`scripts/ci/check_migrations_only_add.py`);
    - runs the backend and frontend unit tests;
    - builds the UI once, and shares it with the next two jobs;
@@ -123,3 +125,9 @@ before the update (see [backup-and-restore.md](backup-and-restore.md)).
 
 Branch from `main`, fix, open a PR, merge, bump the patch version and tag. There are no
 long-lived release branches.
+
+If a hotfix ever has to be cut from an older tag instead (say `v0.3.1` from `v0.3.0` while
+`main` is ahead), that branch doesn't have the saved-data samples committed after `v0.3.0`, and
+the release stops. Cherry-pick the commits that added them onto the hotfix branch before
+tagging; on `main`, `git log --oneline -- backend/tests/fixtures/releases/` lists them. Samples
+of releases newer than the hotfix aren't needed there.

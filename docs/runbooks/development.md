@@ -194,10 +194,15 @@ that are nullable or have a `server_default`, indexes and constraints. Check wit
 `python3 scripts/ci/check_migrations_only_add.py` (CI's *Data safety* job runs it). It flags, in
 `upgrade()`: `drop_table`, `drop_column`, renaming a table or column, `alter_column` changing a
 type or making a column required, adding a required column with no default, SQL containing
-DELETE, UPDATE, DROP, RENAME, REPLACE or TRUNCATE (or SQL it can't read), and
-`batch_alter_table(copy_from=...)`. A plain `batch_alter_table` is fine: its table copy keeps
-every row. Only if the owner has explicitly approved an exception (with a backup and a test
-proving the data is kept), mark the line, or the top of the file for the whole migration:
+DELETE, UPDATE, DROP, RENAME, TRUNCATE or REPLACE INTO, or creating a trigger, SQLAlchemy
+`delete()`/`update()` statements, and `batch_alter_table(copy_from=...)`. Quoted text, comments
+and a foreign key's `ON DELETE ...` don't count. It also flags what it can't check: SQL that
+isn't one whole string literal (pieces, f-strings, variables, `bindparams`), and calls it can't
+follow (`getattr`, imported helpers, classes, calls through a list, unknown `op.` methods), so
+write each operation out in `upgrade()` or a function in the same file. A plain
+`batch_alter_table` is fine: its table copy keeps every row. Only if the owner has explicitly
+approved an exception (with a backup and a test proving the data is kept), mark the line, or put
+the comment at the top of the file, before the first `def`, for the whole migration:
 
 ```python
 op.drop_table("old_imports")  # data-safety: approved by owner — empty since 0.3, agreed 2026-11-02

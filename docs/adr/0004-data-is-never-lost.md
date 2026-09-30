@@ -36,7 +36,9 @@ code had written.
    the owner *entered* (names, phones, notes, fees and when they start, payments, amounts,
    dates, months, methods) stays exactly as saved. A new rule reads the old entries differently;
    it never edits them. Only the owner changes her entries, by editing or deleting them in the
-   app.
+   app. **Timestamps may be normalised; user-entered values never.** The times the database
+   stamps on a row itself (`created_at`, `updated_at`) aren't something she typed: the release
+   samples set them to a fixed time, and the upgrade test doesn't compare them.
 5. **Every release's data must upgrade intact, and this is tested.** After each release, a
    sample database made by that release's own code is committed
    (`backend/tests/fixtures/releases/<tag>.db`, with a manifest of every row). On every pull
@@ -51,7 +53,7 @@ code had written.
 |---|---|---|
 | Migrations only add | *Data safety* CI job scans every migration's `upgrade()` | `scripts/ci/check_migrations_only_add.py` |
 | Every release's data upgrades intact | *Data safety* CI job (and the backend jobs, Windows included) | `backend/tests/test_release_upgrades.py` |
-| Every release has its sample | The release workflow stops if the previous release has none | `scripts/ci/check_release_fixture.py`, `.github/workflows/release.yml` |
+| Every release has its sample | The release workflow stops if any earlier release has none | `scripts/ci/check_release_fixture.py`, `.github/workflows/release.yml` |
 | A table rebuild keeps linked rows | Migration tests | `backend/tests/test_migration_safety.py` |
 | Backup before any upgrade; no upgrade without it | Startup code | `backend/app/main.py`, `backend/app/backup.py` |
 | One transaction, foreign-key check, rollback | Migration environment | `backend/app/migrations/env.py` |

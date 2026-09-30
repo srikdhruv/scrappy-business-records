@@ -265,7 +265,7 @@ The owner's data is never lost ([ADR 0004](adr/0004-data-is-never-lost.md)):
   going back down to the release's revision and up again keeps it. It runs once with today's
   migrations and once with a pretend next migration that rebuilds `students`, so the
   "upgrade needed" path is always exercised. The release workflow refuses to publish a version
-  if the previous release has no sample.
+  if any earlier release has no sample.
 
 ## Security and privacy
 
