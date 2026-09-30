@@ -1,7 +1,8 @@
-"""Sends saved feedback to the relay, in the background. The app's only outbound call.
+"""Sends saved feedback to the relay, in the background. One of the app's two outbound calls.
 
 ADR 0005: the app makes no network calls at runtime, except this one, which the owner starts
-by sending feedback. Only the `feedback` table's rows go out (see `services/feedback.py`), to
+by sending feedback, and the update check (ADR 0006, `app/updater.py`), which only reads public
+release information. Only the `feedback` table's rows go out (see `services/feedback.py`), to
 `config.feedback_url()`; when that is empty, nothing is ever sent.
 
 - A daemon thread (`scrappy-feedback`) tries at startup, whenever new feedback is saved

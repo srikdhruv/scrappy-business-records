@@ -150,8 +150,9 @@ The owner hires instructors to take some batches and pays them.
   check from their phone.
 - **Business name setting:** the owner types in their school's name, and the app shows it in the
   header and window title. It is stored in the local database, so it never goes in the repo.
-- A **signed `.exe` installer** (MSIX or Inno Setup) with auto-update, replacing the PowerShell
-  one-liner.
+- A **signed `.exe` installer** (MSIX or Inno Setup), replacing the PowerShell one-liner for
+  the first install. (Updating from inside the app is **done**: "A new version is ready" →
+  Update now, [ADR 0006](../adr/0006-in-app-update.md).)
 - A dark mode, and a printable monthly summary.
 
 ## 10. In-app feedback — done
@@ -164,8 +165,10 @@ it as an issue in a private feedback repo. The version, build, page, recent erro
 lines of the log go with it; the records never do.
 
 How the old constraints were met:
-- **Local only:** sending feedback is the app's one outbound call, started by the owner, and
-  only feedback goes out ([ADR 0005](../adr/0005-feedback-is-the-only-outbound-call.md)).
+- **Local only:** sending feedback is one of the app's two outbound calls (the other reads
+  public release information to offer updates, [ADR 0006](../adr/0006-in-app-update.md)); it is
+  started by the owner, and only feedback goes out
+  ([ADR 0005](../adr/0005-feedback-is-the-only-outbound-call.md)).
 - **No GitHub account / no token in the app:** the token lives only in the relay, as a secret,
   limited to the private feedback repo.
 - **Privacy:** issues and screenshots land in the private repo, never the public one.

@@ -11,7 +11,9 @@ needed once installed.
 
 Everything is stored on the laptop itself and backed up automatically every day. The only
 thing that ever leaves it is feedback the owner chooses to send from **⚙ Settings → Send
-feedback** ([ADR 0005](docs/adr/0005-feedback-is-the-only-outbound-call.md)).
+feedback** ([ADR 0005](docs/adr/0005-feedback-is-the-only-outbound-call.md)). The app also
+looks on GitHub for new versions (reading public release information only) and updates itself
+when the owner clicks **Update now** ([ADR 0006](docs/adr/0006-in-app-update.md)).
 
 ---
 

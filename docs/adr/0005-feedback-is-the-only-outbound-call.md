@@ -3,6 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-09-30
 - **Amends:** [ADR 0002](0002-local-only-runtime.md) ("no outbound calls at runtime")
+- **Amended by:** [ADR 0006](0006-in-app-update.md), which adds a second outbound call: the
+  update check, which only reads public release information
 
 ## Context
 
@@ -17,8 +19,9 @@ feedback may show students and amounts, and the laptop may be offline.
 ## Decision
 
 1. **One explicit, owner-initiated exception.** The app may send **feedback the owner chooses
-   to send** (Settings → Send feedback → Send), and nothing else. There is still no telemetry,
-   no update check, no crash reporting in the background.
+   to send** (Settings → Send feedback → Send), and nothing else. There is still no telemetry
+   and no crash reporting in the background. (A check for new versions, which only reads public
+   release information from GitHub, was added later by [ADR 0006](0006-in-app-update.md).)
 2. **Only feedback goes out.** The sender reads only the `feedback` table: the owner's message,
    the picture of the screen if she left it ticked, and diagnostics about the app (version,
    build ID, a random install ID, the page, recent errors, the last 200 lines of the server log

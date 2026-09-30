@@ -1,0 +1,109 @@
+# ADR 0006 — Updating from inside the app, and the update check
+
+- **Status:** Accepted
+- **Date:** 2026-09-30
+- **Amends:** [ADR 0005](0005-feedback-is-the-only-outbound-call.md) (feedback was the only
+  outbound call) and [ADR 0003](0003-distribution-and-install.md) (updates by pasting a line)
+
+## Context
+
+Until now the owner updated by pasting a PowerShell line
+([update runbook](../runbooks/update.md)). She isn't technical, and asked for an "Update
+available" notice with an "Update" button, so that the update to v0.2.0 is the last time she
+pastes anything. To offer a new version, the app has to find out that one exists: a second
+outbound call, besides feedback.
+
+## Decision
+
+1. **The update check is the app's second outbound call, and it only reads.** The server asks
+   GitHub for the latest release, `GET
+   https://api.github.com/repos/srikdhruv/scrappy-business-records/releases/latest`
+   (`UPDATE_FEED_URL` in `backend/app/config.py`), unauthenticated, with a 15 s timeout and a
+   `User-Agent` of `scrappy-records/<version> (update check)`. Nothing about the owner, her
+   records or this laptop is sent: GitHub sees an ordinary request for public information from
+   her internet address, like opening the releases page in a browser. The installer's download
+   (below) is the same kind of public read.
+2. **When it looks.** At startup, then every 12 hours (an hour after a failed try), and when
+   the owner clicks Settings → About → **Check for updates**. It measures time with the wall
+   clock, so a laptop that sleeps still checks. If GitHub says to wait (403 with
+   `X-RateLimit-Remaining: 0`, or 429), it waits until the time GitHub gives, at most a day.
+   The answer is cached in memory; the page reads it from `GET /api/update`, which never waits
+   for the internet.
+3. **What counts as a new version.** GitHub's `releases/latest` skips drafts and prereleases,
+   and the release pipeline only promotes a release to latest after checking it
+   ([release runbook](../runbooks/release.md)). The app also ignores anything marked draft or
+   prerelease, or whose tag isn't a plain `vMAJOR.MINOR.PATCH`, compares versions the semver
+   way (`backend/app/versions.py`: 0.10.0 is newer than 0.9.0), and only offers a release that
+   has this computer's download (`scrappy-records-windows-x64.zip` or
+   `scrappy-records-macos-arm64.zip`).
+4. **Update now runs the new release's own installer.** `POST /api/update/start` downloads
+   `scripts/install.ps1` (Windows) or `scripts/install.sh` (macOS) **at the new release's tag**
+   (`raw.githubusercontent.com/<repo>/<tag>/scripts/...`), so the installer always matches the
+   release it installs, and starts it **fully detached** (Windows: `DETACHED_PROCESS`,
+   `CREATE_NEW_PROCESS_GROUP`, `CREATE_NO_WINDOW`, leaving a job object if allowed; macOS: its own
+   session), so it survives the server being stopped by that same installer:
+   `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <tmp>\install.ps1 -Version <tag>`
+   or `/bin/sh <tmp>/install.sh --version <tag>`, with `SCRAPPY_UPDATE_FROM_APP=1` and
+   `SCRAPPY_INSTALL_ROOT` set, its output in `logs/update.log`. The installer does what it
+   always does: stop the app politely, back up, swap in the new version (never touching the
+   data folder, [ADR 0004](0004-data-is-never-lost.md)), recreate the shortcut, and open the
+   app. Nothing new runs with more rights than the owner has.
+5. **Only the app's own page can start an update.** `POST /api/update/start` (and `/check`)
+   need `Content-Type: application/json` and an `X-Scrappy-Request: 1` header, and refuse a
+   `Host` that isn't `127.0.0.1:<port>`/`localhost:<port>` and an `Origin` or
+   `Sec-Fetch-Site` that says another website sent it. A web page elsewhere can't send those
+   (a form can't set the content type; a script needs a CORS preflight the server never
+   approves), and DNS rebinding fails the `Host` check. The request also names the version the
+   page showed, which must be the latest. One update at a time: a second start is refused
+   (`409`), in the server and by the page.
+6. **The page follows it to the end.** The page shows "Updating… the app will reopen in a
+   minute" and polls `/api/health?waiting_for_update=true` every 2 s. A different version
+   answering → reload (the new version's UI). The same version answering and
+   `/api/update` saying this attempt failed → say so in plain words, with the log's location.
+   Nothing after 10 minutes → say what to do. The attempt is written to
+   `logs/update-attempt.json` before the installer starts; the next server to start settles it
+   (its own version is the new one → succeeded; else failed), and the server marks it failed
+   itself if the installer ends while it still runs.
+7. **It always ends with the app open.** When started from the app, the installer opens the
+   version that is still installed if it fails after closing the app (the old one after a
+   rollback). After an update, the launcher doesn't open a second browser tab if the page that
+   started it is still waiting (`page_waiting` in `/api/update`, set by the page's
+   `waiting_for_update` polls); otherwise it opens the browser as usual.
+8. **Switches for tests and dev.** `SCRAPPY_UPDATE_FEED_URL` overrides the feed (empty turns
+   the check off: dev mode, the unit tests, the bundle self-test and the guide pictures);
+   `SCRAPPY_UPDATE_INSTALLER_URL` (with `{tag}` and `{script}`) and `SCRAPPY_UPDATE_ZIP` (passed
+   to the installer as its zip) let CI update a real install from a local server. Plain HTTP is
+   only allowed to `127.0.0.1`. A copy running from source (not an installed bundle) never
+   updates itself.
+
+## Compatibility
+
+An older app starts a newer installer, and a newer server answers an older page. What must keep
+working in every release is listed in the
+[release runbook](../runbooks/release.md#updating-from-inside-the-app-what-must-keep-working).
+
+## Alternatives considered
+
+- **Check from the browser.** It would leak the owner's browser details to GitHub, need a CORS
+  exception, and couldn't start the installer anyway.
+- **A static `latest.json` on our own site, or GitHub Pages.** One more thing to publish and
+  keep in step with releases; `releases/latest` already is that file.
+- **Download the zip in the server and swap files itself.** The running server can't replace its
+  own files on Windows, and the installer already does the stop, backup, swap and rollback
+  well, tested on every pull request. Running it keeps one path for installing and updating.
+- **Automatic updates without asking.** The owner wants to choose the moment (not in the middle
+  of logging payments), and a surprise restart would break her trust. The banner can wait.
+- **A signed installer with its own updater (MSIX, Squirrel).** Needs a code-signing
+  certificate and more infrastructure (future-features §9).
+
+## Consequences
+
+- The app now talks to GitHub twice a day when online. If GitHub is down or blocked, nothing
+  else is affected: the banner just doesn't appear, and About says it couldn't check.
+- **The v0.2.0 update is the last pasted line.** Every later update starts from the button.
+- Each release's installer becomes part of the app's behaviour: a broken `install.ps1` in a
+  release breaks updating *to* that release. CI updates a real install with this commit's
+  installer, from the app, on Windows and macOS (`scripts/ci/smoke_in_app_update.py`, in the
+  `windows-install` and `macos-install` jobs), and the pasted line stays as the fallback.
+- The release notes are shown to the owner under **See what's new**, as plain text: write them
+  for her.

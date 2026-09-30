@@ -8,7 +8,8 @@ PORT     := 8765
 UV       := uv run --project backend
 # Dev and `make run` never touch real data: everything lives in ./.devdata.
 DEV_ENV  := SCRAPPY_HOME="$(DEVDATA)" SCRAPPY_BACKUP_DIR="$(DEVDATA)/backups" SCRAPPY_PORT=$(PORT) \
-            SCRAPPY_FEEDBACK_URL="$(SCRAPPY_FEEDBACK_URL)"
+            SCRAPPY_FEEDBACK_URL="$(SCRAPPY_FEEDBACK_URL)" \
+            SCRAPPY_UPDATE_FEED_URL="$(SCRAPPY_UPDATE_FEED_URL)"
 OPENAPI  := frontend/node_modules/.tmp/openapi.json
 
 .DEFAULT_GOAL := help

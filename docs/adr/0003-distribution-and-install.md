@@ -50,6 +50,11 @@ always points at the newest build.
 Piping into `iex` isn't blocked by the default script execution policy, because no `.ps1` file is
 run from disk.
 
+**Updating from inside the app** (from v0.2.0, [ADR 0006](0006-in-app-update.md)): the app offers
+new versions itself (**Update now**). It runs the new release's own `install.ps1` (downloaded
+from that release's tag) detached, with `-Version <tag>`, so every step above stays the same.
+The pasted line remains the way to install for the first time, and the fallback.
+
 ## Alternatives considered
 
 - **Install uv at install time and let it fetch Python and the packages.**
@@ -73,7 +78,8 @@ run from disk.
     on a runner with no Python on its PATH, from the local zip (the `-ZipPath` test hook), into
     a folder whose name has a space, an apostrophe and non-English letters. It checks restart,
     update, a crash mid-save, the friendly message for a release that doesn't exist, and more
-    (see the development runbook). `macos-install` does the same on a Mac.
+    (see the development runbook). `macos-install` does the same on a Mac. Both then update a
+    real install from inside the app (`scripts/ci/smoke_in_app_update.py`).
   - The literal published command (`irm` of `main`'s `install.ps1` from
     raw.githubusercontent.com, and the `releases/latest/download/` asset) can only be tested
     once a release exists. `release.yml` publishes each release as a prerelease, checks it on

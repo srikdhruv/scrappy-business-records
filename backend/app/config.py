@@ -34,8 +34,9 @@ DEFAULT_PORT = 8765
 
 FEEDBACK_URL = ""
 """The feedback relay (a Cloudflare Worker, `relay/`), e.g.
-`https://scrappy-feedback.<account>.workers.dev/feedback`. Sending feedback is the app's only
-outbound call at runtime, and only feedback the owner chose to send goes there (ADR 0005).
+`https://scrappy-feedback.<account>.workers.dev/feedback`. Sending feedback is one of the
+app's two outbound calls at runtime (the other is the update check, ADR 0006), and only feedback
+the owner chose to send goes there (ADR 0005).
 Empty means sending is off: feedback is still saved on the laptop and goes out once a version
 with a URL is installed. Set it when the relay is deployed
 (docs/runbooks/feedback-relay-setup.md)."""

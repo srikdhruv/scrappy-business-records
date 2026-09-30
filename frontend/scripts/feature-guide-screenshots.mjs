@@ -60,6 +60,7 @@ function makeHome(name, { seed }) {
     SCRAPPY_HOME: home,
     SCRAPPY_BACKUP_DIR: path.join(home, 'backups'),
     SCRAPPY_FEEDBACK_URL: '', // the pictures never send feedback anywhere
+    SCRAPPY_UPDATE_FEED_URL: '', // ...nor look for updates (the update pictures pretend)
   }
   if (seed) {
     execFileSync('uv', [...GUIDE_SERVER, 'seed', '--today', GUIDE_TODAY], {
@@ -247,6 +248,82 @@ await dialog().getByText('What gets sent').click()
 await page.waitForTimeout(300)
 await shot('feedback-what-gets-sent', dialog().locator('details'), 8)
 await escape()
+
+// ---- Updating from inside the app -----------------------------------------------------------
+// The guide's server runs from source and doesn't look for updates, so it can never offer one:
+// pretend the next version is out, as an installed copy would see it. Nothing is installed.
+const { version: running } = await api(demo, '/health')
+const nextVersion = running.replace(
+  /^(\d+)\.(\d+)\..*$/,
+  (_, major, minor) => `${major}.${Number(minor) + 1}.0`,
+)
+const updateInfo = {
+  current: running,
+  latest: nextVersion,
+  update_available: true,
+  notes:
+    'What’s new\n• Update the app from inside it: Settings → About → Update now\n• The Monthly report prints on one page',
+  // Local time, like the rest of the pictures (10:30 on GUIDE_TODAY wherever they're taken).
+  checked_at: new Date(`${GUIDE_TODAY}T10:30:00`).toISOString(),
+  can_update: true,
+  reason: null,
+  check_error: null,
+  last_attempt: null,
+  page_waiting: false,
+  log_file: 'C:\\Users\\Demo\\AppData\\Local\\ScrappyRecords\\logs\\update.log',
+}
+await page.route('**/api/update', (route) => route.fulfill({ json: updateInfo }))
+// About's folders as they are on a Windows laptop, not this machine's temporary ones.
+await page.route('**/api/about', async (route) => {
+  const real = await (await route.fetch()).json()
+  const base = 'C:\\Users\\Demo\\AppData\\Local\\ScrappyRecords'
+  await route.fulfill({
+    json: {
+      ...real,
+      data_dir: `${base}\\data`,
+      backup_dir: 'C:\\Users\\Demo\\Documents\\ScrappyRecords Backups',
+      log_dir: `${base}\\logs`,
+    },
+  })
+})
+await page.route('**/api/update/start', (route) =>
+  route.fulfill({
+    status: 202,
+    json: {
+      ...updateInfo,
+      can_update: false,
+      reason: 'updating',
+      last_attempt: {
+        from_version: running,
+        to_version: nextVersion,
+        started_at: `${GUIDE_TODAY}T05:30:00Z`,
+        finished_at: null,
+        outcome: 'running',
+        detail: '',
+      },
+    },
+  }),
+)
+await open(demo, '/')
+const updateBanner = page.getByRole('region', { name: 'New version' })
+await shot('update-banner', [updateBanner, page.locator('main h1').first()], 12)
+await page
+  .locator('aside')
+  .getByRole('button', { name: /^Settings/ })
+  .click()
+await page.getByRole('menuitem', { name: /About/ }).click()
+await page.waitForTimeout(400)
+await shot('update-about', dialog(), 0)
+await dialog().getByRole('button', { name: 'Update now' }).click()
+await page.waitForTimeout(400)
+await shot('update-confirm', dialog(), 0)
+await dialog().getByRole('button', { name: 'Update now' }).click()
+await page.getByTestId('updating-screen').waitFor()
+await page.waitForTimeout(400)
+await shot('update-updating', page.getByTestId('updating-screen').getByRole('status'), 16)
+await page.unroute('**/api/update/start')
+await page.unroute('**/api/update')
+await page.unroute('**/api/about')
 
 await open(demo, `/?month=${addMonths(now, 1)}`)
 await windowShot('dashboard-future-month', 760)
