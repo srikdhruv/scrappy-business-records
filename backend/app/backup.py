@@ -41,7 +41,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from app import config
+from app import config, logs
 
 log = logging.getLogger("scrappy.backup")
 
@@ -164,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--reason", choices=("manual", "pre-update"), default="manual")
     args = parser.parse_args(argv)
+    logs.safe_std_streams()  # the paths printed below may have any letters in them
     if sys.stderr is not None:  # show warnings, e.g. about falling back to data/backups
         logging.basicConfig(level=logging.WARNING, format="%(message)s")
     try:

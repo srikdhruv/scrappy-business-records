@@ -1,16 +1,18 @@
 # Scrappy Records installer and updater for Windows (Windows PowerShell 5.1 or later).
 #
-# Install or update (paste into PowerShell):
-#   irm https://raw.githubusercontent.com/srikdhruv/scrappy-business-records/main/scripts/install.ps1 | iex
+# Install or update (paste into PowerShell as one line). The first part switches on TLS 1.2,
+# which older Windows 10 needs before it can download anything from GitHub:
+#   [Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor 3072; irm https://raw.githubusercontent.com/srikdhruv/scrappy-business-records/main/scripts/install.ps1 | iex
 #
 # With options, e.g. a specific version:
-#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/srikdhruv/scrappy-business-records/main/scripts/install.ps1))) -Version v0.1.0
+#   [Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((irm https://raw.githubusercontent.com/srikdhruv/scrappy-business-records/main/scripts/install.ps1))) -Version v0.1.0
 #
 # Options (each can also be set with the environment variable in brackets, which is how tests
 # drive the plain `| iex` form, since that can't take arguments):
 #   -ZipPath <file>      Install from this zip instead of downloading it. The zip is kept.
 #                        [SCRAPPY_INSTALL_ZIP]
 #   -Version <tag>       Install this release (e.g. v0.1.0) instead of the latest.
+#                        [SCRAPPY_INSTALL_VERSION]
 #   -NoLaunch            Don't open the app at the end.              [SCRAPPY_NO_LAUNCH=1]
 #   -InstallRoot <dir>   Testing only: install here instead of %LOCALAPPDATA%\ScrappyRecords.
 #                        [SCRAPPY_INSTALL_ROOT]
@@ -18,20 +20,26 @@
 #                        [SCRAPPY_SHORTCUT_DIR]
 #
 # What it does (docs/adr/0003-distribution-and-install.md):
-#   1. downloads scrappy-records-windows-x64.zip from the GitHub release to %TEMP%;
-#   2. stops the app if it is running;
-#   3. saves a backup of the data (with the old version's Python) if there is any;
-#   4. unpacks the zip to app.new, then swaps it in for app (the old copy is kept until the swap
-#      has worked). The data folder is never touched;
+#   1. downloads scrappy-records-windows-x64.zip from the GitHub release to %TEMP%, and unpacks
+#      it to app.new next to the current copy;
+#   2. stops the app if it is running: first politely (a stop request the server acts on within
+#      a second), then by force after 10 seconds;
+#   3. saves a backup of the data, with the old version's Python, else the new one's, else by
+#      copying the database file together with its journal. If none works, it stops there;
+#   4. swaps app.new in for app (the old copy is kept until the swap has worked). The data
+#      folder is never touched;
 #   5. creates the "Scrappy Records" Desktop shortcut;
 #   6. deletes the downloaded zip and opens the app.
+#
+# Compatibility: this file always comes from `main`, but step 3 runs the *installed* version's
+# `python -m app.backup --reason pre-update`; keep that command working in every release.
 #
 # This file is plain ASCII on purpose: PowerShell 5.1 misreads other characters in files saved
 # without a byte-order mark. It never calls `exit`: under `| iex` that would close the window.
 
 param(
     [string]$ZipPath = $env:SCRAPPY_INSTALL_ZIP,
-    [string]$Version = '',
+    [string]$Version = $env:SCRAPPY_INSTALL_VERSION,
     [switch]$NoLaunch = ($env:SCRAPPY_NO_LAUNCH -eq '1'),
     [string]$InstallRoot = $env:SCRAPPY_INSTALL_ROOT,
     [string]$ShortcutDir = $env:SCRAPPY_SHORTCUT_DIR
@@ -70,44 +78,74 @@ function Move-ScrappyFolder([string]$From, [string]$To) {
     }
 }
 
-function Stop-ScrappyProcesses([string]$Root) {
-    # Only processes started from our own folders: never someone else's Python.
-    # app\, app.new\, and app.old\ (or app.old-<time>\) left over from an earlier update.
+function Get-ScrappyProcesses([string]$Root) {
+    # Only programs started from our own folders: app\, app.new\ and app.old* (left over from an
+    # earlier update). Never anyone else's Python.
     $prefixes = @('app\', 'app.new\', 'app.old') | ForEach-Object { Join-Path $Root $_ }
-    $procs = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
-        $path = $null
-        try { $path = $_.Path } catch { }
+    try {
+        # Win32_Process reads 64-bit paths even from a 32-bit PowerShell; Get-Process can't.
+        $all = @(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop |
+            ForEach-Object { New-Object PSObject -Property @{ Id = $_.ProcessId; Path = $_.ExecutablePath } })
+    } catch {
+        $all = @(Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
+            $path = $null
+            try { $path = $_.Path } catch { }
+            New-Object PSObject -Property @{ Id = $_.Id; Path = $path }
+        })
+    }
+    return @($all | Where-Object {
+        $path = $_.Path
         if (-not $path) { return $false }
         foreach ($prefix in $prefixes) {
             if ($path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { return $true }
         }
         return $false
     })
-    foreach ($proc in $procs) {
+}
+
+function Stop-ScrappyProcesses([string]$Root, [string]$HomeDir) {
+    $procs = @(Get-ScrappyProcesses $Root)
+    if ($procs.Count -eq 0) { return 0 }
+    # Ask the server to stop, so it isn't killed in the middle of saving (app/lifetime.py).
+    $request = Join-Path $HomeDir 'stop-server.request'
+    try { [IO.File]::WriteAllText($request, "stop`n") } catch { }
+    $deadline = (Get-Date).AddSeconds(10)
+    while ((Get-Date) -lt $deadline -and @(Get-ScrappyProcesses $Root).Count -gt 0) {
+        Start-Sleep -Milliseconds 500
+    }
+    # Anything still running (a stuck server, a launcher that is waiting) is stopped by force.
+    foreach ($proc in @(Get-ScrappyProcesses $Root)) {
         try { Stop-Process -Id $proc.Id -Force -ErrorAction Stop } catch { }
+        try { [void](Get-Process -Id $proc.Id -ErrorAction Stop).WaitForExit(15000) } catch { }
     }
-    foreach ($proc in $procs) {
-        try { [void]$proc.WaitForExit(15000) } catch { }
-    }
+    Remove-Item -LiteralPath $request -Force -ErrorAction SilentlyContinue
     return $procs.Count
 }
 
-function Invoke-ScrappyProgram([string]$FilePath, [string]$Arguments, [string]$WorkingDirectory) {
+function Invoke-ScrappyProgram([string]$FilePath, [string]$Arguments, [string]$WorkingDirectory, [int]$TimeoutSeconds = 120) {
     # .NET's Process gives a reliable exit code in PowerShell 5.1 and doesn't turn the program's
-    # stderr into PowerShell errors.
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $FilePath
-    $psi.Arguments = $Arguments
-    $psi.WorkingDirectory = $WorkingDirectory
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow = $true
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $proc = [Diagnostics.Process]::Start($psi)
-    $stdout = $proc.StandardOutput.ReadToEndAsync()
-    $stderr = $proc.StandardError.ReadToEnd()
-    $proc.WaitForExit()
-    return @{ ExitCode = $proc.ExitCode; Output = ($stdout.Result + $stderr).Trim() }
+    # stderr into PowerShell errors. Never throws: failures come back as ExitCode -1.
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $FilePath
+        $psi.Arguments = $Arguments
+        $psi.WorkingDirectory = $WorkingDirectory
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $proc = [Diagnostics.Process]::Start($psi)
+        $stdout = $proc.StandardOutput.ReadToEndAsync()
+        $stderr = $proc.StandardError.ReadToEndAsync()
+        if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
+            try { $proc.Kill() } catch { }
+            return @{ ExitCode = -1; Output = "no answer after $TimeoutSeconds seconds" }
+        }
+        $proc.WaitForExit()
+        return @{ ExitCode = $proc.ExitCode; Output = ($stdout.Result + $stderr.Result).Trim() }
+    } catch {
+        return @{ ExitCode = -1; Output = $_.Exception.Message }
+    }
 }
 
 function Get-ScrappyBackupDir {
@@ -118,28 +156,41 @@ function Get-ScrappyBackupDir {
     return (Join-Path $docs 'ScrappyRecords Backups')
 }
 
-function Get-ScrappyDatabase([string]$Root) {
-    if ($env:SCRAPPY_DATA_DIR) { return (Join-Path $env:SCRAPPY_DATA_DIR 'records.db') }
-    if ($env:SCRAPPY_HOME) { return (Join-Path $env:SCRAPPY_HOME 'data\records.db') }
-    return (Join-Path $Root 'data\records.db')
-}
-
-function Backup-ScrappyData([string]$AppDir, [string]$Database) {
-    $python = Join-Path $AppDir 'python\python.exe'
-    if (Test-Path -LiteralPath $python) {
-        $result = Invoke-ScrappyProgram $python '-m app.backup --reason pre-update' $AppDir
+function Backup-ScrappyData([string[]]$Bundles, [string]$Database) {
+    # 1. The app's own backup (SQLite's backup API; it also finishes any interrupted save),
+    #    with the installed version's Python, else the new version's.
+    foreach ($bundle in $Bundles) {
+        $python = Join-Path $bundle 'python\python.exe'
+        if (-not (Test-Path -LiteralPath $python)) { continue }
+        $result = Invoke-ScrappyProgram $python '-m app.backup --reason pre-update' $bundle 120
         if ($result.ExitCode -eq 0) {
             Write-ScrappyStep $result.Output
             return
         }
-        Write-ScrappyStep "The usual backup didn't work ($($result.Output)); copying the file instead."
+        Write-ScrappyStep "A backup attempt didn't work ($($result.Output))."
     }
-    # The app is stopped, so a plain copy of the file is complete and consistent.
-    $dir = Get-ScrappyBackupDir
-    New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    $target = Join-Path $dir ('records-pre-update-{0}.db' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
-    Copy-Item -LiteralPath $Database -Destination $target
-    Write-ScrappyStep "Backup saved: $target"
+    # 2. The app is stopped, so copy the file itself, together with any journal SQLite left
+    #    behind: opening the copy then finishes the interrupted save, exactly as the app would.
+    $name = 'records-pre-update-{0}.db' -f (Get-Date -Format 'yyyyMMdd-HHmmss')
+    $dataDir = Split-Path -Parent $Database
+    $lastError = ''
+    foreach ($dir in @((Get-ScrappyBackupDir), (Join-Path $dataDir 'backups'))) {
+        try {
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            $target = Join-Path $dir $name
+            foreach ($suffix in @('-journal', '-wal', '-shm')) {
+                if (Test-Path -LiteralPath ($Database + $suffix)) {
+                    Copy-Item -LiteralPath ($Database + $suffix) -Destination ($target + $suffix) -Force
+                }
+            }
+            Copy-Item -LiteralPath $Database -Destination $target -Force
+            Write-ScrappyStep "Backup saved (file copy): $target"
+            return
+        } catch {
+            $lastError = $_.Exception.Message
+        }
+    }
+    throw "Couldn't save a backup copy of your data, so nothing was changed. ($lastError)"
 }
 
 function Get-ScrappyHint([string]$Message) {
@@ -151,6 +202,9 @@ function Get-ScrappyHint([string]$Message) {
     }
     if ($Message -match '404|Not Found') {
         return 'The download was not found. The release may not be published yet: ask whoever set this up.'
+    }
+    if ($Message -match 'backup copy') {
+        return 'Restart the laptop, then run the install line again. If it keeps happening, ask whoever set this up.'
     }
     if ($Message -match 'denied|being used by another process') {
         return 'Scrappy Records seems to be busy. Restart the laptop, then run the install line again.'
@@ -179,7 +233,7 @@ function Install-ScrappyRecords {
     if (-not [Environment]::Is64BitOperatingSystem) {
         throw 'Scrappy Records needs 64-bit Windows 10 or 11.'
     }
-    # Older Windows 10 installs don't offer TLS 1.2 by default, and GitHub requires it.
+    # Also set by the install line itself; kept here for the other ways of running this file.
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
     $defaultRoot = Join-Path $env:LOCALAPPDATA 'ScrappyRecords'
@@ -193,11 +247,15 @@ function Install-ScrappyRecords {
         # A test install elsewhere: point the backup and the app at it too.
         $env:SCRAPPY_HOME = $InstallRoot
     }
-    $database = Get-ScrappyDatabase $InstallRoot
+    $homeDir = if ($env:SCRAPPY_HOME) { $env:SCRAPPY_HOME } else { $InstallRoot }
+    $dataDir = if ($env:SCRAPPY_DATA_DIR) { $env:SCRAPPY_DATA_DIR } else { Join-Path $homeDir 'data' }
+    $database = Join-Path $dataDir 'records.db'
 
+    $downloaded = $false
+    $swapped = $false
+    $warnings = @()
     try {
-        # 1. Get the zip.
-        $downloaded = $false
+        # 1. Get the zip and unpack it next to the current copy.
         if ($ZipPath) {
             $ZipPath = (Resolve-Path -LiteralPath $ZipPath).Path
             Write-ScrappyStep "Using $ZipPath"
@@ -210,21 +268,10 @@ function Install-ScrappyRecords {
             }
             $ZipPath = Join-Path ([IO.Path]::GetTempPath()) $asset
             Write-ScrappyStep 'Downloading Scrappy Records (about 25 MB, this can take a minute)...'
-            Invoke-WebRequest -Uri $url -OutFile $ZipPath -UseBasicParsing
             $downloaded = $true
+            Invoke-WebRequest -Uri $url -OutFile $ZipPath -UseBasicParsing
         }
 
-        # 2. Stop the running app, if any, so its files can be replaced.
-        $stopped = Stop-ScrappyProcesses $InstallRoot
-        if ($stopped -gt 0) { Write-ScrappyStep 'Closed the running copy of Scrappy Records.' }
-
-        # 3. Back up the data before changing anything.
-        if (Test-Path -LiteralPath $database) {
-            Write-ScrappyStep 'Saving a backup copy of your data...'
-            Backup-ScrappyData $appDir $database
-        }
-
-        # 4. Unpack next to the current copy, then swap.
         Write-ScrappyStep 'Unpacking...'
         New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
         Remove-ScrappyFolder $newDir
@@ -237,6 +284,17 @@ function Install-ScrappyRecords {
         }
         $newVersion = (Get-Content -LiteralPath (Join-Path $newDir 'VERSION') -TotalCount 1).Trim()
 
+        # 2. Stop the running app, if any, so its files can be replaced.
+        $stopped = Stop-ScrappyProcesses $InstallRoot $homeDir
+        if ($stopped -gt 0) { Write-ScrappyStep 'Closed the running copy of Scrappy Records.' }
+
+        # 3. Back up the data before changing anything.
+        if (Test-Path -LiteralPath $database) {
+            Write-ScrappyStep 'Saving a backup copy of your data...'
+            Backup-ScrappyData @($appDir, $newDir) $database
+        }
+
+        # 4. Swap the new copy in.
         Write-ScrappyStep "Installing version $newVersion..."
         # A copy left over from an earlier update that couldn't be deleted (say, an antivirus
         # scan held a file) must not block this one: set it aside under another name.
@@ -253,14 +311,24 @@ function Install-ScrappyRecords {
             }
             throw
         }
+        $swapped = $true
         Remove-ScrappyFolder $oldDir -BestEffort
+    } catch {
+        if ($downloaded -and -not $swapped) {
+            Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue
+        }
+        if (-not $homeWasSet) { Remove-Item Env:SCRAPPY_HOME -ErrorAction SilentlyContinue }
+        throw
+    }
 
+    # From here on the new version is installed: problems are warnings, not failures.
+    $pythonw = Join-Path $appDir 'python\pythonw.exe'
+    try {
         # 5. Desktop shortcut.
         Write-ScrappyStep 'Creating the Desktop shortcut...'
         if (-not $ShortcutDir) { $ShortcutDir = [Environment]::GetFolderPath('Desktop') }
         if (-not $ShortcutDir) { $ShortcutDir = Join-Path $env:USERPROFILE 'Desktop' }
         New-Item -ItemType Directory -Force -Path $ShortcutDir | Out-Null
-        $pythonw = Join-Path $appDir 'python\pythonw.exe'
         $shell = New-Object -ComObject WScript.Shell
         $shortcut = $shell.CreateShortcut((Join-Path $ShortcutDir 'Scrappy Records.lnk'))
         $shortcut.TargetPath = $pythonw
@@ -269,19 +337,25 @@ function Install-ScrappyRecords {
         $shortcut.IconLocation = (Join-Path $appDir 'scrappy.ico') + ',0'
         $shortcut.Description = 'Open Scrappy Records'
         $shortcut.Save()
+    } catch {
+        $warnings += "The Desktop shortcut couldn't be created ($($_.Exception.Message)). Run the install line again to retry, or open the app with: $appDir\Start Scrappy Records.cmd"
+    }
 
-        # 6. Tidy up and open the app.
-        if ($downloaded) { Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue }
-        if (-not $NoLaunch) {
+    # 6. Tidy up and open the app.
+    if ($downloaded) { Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue }
+    if (-not $NoLaunch) {
+        try {
             Write-ScrappyStep 'Opening Scrappy Records in your browser...'
             Start-Process -FilePath $pythonw -ArgumentList '-m', 'app.launcher' -WorkingDirectory $appDir
+        } catch {
+            $warnings += "The app didn't open by itself ($($_.Exception.Message)). Double-click Scrappy Records on your Desktop."
         }
-    } finally {
-        if (-not $homeWasSet) { Remove-Item Env:SCRAPPY_HOME -ErrorAction SilentlyContinue }
     }
+    if (-not $homeWasSet) { Remove-Item Env:SCRAPPY_HOME -ErrorAction SilentlyContinue }
 
     Write-Host ''
     Write-Host 'Scrappy Records is installed' -ForegroundColor Green
+    foreach ($warning in $warnings) { Write-Host "Note: $warning" -ForegroundColor Yellow }
     Write-Host 'From now on, double-click "Scrappy Records" on your Desktop to open it.'
 }
 

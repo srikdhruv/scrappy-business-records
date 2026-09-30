@@ -18,7 +18,7 @@ env:
 
 jobs:
   ui:
-    name: Build the UI (once, shared by both bundles)
+    name: Tests, then build the UI (once, shared by both bundles)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -29,15 +29,26 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME doesn't match backend/pyproject.toml version $version. Bump the version (and run uv lock) first."
             exit 1
           fi
+      # setup-uv publishes no floating major tag (e.g. v10), so pin the exact release.
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Backend tests
+        working-directory: backend
+        run: |
+          uv sync --frozen
+          uv run pytest
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Build
+      - name: Frontend tests and build
         working-directory: frontend
         run: |
           npm ci
+          npm test
           npm run build
       - uses: actions/upload-artifact@v7
         with:
@@ -111,3 +122,10 @@ jobs:
             --title "Scrappy Records $GITHUB_REF_NAME" \
             --generate-notes \
             --verify-tag
+
+  verify:
+    name: Install the published release like a user
+    needs: publish
+    uses: ./.github/workflows/post-release-verify.yml
+    with:
+      tag: ${{ github.ref_name }}

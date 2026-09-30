@@ -17,9 +17,9 @@
 #   --apps-dir DIR       Testing only: put "Scrappy Records.app" here instead of
 #                        ~/Applications.                            [SCRAPPY_APPS_DIR]
 #
-# Same steps as scripts/install.ps1: download, stop the running app, back up the data with the
-# old version, unpack to app.new and swap it in for app (the data folder is never touched),
-# create the launcher, delete the download, open the app.
+# Same steps as scripts/install.ps1: download and unpack to app.new, stop the running app, back
+# up the data, swap app.new in for app (the data folder is never touched), create the launcher,
+# delete the download, open the app.
 
 set -eu
 
@@ -36,24 +36,65 @@ fail() {
     exit 1
 }
 
-# Stop processes started from our own app folders (never anyone else's Python).
-stop_running_app() {
+# PIDs of processes started from our own app folders (never anyone else's Python).
+app_pids() {
     root_real=$(cd "$1" 2>/dev/null && pwd -P || printf '%s' "$1")
-    ps -axo pid=,command= | while read -r pid cmd; do
+    # A UTF-8 locale, or ps escapes non-English letters in folder names and nothing matches.
+    LC_ALL=en_US.UTF-8 ps -axo pid=,command= | while read -r pid cmd; do
         for prefix in "$1/app" "$root_real/app"; do
             case "$cmd" in
                 "$prefix/python/"* | "$prefix.new/python/"* | "$prefix.old/python/"*)
-                    kill "$pid" 2>/dev/null || true
+                    echo "$pid"
                     ;;
             esac
         done
     done
-    # Give them a moment to exit.
+}
+
+# Ask politely (SIGTERM: the server finishes what it's doing and exits), then force after 10 s.
+stop_running_app() {
+    pids=$(app_pids "$1")
+    [ -n "$pids" ] || return 0
+    kill $pids 2>/dev/null || true
     i=0
-    while [ $i -lt 20 ] && ps -axo command= | grep -F "$root_real/app" | grep -v grep >/dev/null 2>&1; do
+    while [ $i -lt 20 ] && [ -n "$(app_pids "$1")" ]; do
         sleep 0.5
         i=$((i + 1))
     done
+    pids=$(app_pids "$1")
+    [ -z "$pids" ] || kill -9 $pids 2>/dev/null || true
+    say "Closed the running copy of Scrappy Records."
+}
+
+# Back up the database: the app's own backup (old version's Python, else the new one's), else a
+# copy of the file together with any journal SQLite left (opening the copy finishes the
+# interrupted save). Never pretends: if nothing works, stop before changing anything.
+backup_data() {
+    database="$1"
+    shift
+    for bundle in "$@"; do
+        [ -x "$bundle/python/bin/python3" ] || continue
+        if (cd "$bundle" && ./python/bin/python3 -m app.backup --reason pre-update); then
+            return 0
+        fi
+        say "A backup attempt didn't work."
+    done
+    name="records-pre-update-$(date +%Y%m%d-%H%M%S).db"
+    for dir in "${SCRAPPY_BACKUP_DIR:-$HOME/Documents/ScrappyRecords Backups}" "$(dirname "$database")/backups"; do
+        if mkdir -p "$dir" 2>/dev/null; then
+            ok=1
+            for suffix in -journal -wal -shm; do
+                if [ -f "$database$suffix" ]; then
+                    cp "$database$suffix" "$dir/$name$suffix" 2>/dev/null || ok=0
+                fi
+            done
+            if [ $ok = 1 ] && cp "$database" "$dir/$name" 2>/dev/null; then
+                say "Backup saved (file copy): $dir/$name"
+                return 0
+            fi
+        fi
+    done
+    fail "Couldn't save a backup copy of your data, so nothing was changed. Restart the Mac and try again."
 }
 
 applescript_string() {
@@ -113,29 +154,12 @@ main() {
         fi
         zip_path="$tmp/$ASSET"
         say "Downloading Scrappy Records (about 30 MB, this can take a minute)..."
-        curl -fL --retry 3 --silent --show-error -o "$zip_path" "$url" \
-            || fail "The download failed. Check the internet connection, then try again."
-    fi
-
-    # 2. Stop the running app, if any.
-    stop_running_app "$root"
-
-    # 3. Back up the data before changing anything.
-    if [ -f "$database" ]; then
-        say "Saving a backup copy of your data..."
-        if [ -x "$app_dir/python/bin/python3" ] &&
-            (cd "$app_dir" && ./python/bin/python3 -m app.backup --reason pre-update); then
-            :
-        else
-            say "The usual backup didn't work; copying the file instead."
-            backup_dir="${SCRAPPY_BACKUP_DIR:-$HOME/Documents/ScrappyRecords Backups}"
-            mkdir -p "$backup_dir" &&
-                cp "$database" "$backup_dir/records-pre-update-$(date +%Y%m%d-%H%M%S).db" ||
-                fail "Couldn't save a backup of your data, so nothing was changed."
+        if ! curl -fL --retry 3 --silent --show-error -o "$zip_path" "$url"; then
+            fail "The download failed or was not found. Check the internet connection and try again; if it keeps failing, the release may not be published yet."
         fi
     fi
 
-    # 4. Unpack next to the current copy, then swap.
+    # 2. Unpack next to the current copy.
     say "Unpacking..."
     rm -rf "$new_dir"
     /usr/bin/unzip -q "$zip_path" -d "$new_dir" || fail "The download looks damaged. Try again."
@@ -144,6 +168,17 @@ main() {
     done
     # Files from the internet can be flagged by macOS; this copy is ours, so clear the flag.
     xattr -dr com.apple.quarantine "$new_dir" 2>/dev/null || true
+
+    # 3. Stop the running app, if any.
+    stop_running_app "$root"
+
+    # 4. Back up the data before changing anything.
+    if [ -f "$database" ]; then
+        say "Saving a backup copy of your data..."
+        backup_data "$database" "$app_dir" "$new_dir"
+    fi
+
+    # 5. Swap.
     say "Installing version $(head -n 1 "$new_dir/VERSION")..."
     rm -rf "$old_dir"
     if [ -d "$app_dir" ]; then
@@ -155,7 +190,7 @@ main() {
     fi
     rm -rf "$old_dir"
 
-    # 5. A small app in ~/Applications that runs the launcher (it can be kept in the Dock).
+    # 6. A small app in ~/Applications that runs the launcher (it can be kept in the Dock).
     say "Creating Scrappy Records in $apps_dir..."
     mkdir -p "$apps_dir"
     app_bundle="$apps_dir/Scrappy Records.app"
@@ -177,7 +212,7 @@ main() {
         chmod +x "$launcher"
     fi
 
-    # 6. Open the app.
+    # 7. Open the app.
     if [ "$no_launch" != "1" ]; then
         say "Opening Scrappy Records in your browser..."
         (cd "$app_dir" && ./python/bin/python3 -m app.launcher) ||

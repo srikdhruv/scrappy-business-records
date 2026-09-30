@@ -13,6 +13,7 @@ Plain text, no colours. Nothing here assumes a console: under `pythonw.exe` ther
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import sys
@@ -65,6 +66,21 @@ def ensure_std_streams() -> None:
         sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
     if sys.stderr is None:
         sys.stderr = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+    safe_std_streams()
+
+
+def safe_std_streams() -> None:
+    """Never crash on printing a path with letters the console's code page lacks.
+
+    When output goes to a pipe or file on Windows, Python encodes it with the ANSI code page
+    (e.g. cp1252), which can't write "Rāhul" or Devanagari; printing such a path (a user's
+    Documents folder, say) would raise UnicodeEncodeError. Escape those characters instead.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            with contextlib.suppress(Exception):
+                reconfigure(errors="backslashreplace")
 
 
 def setup(*, rotate: bool, console: bool = False, level: int = logging.INFO) -> Path:
@@ -107,6 +123,7 @@ def setup_server_log() -> Path | None:
 
     Never raises: if the log folder can't be written, the server still runs (without a file).
     """
+    safe_std_streams()
     try:
         path = setup(rotate=True)
     except Exception:

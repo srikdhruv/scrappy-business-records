@@ -13,7 +13,9 @@ set -euo pipefail
 ZIP=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 HERE=$(cd "$(dirname "$0")" && pwd)
 PORT=${SCRAPPY_SMOKE_PORT:-18765}
-WORK=$(cd "$(mktemp -d "${TMPDIR:-/tmp}/scrappy-smoke.XXXXXX")" && pwd)
+# A folder name with a space, an apostrophe and non-English letters, to catch quoting bugs.
+WORK="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/scrappy-smoke.XXXXXX")" && pwd)/Scrappy Elève's रिकॉर्ड"
+mkdir -p "$WORK"
 ROOT="$WORK/ScrappyRecords"
 BACKUPS="$WORK/backups"
 APPS="$WORK/Applications"
@@ -33,7 +35,7 @@ stop_server() {
     echo "server didn't stop" >&2
     return 1
 }
-cleanup() { stop_server || true; rm -rf "$WORK"; }
+cleanup() { stop_server || true; rm -rf "$(dirname "$WORK")"; }
 trap cleanup EXIT
 step() { printf '\n=== %s\n' "$*"; }
 
@@ -55,6 +57,11 @@ step "Launch (from another folder), check health"
 health | grep -q '"app":"scrappy-records"'
 test -f "$ROOT/data/records.db"
 
+step "A second server for the same data exits cleanly instead of competing"
+py -m app
+grep -q "already running or starting" "$ROOT/logs/server.log"
+health >/dev/null
+
 step "Add a student, restart, check it survived"
 py "$HERE/db_probe.py" insert "$ROOT/data/records.db" "$NAME"
 stop_server
@@ -70,11 +77,26 @@ bare /bin/sh "$HERE/../install.sh" --zip "$ZIP" --no-launch --install-root "$ROO
     tee "$WORK/install2.log"
 grep -q "Scrappy Records is installed" "$WORK/install2.log"
 ! health >/dev/null 2>&1 || { echo "the installer didn't stop the running app" >&2; exit 1; }
-ls "$BACKUPS"/records-pre-update-*.db
-py "$HERE/db_probe.py" check "$BACKUPS"/records-pre-update-*.db "$NAME"
+PRE=$(ls "$BACKUPS"/records-pre-update-*.db)
+py "$HERE/db_probe.py" check "$PRE" "$NAME"
 test ! -e "$ROOT/app.old" && test ! -e "$ROOT/app.new"
 
 step "Launch the updated app, data still there"
+(cd / && py -m app.launcher)
+health >/dev/null
+py "$HERE/db_probe.py" check "$ROOT/data/records.db" "$NAME"
+
+step "Update after a crash mid-save (a hot records.db-journal): backup and startup still work"
+stop_server
+py "$HERE/db_probe.py" hot-journal "$ROOT/data/records.db"
+test -f "$ROOT/data/records.db-journal"
+bare /bin/sh "$HERE/../install.sh" --zip "$ZIP" --no-launch --install-root "$ROOT" --apps-dir "$APPS" |
+    tee "$WORK/install3.log"
+grep -q "Scrappy Records is installed" "$WORK/install3.log"
+! grep -q "file copy" "$WORK/install3.log" || { echo "the app's own backup should have handled it" >&2; exit 1; }
+NEWEST=$(ls "$BACKUPS"/records-pre-update-*.db | sort | tail -n 1)
+py "$HERE/db_probe.py" valid "$NEWEST"
+py "$HERE/db_probe.py" check "$NEWEST" "$NAME"
 (cd / && py -m app.launcher)
 health >/dev/null
 py "$HERE/db_probe.py" check "$ROOT/data/records.db" "$NAME"

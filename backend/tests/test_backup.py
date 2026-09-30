@@ -1,4 +1,5 @@
 import datetime as dt
+import io
 import sqlite3
 import subprocess
 import sys
@@ -227,3 +228,18 @@ def test_start_with_an_outdated_database_takes_a_pre_migration_backup(
         conn.close()
     assert f"records-{dt.date.today():%Y-%m-%d}.db" in _backups()
     assert not migrate.needs_upgrade()
+
+
+def test_cli_prints_any_path_even_to_a_narrow_code_page(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """On Windows, output to a pipe uses the ANSI code page (cp1252). A Documents folder under
+    a username like "Rāhul" must not make the pre-update backup fail."""
+    monkeypatch.setenv("SCRAPPY_BACKUP_DIR", str(tmp_path / "Rāhul रिकॉर्ड" / "backups"))
+    _make_db()
+    raw = io.BytesIO()
+    narrow = io.TextIOWrapper(raw, encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", narrow)
+    assert backup.main(["--reason", "pre-update"]) == 0
+    narrow.flush()
+    assert b"Backup saved" in raw.getvalue()
