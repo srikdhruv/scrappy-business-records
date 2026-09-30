@@ -299,7 +299,11 @@ when fixing one, **Edit payment** (*"Fix any detail and save."*).
 
 <img src="images/feature-guide/log-payment-search.png" alt="The student list open with 'ka' typed: Aditi Kamath, Anika Kulkarni, Kabir Mehta and Kavya Pillai, each with their class underneath." width="420">
 
-- It finds students whose name or class contains every word you type, ignoring capitals.
+- It finds students whose name, parent's name, class or phone number contains every word you
+  type, in any order, ignoring capitals and accents: *menon arjun* finds *Arjun Menon*, and
+  *emile* finds *Émile*. A phone number can be typed with or without its spaces
+  (*9000000006* finds *90000 00006*). It's the same search as on the
+  [Students page](#students-page).
 - Current students are listed under **Students**. Students who have left are listed last,
   under **Left**, because they sometimes pay off an old month.
 - Use the arrow keys and **Enter**, or click a name.
@@ -311,8 +315,8 @@ month they should pay next:
 |---|---|---|
 | **Oldest unpaid: June 2026** | They still owe for an earlier month | That month, and what's left on it |
 | **Due now: September 2026** | The only month they owe is this month | This month, and what's left on it |
-| **All paid up. Next due: October 2026** | They owe nothing yet | The first later month they haven't paid (usually next month, or the month after what they've paid ahead), and its fee |
-| **All paid up. Nothing is owed right now.** | They've left and paid everything, or paid two years ahead | Nothing: choose the month and amount yourself |
+| **All paid up. Next due: October 2026** | They owe nothing yet | The first later month with a fee that they haven't paid (usually next month, or the month after what they've paid ahead), and its fee. A month with no fee (a month off, say) is skipped |
+| **All paid up. Nothing is owed right now.** | They've left and paid everything, paid two years ahead, or have no fee (a free place) | Nothing: choose the month and amount yourself |
 
 <img src="images/feature-guide/log-payment-oldest-unpaid.png" alt="The form for Kavya Pillai: Amount ₹600, For month June 2026, and the hint 'Oldest unpaid: June 2026' with 'June: ₹600 of ₹1,200 paid, ₹600 left.'" width="400"> <img src="images/feature-guide/log-payment-all-paid.png" alt="The form for Ananya Rao, who has paid everything: Amount ₹1500, For month October 2026, and the hint 'All paid up. Next due: October 2026'." width="400">
 
@@ -359,9 +363,8 @@ zero. It never stops you saving.
 | The Indian `/-` at the end: `₹1,500/-` | More than ₹10,00,000: *"The most you can enter is ₹10,00,000."* |
 
 ₹10,00,000 is the most a single payment (or a monthly fee) can be. It's there to catch a slip
-of the finger, not as a rule about your fees. (Typed with `/-` at the end, such as
-`₹20,00,000/-`, an amount over the limit gets the *"Enter an amount like 1500 or 1,500."*
-message instead.)
+of the finger, not as a rule about your fees. However it's typed (`20,00,000`, `₹20,00,000/-`),
+an amount over the limit gets *"The most you can enter is ₹10,00,000."*
 
 **At the bottom:** *"Press Enter to save"*, **Cancel**, and **Save payment** (or **Save
 changes** when editing). While saving, the button says *Saving…*.
@@ -375,7 +378,7 @@ changes** when editing). While saving, the button says *Saving…*.
 3. Check **Amount** and **For month**. Change them if needed.
 4. Choose **UPI**, **Cash** or **Other**.
 5. Change **Paid on** if they paid on another day, and add a **Note** if you like.
-6. Click **Save payment**.
+6. Press **Enter**, or click **Save payment**.
 
 **Log a payment already filled in for someone.** The form opens with the student chosen and the
 cursor in **Amount**, so you can check it and press **Enter**. It opens this way from:
@@ -404,10 +407,11 @@ fee, nothing else paid."*), so you can see what the month will look like with yo
 
 ### Good to know
 
-- **Enter saves.** Pressing Enter in the amount, date or note box saves the payment. On the
+- **Enter saves.** Pressing Enter in the amount, date or note box saves the payment. So does
+  Enter right after clicking **UPI**, **Cash** or **Other**, with the method you clicked. (The
+  arrow keys still move between those three; Enter then saves with the one you're on.) On the
   student box, Enter also saves once a student is chosen: it never switches to someone else.
-  Only typing letters there opens the list again. Right after clicking **UPI**, **Cash** or
-  **Other**, Enter doesn't save; click **Save payment** instead.
+  Only typing letters there opens the list again.
 - Pressing Enter twice, or clicking Save twice, still saves only one payment.
 - If something is missing, the form says what, next to that box, when you try to save:
   *"Choose who paid."*, *"Pick the month this payment is for."*, *"Enter the date they paid."*,
@@ -431,8 +435,11 @@ fee, nothing else paid."*), so you can see what the month will look like with yo
   one app-wide dialog; `useLogPayment().openLogPayment({ studentId, forMonth, amountPaise,
   focusAfterSave })` and `openEditPayment(payment)`; `PaymentForm`, `MonthFacts`. Also
   `components/student-combobox.tsx` (the Enter rules, "Left" group, word matching),
-  `components/month-picker.tsx` (arrow keys, greyed months), `lib/amount.ts` (`amountProblem`)
-  and `lib/format.ts` (`rupeesToPaise`, `MAX_AMOUNT_PAISE`, `MONTHS_AHEAD`).
+  `components/month-picker.tsx` (arrow keys, greyed months), `lib/search.ts`
+  (`studentMatches`, shared with the Students page), `lib/amount.ts` (`amountProblem`, which
+  reads the amount with `parseRupees` to tell "too big" from "not an amount") and
+  `lib/format.ts` (`rupeesToPaise`, `MAX_AMOUNT_PAISE`, `MONTHS_AHEAD`). Enter on a method
+  button is `onMethodKeyDown`.
 - **API:** `GET /api/students/{id}/suggest-payment` (`suggestPayment`) → `SuggestedPayment`
   (`reason`: `owed` / `next_unpaid` / `all_paid`); `GET /api/students/{id}` (`getStudent`) for
   the month facts, the fee and the month limits; `GET /api/students?status=all`
@@ -447,12 +454,15 @@ fee, nothing else paid."*), so you can see what the month will look like with yo
 - **Rules:** the suggestion is PRD ledger rule 9; the 3× check is `LARGE_AMOUNT_FACTOR`; the
   suggestion never overwrites what was typed or what the caller prefilled for that student.
 - **PRD:** stories P1, P2, P4, D5; ledger rules 3, 4, 5 and 9.
-- **Tests:** `frontend/src/components/log-payment.test.tsx`; `frontend/src/lib/format.test.ts`
-  (amount parsing and the cap); `backend/tests/test_api_payments.py`, `test_api_bounds.py`,
+- **Tests:** `frontend/src/components/log-payment.test.tsx` ("saves with Enter after
+  clicking a method button…", "finds a student the same way as the Students page");
+  `frontend/src/lib/format.test.ts`, `lib/amount.test.ts` (amount parsing and the cap),
+  `lib/search.test.ts`; `backend/tests/test_api_payments.py`, `test_api_bounds.py`,
   `test_api_students.py` (`test_suggest_payment*`), `test_ledger.py` (`test_suggest_*`);
   `frontend/e2e/records.spec.ts` → "Enter never switches the student…", "Undo removes the
   payment just saved", "pressing Enter or clicking Save twice saves only one payment", "moving a
-  payment to another month…".
+  payment to another month…"; `frontend/e2e/fixes.spec.ts` → "clicking Cash then pressing Enter
+  saves exactly one payment", "an amount over the cap written with "/-" says the cap".
 
 </details>
 
@@ -498,6 +508,8 @@ and their **total**, for whatever filters are on:
 1. Click a column heading: **Paid on**, **Student**, **Amount**, **For month** or **Method**.
    An arrow shows which way it's sorted.
 2. Click the same heading again to reverse the order. A third click goes back to newest first.
+   **Paid on** starts newest first, so its first click shows the oldest first, and the next
+   click goes back to newest first.
 
 **Find a payment**
 1. Type part of the student's name or the note into the search box, and/or choose a student,
@@ -529,8 +541,6 @@ received during September.
 
 - **Amount** sorts largest first on the first click. **Student** sorts A to Z, and **Method**
   sorts Cash, Other, UPI.
-- The list already starts newest first, so a first click on **Paid on** changes nothing you can
-  see; click it again for oldest first.
 - The browser's **Back** button remembers the student, month and method you picked, but not
   the search text.
 - *"No payments match these filters."* means nothing fits; click **Clear filters**. *"No
@@ -544,7 +554,8 @@ received during September.
   optional starting `?q=`).
 - **Components:** `frontend/src/pages/payments-page.tsx` (filters; the search is debounced
   250 ms and lives in page state), `components/payments-table.tsx` (TanStack Table v9 sorting,
-  total footer, Edit/Delete, `ConfirmDialog`), `components/confirm-dialog.tsx`.
+  total footer, Edit/Delete, `ConfirmDialog`; **Paid on** has `sortDescFirst`, so its first
+  click turns the starting newest-first order round), `components/confirm-dialog.tsx`.
 - **API:** `GET /api/payments?student_id=&month=&q=` (`listPayments`, default
   `sort=paid_on&order=desc`); `DELETE /api/payments/{id}` (`deletePayment`); Edit uses
   `updatePayment`. The **method** filter and the column **sorting** run in the browser over the
@@ -552,7 +563,9 @@ received during September.
 - **Backend:** `routers/payments.py` → `services/payments.list_payments` (accent- and
   case-insensitive `q` via `services/text.py`), `delete_payment`.
 - **PRD:** stories P3, P4; ledger rule 3.
-- **Tests:** `frontend/src/pages/payments-page.test.tsx`; `backend/tests/test_api_payments.py`
+- **Tests:** `frontend/src/pages/payments-page.test.tsx` ("shows oldest first on the first
+  click on Paid on…"); `frontend/e2e/fixes.spec.ts` → "the first click on "Paid on" shows the
+  oldest payment first"; `backend/tests/test_api_payments.py`
   (`test_sorting`, `test_filters_and_search`, `test_default_sort_is_newest_paid_on_first`),
   `test_api_bounds.py` (`test_search_and_sort_ignore_case_and_accents`),
   `test_query_counts.py`.
@@ -616,7 +629,9 @@ a class or batch, and ignores capitals.
 1. Click their name, or anywhere on their row.
 
 **Find a student**
-1. Type part of their name, phone number, parent's name or class into the search box.
+1. Type part of their name, phone number, parent's name or class into the search box. The
+   words can be in any order (*menon arjun*), capitals and accents don't matter (*emile* finds
+   *Émile*), and a phone number can be typed with or without its spaces.
 2. Choose **All** if you're not sure whether they've left.
 
 **See who has left**
@@ -633,8 +648,8 @@ a class or batch, and ignores capitals.
   shows **Owes** until every due month is paid.
 - A student marked as leaving stays on the **Active** tab until their last month has passed,
   then moves to **Left** by themselves.
-- The search looks for exactly what you type. For a phone number, type it with the same spaces
-  it was saved with (or just the last few digits).
+- The search is the same as the student list in [Log payment](#log-payment-and-edit-payment):
+  whoever one finds, the other finds too.
 - *"No students match …"*, *"No one has left."* and *"No active students."* mean the tab or the
   search has nothing in it. *"No students yet."* means nobody has been added.
 
@@ -645,14 +660,18 @@ a class or batch, and ignores capitals.
   (`BalanceChip`, `PaidAheadNote`, `ExtraPaidNote`); `lib/status.ts` (`standingLabel`,
   `balanceTone`); `lib/labels.ts` (`tenureLabel`, `formatMonthCount`).
 - **API:** `GET /api/students?status=all` (`listStudents`) once; the tabs (`is_active`) and the
-  search (name, phone, guardian, batch; lower-cased substring) are filtered in the browser. The
-  server's own `status` and `q` filters (accent-insensitive, ignores spaces in phone numbers)
-  aren't used by this page.
+  search are filtered in the browser. The search is `studentMatches` in `lib/search.ts`, the
+  same one the Log payment student list uses: every word must appear in the name, guardian,
+  batch or phone, ignoring case and accents, and digits-only words also match the phone's
+  digits without spaces or punctuation. The server's own `status` and `q` filters aren't used
+  by this page.
 - **Backend:** `services/students.list_students` → `ledger.student_ledger` (`standing_status`,
   `owed`, `credit`, `paid_ahead`, `tenure_months`, `has_left`, `current_fee`).
 - **PRD:** scope item 6; ledger rules 6, 8 and 10; `tenure_months` in
   [data model](data-model.md#ledger-computation).
-- **Tests:** `frontend/src/pages/students-page.test.tsx`; `backend/tests/test_api_students.py`
+- **Tests:** `frontend/src/pages/students-page.test.tsx` ("searches like Log payment…"),
+  `lib/search.test.ts`; `frontend/e2e/fixes.spec.ts` → "Students search: phone without spaces,
+  accents, and words in any order"; `backend/tests/test_api_students.py`
   (`test_list_filters_search_and_sorting`, `test_active_until_the_left_month_has_passed`,
   `test_leaving_after_december_moves_to_left_in_january`); `test_ledger.py`
   (`test_tenure_months`, `test_balance_and_status`); `frontend/e2e/records.spec.ts` → "mark as
@@ -690,15 +709,28 @@ later."*):
 
 - **Left in month** (optional): *"The last month they should pay for. Leave empty while they're
   still coming."* It shows **Still coming** when empty, and its calendar has a **Still coming**
-  button to empty it again.
+  button to empty it again. Once their last month has passed, the **Still coming** button
+  isn't there, and the line says *"If they've come back, use Mark as coming again on their
+  profile."* That asks which month they're back from, so the months away aren't owed.
 - **New fee applies from**: this appears, in a marigold box, as soon as you type a fee different
-  from their current one:
+  from their current one. It's also there whenever they have a fee change that hasn't started
+  yet (and once you've typed in the fee box, whenever they've had more than one fee), so you
+  can set a fee from any month, even today's fee from a later month:
 
-![The Edit Kabir Mehta form with the Monthly fee changed to 2100 and a marigold box: New fee applies from September 2026, and 'From September 2026 they'll owe ₹2,100 a month. Earlier months keep the old fee of ₹1,800.'](images/feature-guide/student-edit-fee-change.png)
+![The Edit Kabir Mehta form with the Monthly fee changed to 2100 and a marigold box: New fee applies from September 2026, and 'From September 2026 they'll owe ₹2,100 a month, until November 2026, when ₹2,000 (already scheduled) starts. Months before September 2026 don't change.'](images/feature-guide/student-edit-fee-change.png)
 
-It starts on this month, and says in plain words what will happen: *"From September 2026
-they'll owe ₹2,100 a month. Earlier months keep the old fee of ₹1,800."* If another fee change is
-already set for a later month, the new fee only lasts until then (see *Good to know*).
+It starts on this month, and says in plain words what will happen, from their real fee
+history:
+- *"From September 2026 they'll owe ₹2,100 a month. Months before September 2026 don't
+  change."*
+- If a fee change is already set for a later month, the new fee lasts only until then:
+  *"From September 2026 they'll owe ₹2,100 a month, until November 2026, when ₹2,000 (already
+  scheduled) starts."* (In the picture, Kabir has a raise to ₹2,000 set for November.)
+- If a fee is already set for the chosen month, it's replaced: *"It replaces the ₹2,000 already
+  set for November 2026."*
+- An earlier month changes past months too: *"… don't change, but the months since then do."*
+- If the fee you typed is already their fee in the chosen month: *"That's already their fee in
+  September 2026, so nothing changes."* Nothing is saved for the fee then.
 
 ### What you can do
 
@@ -719,7 +751,13 @@ already set for a later month, the new fee only lasts until then (see *Good to k
 1. Open their profile and click **Edit**.
 2. Type the new **Monthly fee**.
 3. In **New fee applies from**, choose the first month of the new fee.
-4. Click **Save changes**.
+4. Read the sentence under it: it says from when, and until when if another fee is already set.
+5. Click **Save changes**.
+
+**Take back a fee change that hasn't started yet**
+1. On their profile, find it in **Details → Fee history** (marked *not started yet*).
+2. Click **Remove** next to it, and **Remove fee change** to confirm. See
+   [Student profile](#student-profile).
 
 **Set the month they leave** (the same as [Mark as left](#student-profile) on the profile)
 1. Open their profile and click **Edit**.
@@ -727,15 +765,17 @@ already set for a later month, the new fee only lasts until then (see *Good to k
 3. Click **Save changes**.
 
 **Say they're staying after all**
-1. On their profile, click **Mark as staying** (or **Mark as coming again**, once they've left).
-   Or: **Edit**, open **Left in month**, click **Still coming**, and **Save changes**.
+1. Before their last month has passed: on their profile, click **Mark as staying**. Or:
+   **Edit**, open **Left in month**, click **Still coming**, and **Save changes**.
+2. Once it has passed, click **Mark as coming again** on their profile instead. It asks which
+   month they're back from (see [Student profile](#student-profile)).
 
 ### Good to know
 
 - **Earlier months keep their fee.** The new fee applies from the "applies from" month until
   the next fee change you've already set for a later month, if there is one; that later change
-  stays as it is. (The form's own sentence only mentions the old fee.) Their profile's
-  *Details* lists each fee and when it started.
+  stays as it is, and the form's sentence names it. Their profile's *Details → Fee history*
+  lists each fee and when it starts.
 - Choosing an **earlier** month for a new fee changes those past months too. A month that was
   paid at the old fee then shows as **Partial** (if the fee went up) or **Paid extra** (if it
   went down).
@@ -746,9 +786,8 @@ already set for a later month, the new fee only lasts until then (see *Good to k
 - The form checks before saving and explains next to the box: *"Enter their name."*, *"Pick the
   month they joined."*, *"This can't be before the month they joined."*, *"The new fee can't
   start before the month they joined."*
-- The **New fee applies from** box only appears when the fee you type is different from
-  **this month's** fee. So if a new fee is already set for a later month, you can't use this
-  form to set it back to today's fee.
+- To cancel a raise you set for a later month, either **Remove** it from *Fee history* on the
+  profile, or type today's fee here and choose that later month in **New fee applies from**.
 - Months can be set at most two years ahead. Anything later is refused as a likely typo:
   *"… can't be later than September 2028 (two years from now)"*.
 - You can't set a leaving month while adding a student; add them first, then **Edit**.
@@ -756,24 +795,31 @@ already set for a later month, the new fee only lasts until then (see *Good to k
 <details><summary>For developers</summary>
 
 - **Components:** `frontend/src/components/student-form.tsx` (`StudentFormDialog`,
-  `StudentForm`), `components/month-picker.tsx`, `lib/amount.ts`. Opened from
+  `StudentForm`; `showFeeFrom` decides when "applies from" shows, `feeChanged` whether a fee
+  change is sent), `lib/fees.ts` (`feeAt`, `newFeeSentence`: the sentence, from
+  `fee_history`), `components/month-picker.tsx`, `lib/amount.ts`. Opened from
   `pages/students-page.tsx`, `pages/dashboard-page.tsx` (first run) and
   `pages/student-profile-page.tsx` (Edit).
 - **API:** `POST /api/students` (`createStudent`); `PATCH /api/students/{id}`
   (`updateStudent`), sending only changed fields; a fee change is `monthly_fee_paise` +
-  `fee_effective_month`; "Still coming" is `left_month: null`. The current month comes from
-  the student (`current_month`) or `useServerMonth()` (`getDashboard`).
+  `fee_effective_month`, sent only when the fee differs from the one in effect in that
+  month; "Still coming" is `left_month: null` (not offered once `left_month` has passed). The
+  current month comes from the student (`current_month`) or `useServerMonth()`
+  (`getDashboard`).
 - **Backend:** `services/students.create_student` (inserts the first fee change at
   `joined_month`), `update_student` and `_set_fee_from` (upsert; nothing recorded if that fee is
   already in effect); limits in `services/bounds.py`. The edit rules are in
   [data model](data-model.md#api-all-under-api) ("Editing a student").
 - **PRD:** stories S1, S2, S3; ledger rules 1, 2, 7 and 8.
 - **Tests:** `frontend/src/pages/students-page.test.tsx` ("creates a student"),
-  `pages/student-profile-page.test.tsx` ("changes the fee from a chosen month…", "shows the
-  server's reason inline…", "marks a student as left"); `backend/tests/test_api_students.py`
-  (`test_patch_*`, `test_moving_joined_month_*`, `test_archive_and_unarchive`);
-  `frontend/e2e/records.spec.ts` → "a new fee applies from the chosen month…", "a change the
-  server refuses shows its reason next to the field".
+  `pages/student-profile-page.test.tsx` ("changes the fee from a chosen month…", "with a fee
+  change already scheduled", "doesn't offer "Still coming" in Edit once they have left", "shows
+  the server's reason inline…", "marks a student as left"), `lib/fees.test.ts`;
+  `backend/tests/test_api_students.py` (`test_patch_*`, `test_moving_joined_month_*`,
+  `test_archive_and_unarchive`); `frontend/e2e/records.spec.ts` → "a new fee applies from the
+  chosen month…", "a change the server refuses shows its reason next to the field";
+  `frontend/e2e/fixes.spec.ts` → "a scheduled fee change shows in the message…", "a month off
+  set in advance…".
 
 </details>
 
@@ -819,12 +865,18 @@ Under the headline:
 
 <img src="images/feature-guide/profile-credit.png" alt="A teal Balance card: 'Credit ₹500', 'Paid ₹500 more than was due.', and a box '₹500 paid extra: July 2026 · ₹2,500 paid for a ₹2,000 fee' with an Edit payment button and 'If it was meant for another month, change that payment's month.'" width="320"> <img src="images/feature-guide/profile-paid-after-leaving.png" alt="A red Balance card for a student who left after May: 'Owes ₹2,500 (May)', a teal note 'Paid ₹2,500 extra in Jul 2026', an Oldest unpaid box 'May 2026 · ₹2,500 left' with Log payment, and '₹2,500 paid extra: ₹2,500 paid for Jul 2026, after they left — was it for May?' with Edit payment." width="320">
 
-**The Details card:** **Monthly fee** (with every fee and when it started, if it has changed),
-**Joined** (*October 2025 · member for 11 mo*, or *new this month*, *starts …*, or *left after
-May 2026 (8 mo)*, counting both the first and the last month), **Class or batch**, **Phone**, **Parent or guardian** and **Notes** (*Not
-set* or *None* when empty).
+**The Details card:** **Monthly fee** (this month's), **Joined** (*October 2025 · member for 11 mo*, or *new this month*, *starts …*, or *left after
+May 2026 (8 mo)*, counting both the first and the last month), **Fee history** (when their
+fee has ever changed), **Class or batch**, **Phone**, **Parent or guardian** and **Notes**
+(*Not set* or *None* when empty).
 
-![The Details card for Kabir Mehta: Monthly fee ₹1,800, with '₹1,500 from Oct 2025 · ₹1,800 from Apr 2026' under it, Joined October 2025 · member for 11 mo, class, phone, parent and a note.](images/feature-guide/profile-details-fee-history.png)
+![The Details card for Kabir Mehta: Monthly fee ₹1,800, Joined October 2025 · member for 11 mo, then Fee history: ₹1,500 from Oct 2025, ₹1,800 from Apr 2026, and ₹2,000 from Nov 2026 (not started yet) with a red Remove button; then class, phone, parent and a note.](images/feature-guide/profile-details-fee-history.png)
+
+**Fee history** lists every fee and the month it starts, oldest first. *No fee* means ₹0 (a
+month off, or the months away before they came back). A fee that starts after this month is
+marked *(not started yet)*, with a **Remove** button, in case it was set by mistake or plans
+changed. Their first fee, and any fee that has already started, can't be removed; change those
+with **Edit**.
 
 **Month by month** (*"What was due each month, and what came in."*): one row per month, newest
 first, from the month they joined to this month (and any later month they've paid ahead for).
@@ -846,7 +898,8 @@ The labels:
 - **Paid ahead** or **Part paid ahead** (teal ▸▸): a later month already paid (in part), while
   they're still enrolled.
 - **Not due yet** (grey): a later month not paid yet. It isn't owed.
-- **No fee** (grey): a month with a ₹0 fee and nothing paid.
+- **No fee** (grey): a month with a ₹0 fee and nothing paid, such as a month off or the months
+  away before they came back. It's never owed.
 
 ![Aarav Bhat's profile: a green Balance card 'Up to date' with 'Paid ahead to Oct 2026' and 'Everything due is paid, and ahead to October 2026.', and Month by month with October 2026 marked Paid ahead and every earlier month Paid.](images/feature-guide/profile-paid-ahead.png)
 
@@ -857,7 +910,8 @@ by the heading is how many there are.
 **The buttons at the top:**
 - **Edit**: opens [Edit student](#new-student-and-edit-student).
 - **Mark as left** (while they're coming), **Mark as staying** (marked as leaving, but that
-  month hasn't passed) or **Mark as coming again** (after they've left).
+  month hasn't passed) or **Mark as coming again** (after they've left; it asks which month
+  they're back from).
 - **Delete** (in red).
 - **+ Log payment**, already filled in for this student.
 
@@ -887,9 +941,37 @@ by the heading is how many there are.
 
 <img src="images/feature-guide/mark-left.png" alt="The box 'Mark Ananya Rao as left?': 'Ananya won't owe anything after this month, and will then move to the Left tab. Their payments and history are kept.', 'Last month they should pay for: September 2026', Cancel and Mark as left." width="420">
 
-**Change your mind**
-1. Click **Mark as staying** (before their last month has passed) or **Mark as coming again**
-   (after). They're a regular student again: *"… is staying"* or *"… is active again"*.
+**Change your mind before they leave**
+1. Click **Mark as staying** (their last month hasn't passed yet). They're a regular student
+   again: *"… is staying"*.
+
+**Mark them as coming again, after they've left**
+1. Click **Mark as coming again**.
+2. **Which month are they back from?** This month is filled in. You can pick any month after the
+   one they left, up to two years ahead.
+3. Read what will happen: the months away get **no fee**, so nothing is owed for them, and
+   from the month they're back they owe their fee again. If they had paid for a month while
+   they were away, it says that payment will show as paid extra.
+4. Click **Mark as coming again**. You'll see *"Rohan Desai is coming again — From September
+   2026. Nothing is owed for June–August 2026."*
+
+<img src="images/feature-guide/come-back.png" alt="The box 'Mark Rohan Desai as coming again?': 'Rohan left after May 2026. Their payments and history are kept.', 'Which month are they back from? September 2026', 'June–August 2026: no fee, so nothing is owed for the months away.', 'From September 2026 they'll owe ₹2,500 a month again.', Cancel and Mark as coming again." width="420">
+
+Afterwards, *Month by month* shows the months away as **No fee** (grey), never as unpaid, and
+*Fee history* shows *No fee from Jun 2026* and their fee again from the month they're back:
+
+![Rohan Desai's Month by month after coming back from September: September 2026 ₹2,500 Unpaid with Log payment; June, July and August 2026 with no fee and a grey No fee label; May 2026 back to October 2025 Paid.](images/feature-guide/profile-back-month-by-month.png)
+
+If you pick the month right after they left, nothing is skipped: every month counts, as if
+they never left (use this if they were marked as left by mistake).
+
+**Remove a fee change that hasn't started yet**
+1. In **Details → Fee history**, click **Remove** next to it.
+2. The app says what their fee will be instead: *"After this, from November 2026 they'll owe
+   ₹1,800 a month. Nothing else changes."*
+3. Click **Remove fee change**. You'll see *"Fee change removed"*.
+
+<img src="images/feature-guide/fee-change-remove-confirm.png" alt="The box 'Remove the ₹2,000 fee from November 2026?': 'After this, from November 2026 they'll owe ₹1,800 a month. Nothing else changes.', with Cancel and a red Remove fee change button." width="380">
 
 **Delete them** (only for someone added by mistake)
 1. Click **Delete**.
@@ -905,9 +987,10 @@ by the heading is how many there are.
 - **Owes always comes first.** If any due month is short, the headline says **Owes**, however
   much was paid ahead or extra elsewhere. Payments are always kept exactly as you typed them;
   the app never moves money between months by itself.
-- **Mark as coming again** clears the leaving month completely, so the months while they were
-  away count as owed again. See
-  [A student takes a month off](#a-student-takes-a-month-off) for how to handle a gap.
+- **Mark as coming again** never makes the months away owed: they get a ₹0 fee (**No fee**),
+  and their fee carries on from the month they're back. It's usually the fee they paid when
+  they left. If a new fee had already been set for a month while they were away, they come back
+  on that one. A fee change already set for after they're back stays as it is.
 - **Paid ahead is good news**, not a problem: nothing to fix.
 - **Delete** removes the student and all their payments for good. **Mark as left** keeps
   everything, and is almost always what you want.
@@ -921,23 +1004,33 @@ by the heading is how many there are.
 
 - **Route:** `/students/:id`.
 - **Components:** `frontend/src/pages/student-profile-page.tsx` (`Profile`, `BalanceCard`,
-  `DetailsCard`, `MonthHistory`, `fixMonth`), `components/mark-left-dialog.tsx`,
+  `DetailsCard`, `FeeHistory`, `MonthHistory`, `fixMonth`), `components/mark-left-dialog.tsx`,
+  `components/come-back-dialog.tsx` (`ComeBackDialog`), `lib/fees.ts`,
   `components/confirm-dialog.tsx`, `components/payments-table.tsx` (`showStudent={false}`),
   `components/status.tsx` (`MonthStatusBadge`, `PaidAheadNote`, `ExtraPaidNote`),
   `lib/status.ts`, `lib/labels.ts` (`tenurePhrase`).
 - **API:** `GET /api/students/{id}` (`getStudent`) → `StudentDetail` (`months[]`,
   `fee_history[]`, `payment_count`, `total_paid_paise`); `GET /api/payments?student_id=`
-  (`listPayments`); `PATCH /api/students/{id}` (`updateStudent`) for Mark as left / staying /
-  coming again (`left_month`); `DELETE /api/students/{id}` (`deleteStudent`).
+  (`listPayments`); `PATCH /api/students/{id}` (`updateStudent`) for Mark as left and Mark as
+  staying (`left_month`); `POST /api/students/{id}/return` (`returnStudent`, body
+  `{from_month}`) for Mark as coming again; `DELETE /api/students/{id}/fee-changes/{fee_change_id}`
+  (`deleteFeeChange`) for Remove in Fee history; `DELETE /api/students/{id}`
+  (`deleteStudent`).
 - **Backend:** `services/students.get_student` / `student_detail` → `ledger.student_ledger`
   (`history_range`, `month_line`, `standing_status`, `owed`, `credit`, `paid_ahead`);
-  `services/students.delete_student` (payments cascade).
+  `services/students.return_student` (one transaction: a ₹0 fee change after `left_month`,
+  the gap's fee changes removed, the fee carried on from `from_month`, `left_month` cleared;
+  see [data model](data-model.md#coming-back-after-leaving)), `delete_fee_change` (never the
+  first fee, never one that has started), `delete_student` (payments cascade).
 - **Display rules:** the headline comes from `status` + `owed_paise` / `credit_paise`, never
   `balance_paise`. "Paid ahead to …" is the last contiguous fully-paid month after the current
   one, before `left_month`. A month after `left_month` with a payment counts as due for the
   badge and the extra-money list (`afterLeft`), matching `ledger.credit`.
-- **PRD:** stories S3, S4, S5; ledger rules 4, 5, 6 and 10.
-- **Tests:** `frontend/src/pages/student-profile-page.test.tsx`;
+- **PRD:** stories S2, S3, S4, S5, S6; ledger rules 4, 5, 6, 7, 10 and 11.
+- **Tests:** `frontend/src/pages/student-profile-page.test.tsx` ("Mark as coming again", "lists
+  the fee history and removes a scheduled change…"); `backend/tests/test_api_fee_schedule.py`;
+  `frontend/e2e/fixes.spec.ts` → "coming back after leaving asks the month…", "a scheduled fee
+  change shows in the message and can be removed…";
   `backend/tests/test_api_students.py` (`test_detail_ledger_with_payments`,
   `test_balance_status_credit`, `test_delete_cascades_to_payments`); `test_ledger.py`
   (`test_paying_ahead_never_hides_months_owed`,
@@ -968,7 +1061,7 @@ The same word always has the same colour, everywhere in the app.
 | **Credit ₹X** | Teal | Students page; profile Balance headline | Nothing is owed, but some month up to this one was paid more than its fee, or something was paid for a month after they left. ₹X is the extra. It is never used up automatically for later months: to count it, edit that payment's month |
 | **Up to date** | Green, with a tick | Students page; profile Balance headline | Nothing owed and nothing extra |
 | **Not due yet** | Grey | Profile *Month by month*; Dashboard for a later month (labels and the third box) | A month that hasn't started, not paid yet. Nothing is owed until it comes |
-| **No fee** | Grey | Profile *Month by month* | A month whose fee is ₹0, with nothing paid |
+| **No fee** | Grey | Profile *Month by month* and *Fee history* | A month whose fee is ₹0, with nothing paid: a free place, a month off, or the months away before they came back. Never owed |
 | **Active** | — (a tab) | Students page | Still coming: no leaving month, or it's this month or later |
 | **Left** | Grey | Students page tab; "Left May 2026" under *Member for*; "Left after May 2026" on the profile; the **Left** group when choosing a student | Their last month has passed. They owe nothing after it, and their history is kept |
 | **Leaving after …** | Grey | Profile label; under *Member for* | They've been marked as leaving, and that last month hasn't passed yet. They still show as Active |
@@ -1001,7 +1094,8 @@ in [Log payment](#log-payment-and-edit-payment).
 2. Type the student's name and press **Enter** (skip this if it's already filled in).
 3. Check the **Amount** and **For month**. The form picks the oldest month they owe.
 4. Click **UPI** or **Cash**.
-5. Click **Save payment**. Made a slip? Click **Undo** in the message at the top.
+5. Press **Enter** (or click **Save payment**). Made a slip? Click **Undo** in the message at
+   the top.
 
 ### A parent pays for two months at once
 
@@ -1046,8 +1140,11 @@ Tip: a **Note** such as *"Balance after the 15th"* helps you remember.
 1. Open the student's profile (**Students** → their name) and click **Edit**.
 2. Type the new **Monthly fee**.
 3. In **New fee applies from**, choose **next month**.
-4. Click **Save changes**. This month and earlier keep the old fee. *Details* now shows both
-   fees, for example *₹1,500 from Oct 2025 · ₹1,800 from Oct 2026*.
+4. Click **Save changes**. This month and earlier keep the old fee. *Details → Fee history*
+   now shows both fees, for example *₹1,500 from Oct 2025* and *₹1,800 from Oct 2026 (not
+   started yet)*.
+
+Changed your mind before it starts? Click **Remove** next to it in *Fee history*.
 
 Doing this for many students means repeating it for each one; there's no "raise everyone's fee"
 button yet.
@@ -1063,9 +1160,13 @@ button yet.
 
 **They changed their mind before leaving:** open their profile and click **Mark as staying**.
 
-**They came back after leaving:** open their profile and click **Mark as coming again**. The
-months while they were away then count as owed. To clear those, see
-[A student takes a month off](#a-student-takes-a-month-off).
+**They came back after leaving:**
+1. Open their profile (Students → **Left** tab → their name) and click **Mark as coming
+   again**.
+2. Choose the month they're back from (this month is filled in), and click **Mark as coming
+   again**.
+3. The months they were away show **No fee** and are never owed. They owe their fee again from
+   the month they're back, and they're on the **Active** tab.
 
 ### A student added by mistake
 
@@ -1097,31 +1198,31 @@ students**.
 
 ### A student takes a month off
 
-**Not built yet.** The app can't mark a single month as "on a break" or "excused"; it's planned
-(see ["Excused / on break" months](product/future-features.md#1-business-structure-locations--batches--students)
-in the future features). Until then, you can:
+**There's no "on a break" button yet**; it's planned (see
+["Excused / on break" months](product/future-features.md#1-business-structure-locations--batches--students)
+in the future features). Until then, set their fee to ₹0 for the month off, with two fee
+changes. This works before the month off, during it, or after it:
 
-- **Leave it as it is**, and add a note to the student (**Edit** → **Notes**, e.g. *"No fee for
-  December, away"*). The month will keep showing as owed.
-- **Or set their fee to ₹0 for that month.** Only do this **once the month off has started**
-  (or after it):
-  1. Open their profile and click **Edit**.
-  2. Type **0** as the **Monthly fee**, set **New fee applies from** to the month off, and click
-     **Save changes**.
-  3. Click **Edit** again. Type their usual **Monthly fee**, set **New fee applies from** to the
-     month after the break, and click **Save changes**.
+1. Open their profile and click **Edit**.
+2. Type **0** as the **Monthly fee**, set **New fee applies from** to the month off, and click
+   **Save changes**. (The form says *"From December 2026 they'll have no fee."*)
+3. Click **Edit** again. Type their usual **Monthly fee** (it may already be there), set **New
+   fee applies from** to the month after the break, and check the sentence: *"From January 2027
+   they'll owe ₹1,500 a month."* Click **Save changes**.
+4. Check **Details → Fee history**: *No fee from Dec 2026*, then *₹1,500 from Jan 2027*.
 
-  The month off now shows **No fee**, and every other month keeps its fee. If they had already
-  paid for that month, the payment now shows as **Paid extra**: edit it and move its **For
-  month** to the month they're back.
+The month off now shows **No fee**, and every other month keeps its fee. Don't skip step 3:
+until it's done, they have no fee from the month off onwards. Made a mistake with a month that
+hasn't started yet? **Remove** it from *Fee history* and start again.
 
-  **Done in advance, it goes wrong:** before the month off starts, step 3 has no **New fee
-  applies from** box (their usual fee is still this month's fee), so nothing is saved, and they
-  owe nothing from the month off onwards. If that happens, repeat step 3 once the month off has
-  started.
+If they had already paid for the month off, that payment shows as **Paid extra**: edit it and
+move its **For month** to the month they're back.
 
-The same two steps clear the gap after **Mark as coming again**: fee **0** from the first month
-they were away, then their usual fee from the month they came back.
+Or simply leave the month as it is and add a note (**Edit** → **Notes**, e.g. *"No fee for
+December, away"*); the month then keeps showing as owed.
+
+(This is for a break while they're still coming. For someone who was marked as **left** and has
+come back, use **Mark as coming again** instead: it does this for you.)
 
 ### It says someone owes but I know they paid
 
@@ -1135,11 +1236,13 @@ Open their profile and look at **Month by month** to see which month shows as ow
 2. **Was it logged for someone else?** Search their name on the **Payments** page. If it isn't
    there, search the other student's name, then **Edit** the payment and change the **Student**.
 3. **Was the amount typed wrong?** Edit it on the **Payments** page.
-4. **Is the fee right?** Check **Details → Monthly fee**. A fee change from an earlier month than
-   meant can make old months **Partial**.
-5. **Is the joined month right?** If **Joined** is earlier than they really started, the first
+4. **Is the fee right?** Check **Details → Monthly fee** and **Fee history**. A fee change from
+   an earlier month than meant can make old months **Partial**.
+5. **Did they leave and come back?** If they were marked as left and the months away show as
+   owed, check *Fee history*: after **Mark as coming again** those months have *No fee*.
+6. **Is the joined month right?** If **Joined** is earlier than they really started, the first
    months show as owed. **Edit** → **Joined in**.
-6. **Not logged at all?** Log it now with the right **Paid on** date.
+7. **Not logged at all?** Log it now with the right **Paid on** date.
 
 ---
 
@@ -1181,16 +1284,20 @@ Open their profile and look at **Month by month** to see which month shows as ow
 | First run | `pages/dashboard-page.tsx` (`FirstRun`) | `GET /api/students` (`listStudents`) | `services/students.list_students` | `pages/dashboard-page.test.tsx` |
 | Log payment prefill and hints | `components/log-payment.tsx` | `GET /api/students/{id}/suggest-payment` (`suggestPayment`), `GET /api/students/{id}` (`getStudent`) | `services/students.suggest_payment` → `ledger.suggest_payment` | `components/log-payment.test.tsx`, `test_ledger.py`, `test_api_students.py` |
 | Save, edit, undo a payment | `components/log-payment.tsx` | `POST /api/payments` (`createPayment`), `PATCH /api/payments/{id}` (`updatePayment`), `DELETE /api/payments/{id}` (`deletePayment`) | `services/payments.create_payment`, `update_payment`, `delete_payment`; `services/bounds.py` | `components/log-payment.test.tsx`, `test_api_payments.py`, `test_api_bounds.py`, `e2e/records.spec.ts` |
-| Amount rules and ₹10,00,000 cap | `lib/format.ts` (`rupeesToPaise`), `lib/amount.ts` | (all amount fields) | `app/schemas.py` (`MAX_AMOUNT_PAISE`) | `lib/format.test.ts`, `test_api_payments.py::test_amount_cap` |
+| Amount rules and ₹10,00,000 cap | `lib/format.ts` (`rupeesToPaise`, `parseRupees`), `lib/amount.ts` | (all amount fields) | `app/schemas.py` (`MAX_AMOUNT_PAISE`) | `lib/format.test.ts`, `lib/amount.test.ts`, `test_api_payments.py::test_amount_cap` |
 | Payments list, filters, sort, total | `pages/payments-page.tsx`, `components/payments-table.tsx` | `GET /api/payments` (`listPayments`) | `services/payments.list_payments` | `pages/payments-page.test.tsx`, `test_api_payments.py` |
 | Students list, tabs, status, tenure | `pages/students-page.tsx`, `components/status.tsx`, `lib/status.ts`, `lib/labels.ts` | `GET /api/students` (`listStudents`) | `services/students.list_students` → `ledger.student_ledger` | `pages/students-page.test.tsx`, `test_api_students.py` |
-| New / edit student, fee change | `components/student-form.tsx` | `POST /api/students` (`createStudent`), `PATCH /api/students/{id}` (`updateStudent`) | `services/students.create_student`, `update_student`, `_set_fee_from` | `pages/students-page.test.tsx`, `pages/student-profile-page.test.tsx`, `test_api_students.py` |
+| Student search (Students page and Log payment) | `lib/search.ts` (`studentMatches`), `pages/students-page.tsx`, `components/student-combobox.tsx` | — (in the browser) | — | `lib/search.test.ts`, `pages/students-page.test.tsx`, `components/log-payment.test.tsx`, `e2e/fixes.spec.ts` |
+| New / edit student, fee change | `components/student-form.tsx`, `lib/fees.ts` | `POST /api/students` (`createStudent`), `PATCH /api/students/{id}` (`updateStudent`) | `services/students.create_student`, `update_student`, `_set_fee_from` | `pages/students-page.test.tsx`, `pages/student-profile-page.test.tsx`, `lib/fees.test.ts`, `test_api_students.py`, `e2e/fixes.spec.ts` |
+| Fee history, remove a fee change that hasn't started | `pages/student-profile-page.tsx` (`FeeHistory`), `components/confirm-dialog.tsx` | `DELETE /api/students/{id}/fee-changes/{fee_change_id}` (`deleteFeeChange`) | `services/students.delete_fee_change` | `pages/student-profile-page.test.tsx`, `test_api_fee_schedule.py`, `e2e/fixes.spec.ts` |
 | Profile balance, month by month | `pages/student-profile-page.tsx` | `GET /api/students/{id}` (`getStudent`), `GET /api/payments?student_id=` (`listPayments`) | `services/students.get_student` → `ledger.student_ledger` | `pages/student-profile-page.test.tsx`, `test_api_students.py`, `test_ledger.py` |
-| Mark as left / staying / coming again | `components/mark-left-dialog.tsx`, `pages/student-profile-page.tsx` | `PATCH /api/students/{id}` (`updateStudent`) | `services/students.update_student`; `ledger.has_left` | `pages/student-profile-page.test.tsx`, `test_api_students.py`, `e2e/records.spec.ts` |
+| Mark as left / staying | `components/mark-left-dialog.tsx`, `pages/student-profile-page.tsx` | `PATCH /api/students/{id}` (`updateStudent`) | `services/students.update_student`; `ledger.has_left` | `pages/student-profile-page.test.tsx`, `test_api_students.py`, `e2e/records.spec.ts` |
+| Mark as coming again ("Which month are they back from?") | `components/come-back-dialog.tsx`, `pages/student-profile-page.tsx` | `POST /api/students/{id}/return` (`returnStudent`) | `services/students.return_student` | `pages/student-profile-page.test.tsx`, `test_api_fee_schedule.py`, `e2e/fixes.spec.ts` |
 | Delete student | `pages/student-profile-page.tsx`, `components/confirm-dialog.tsx` | `DELETE /api/students/{id}` (`deleteStudent`) | `services/students.delete_student` | `pages/student-profile-page.test.tsx`, `test_api_students.py`, `e2e/records.spec.ts` |
 
 Test paths without a folder are in `frontend/src/` (`*.tsx`, `*.ts`) or `backend/tests/`
-(`test_*.py`); end-to-end tests are in `frontend/e2e/records.spec.ts`.
+(`test_*.py`); end-to-end tests are in `frontend/e2e/records.spec.ts` and
+`frontend/e2e/fixes.spec.ts`.
 
 ### How a number is calculated: "Still due"
 
@@ -1224,16 +1331,15 @@ for months after the current one). The current month always comes from the serve
 
 ### Open questions found while writing this guide
 
-These look like small UI issues. They're described here rather than changed:
+The four found while writing this guide (the first click on **Paid on**, the Students
+search, setting a scheduled fee back, and the months away after **Mark as coming again**) were
+fixed before v0.1.0, along with Enter after clicking a method button and the cap message for
+amounts written with `/-`. Still open:
 
-- **Paid on sorting:** the Payments list starts newest first, but the first click on **Paid on**
-  only clears the sort (the order looks the same), so it takes two clicks to see oldest first.
-- **Students search** is a simple match in the browser: unlike the API's `q`, it doesn't ignore
-  accents or the spaces in phone numbers.
-- **A future fee change can't be set back to today's fee** from the Edit form, because the
-  *New fee applies from* box only appears when the typed fee differs from this month's fee.
-- **Mark as coming again** makes the months away owed. Handling a gap needs the ₹0-fee
-  workaround above until "on a break" months are built.
+- **A ₹0 month still counts as enrolled on the Dashboard.** In a month with no fee (a month off,
+  the months away before coming back, or a free place), the student is still one of the
+  *"from 24 students"* and *"of 24"* for that month, although they add ₹0 and never appear in
+  *Yet to pay*.
 
 ---
 

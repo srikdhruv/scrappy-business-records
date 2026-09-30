@@ -27,14 +27,15 @@ When everyone has paid, you'll see **Everyone's paid for** the month 🎉.
 ## When someone pays you
 
 1. Click **+ Log payment** at the top right. It's there on every page.
-2. Start typing the student's name, and pick them from the list with the arrow keys and
-   **Enter** (or click their name).
+2. Start typing the student's name (or their phone number), and pick them from the list with
+   the arrow keys and **Enter** (or click their name).
 3. Check the **Amount** and **For month**. They're filled in with the oldest month the student
    still owes (the form says, for example, "Oldest unpaid: August 2026"). If they're paid up,
    it's the next month they haven't paid for. You can change both.
 4. Pick **How they paid**: **UPI**, **Cash** or **Other**.
 5. **Paid on** is today. Change it if they paid on another day. Add a **Note** if you like.
-6. Click **Save payment**. (Enter also saves, but not straight after clicking UPI, Cash or Other.)
+6. Press **Enter**, or click **Save payment**. (Enter works straight after clicking UPI, Cash
+   or Other too.)
 
 If the amount is much more than their fee, the form asks "Is it right?" in case of an extra zero.
 You can still save it.
@@ -61,19 +62,32 @@ message that appears.
 After that month they stop owing, and they move from the **Active** tab to the **Left** tab on
 the Students page. Until then their profile says "Leaving after …". Their history is kept.
 
-Changed your mind? Before that month, click **Mark as staying**. If they come back later, open
-their profile and click **Mark as coming again**. The months while they were away then count as
-owed again; the [feature guide](../feature-guide.md#a-student-takes-a-month-off) shows how to
-clear them.
+Changed your mind? Before that month, click **Mark as staying**.
+
+## When a student who left comes back
+
+1. Open their profile (**Students** → **Left** tab → their name).
+2. Click **Mark as coming again**.
+3. **Which month are they back from?** This month is filled in; change it if needed.
+4. Click **Mark as coming again**.
+
+The months they were away show **No fee**, and nothing is owed for them. They owe their fee
+again from the month they're back.
 
 ## Changing a student's fee
 
 1. Open their profile and click **Edit**.
 2. Change the **Monthly fee**.
 3. Choose the month in **New fee applies from** (this month is filled in).
-4. Click **Save changes**.
+4. Read the sentence under it. It says from when the new fee applies, and until when, if
+   another fee is already set for a later month.
+5. Click **Save changes**.
 
-Earlier months keep the old fee.
+Earlier months keep the old fee. Their profile's **Details → Fee history** lists every fee.
+A fee set for a later month that hasn't started yet can be taken back there with **Remove**.
+
+For a month off (no fee for one month), see
+[the feature guide](../feature-guide.md#a-student-takes-a-month-off).
 
 ## Fixing a mistake
 
