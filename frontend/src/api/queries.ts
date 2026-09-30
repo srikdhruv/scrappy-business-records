@@ -1,17 +1,58 @@
 /**
- * TanStack Query hooks and keys. Add one hook per endpoint here as screens need them, and
- * invalidate by key prefix after mutations, e.g. `queryClient.invalidateQueries({ queryKey:
- * queryKeys.students.all })`.
+ * TanStack Query hooks and keys, one per endpoint.
+ *
+ * Every write can change dues, balances and the dashboard, so all mutations invalidate the three
+ * roots (students, payments, dashboard) through `invalidateRecords`. At this app's size that's
+ * instant, and it means no screen can ever show a stale number after a save.
  */
-import { useQuery } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query'
 
 import { api, unwrap } from './client'
+import type {
+  PaymentCreate,
+  PaymentUpdate,
+  StudentCreate,
+  StudentListFilter,
+  StudentUpdate,
+} from './schema'
+
+export interface PaymentFilters {
+  student_id?: number
+  month?: string
+  q?: string
+}
 
 export const queryKeys = {
   health: ['health'] as const,
-  students: { all: ['students'] as const },
-  payments: { all: ['payments'] as const },
-  dashboard: { all: ['dashboard'] as const },
+  students: {
+    all: ['students'] as const,
+    list: (status: StudentListFilter) => ['students', 'list', status] as const,
+    detail: (id: number) => ['students', 'detail', id] as const,
+    suggestion: (id: number) => ['students', 'detail', id, 'suggest-payment'] as const,
+  },
+  payments: {
+    all: ['payments'] as const,
+    list: (filters: PaymentFilters) => ['payments', 'list', filters] as const,
+  },
+  dashboard: {
+    all: ['dashboard'] as const,
+    month: (month: string) => ['dashboard', month] as const,
+  },
+}
+
+/** Refetch everything that a student or payment change can affect. */
+export function invalidateRecords(queryClient: QueryClient) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.students.all }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.payments.all }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
+  ])
 }
 
 export function useHealth() {
@@ -19,5 +60,143 @@ export function useHealth() {
     queryKey: queryKeys.health,
     queryFn: async () => unwrap(await api.GET('/api/health')),
     staleTime: Infinity,
+  })
+}
+
+// ---- Dashboard ----------------------------------------------------------------------------------
+
+export function useDashboard(month: string) {
+  return useQuery({
+    queryKey: queryKeys.dashboard.month(month),
+    queryFn: async () => unwrap(await api.GET('/api/dashboard', { params: { query: { month } } })),
+    placeholderData: keepPreviousData,
+  })
+}
+
+// ---- Students -----------------------------------------------------------------------------------
+
+/** Students sorted by name. Search and tabs filter this list on the client, so typing is instant. */
+export function useStudents(status: StudentListFilter = 'all') {
+  return useQuery({
+    queryKey: queryKeys.students.list(status),
+    queryFn: async () => unwrap(await api.GET('/api/students', { params: { query: { status } } })),
+  })
+}
+
+export function useStudent(id: number | undefined) {
+  return useQuery({
+    queryKey: queryKeys.students.detail(id ?? 0),
+    queryFn: async () =>
+      unwrap(
+        await api.GET('/api/students/{student_id}', { params: { path: { student_id: id! } } }),
+      ),
+    enabled: id !== undefined && id > 0,
+  })
+}
+
+export function useSuggestedPayment(id: number | undefined) {
+  return useQuery({
+    queryKey: queryKeys.students.suggestion(id ?? 0),
+    queryFn: async () =>
+      unwrap(
+        await api.GET('/api/students/{student_id}/suggest-payment', {
+          params: { path: { student_id: id! } },
+        }),
+      ),
+    enabled: id !== undefined && id > 0,
+    staleTime: 0,
+  })
+}
+
+export function useCreateStudent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: StudentCreate) => unwrap(await api.POST('/api/students', { body })),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+export function useUpdateStudent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: number; body: StudentUpdate }) =>
+      unwrap(
+        await api.PATCH('/api/students/{student_id}', {
+          params: { path: { student_id: id } },
+          body,
+        }),
+      ),
+    onSuccess: (student) => {
+      queryClient.setQueryData(queryKeys.students.detail(student.id), student)
+      return invalidateRecords(queryClient)
+    },
+  })
+}
+
+export function useDeleteStudent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) =>
+      unwrap(
+        await api.DELETE('/api/students/{student_id}', { params: { path: { student_id: id } } }),
+      ),
+    onSuccess: (_data, id) => {
+      queryClient.removeQueries({ queryKey: queryKeys.students.detail(id) })
+      return invalidateRecords(queryClient)
+    },
+  })
+}
+
+// ---- Payments -----------------------------------------------------------------------------------
+
+export function usePayments(filters: PaymentFilters = {}) {
+  return useQuery({
+    queryKey: queryKeys.payments.list(filters),
+    queryFn: async () =>
+      unwrap(
+        await api.GET('/api/payments', {
+          params: {
+            query: {
+              student_id: filters.student_id,
+              month: filters.month,
+              q: filters.q || undefined,
+            },
+          },
+        }),
+      ),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useCreatePayment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: PaymentCreate) => unwrap(await api.POST('/api/payments', { body })),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+export function useUpdatePayment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: number; body: PaymentUpdate }) =>
+      unwrap(
+        await api.PATCH('/api/payments/{payment_id}', {
+          params: { path: { payment_id: id } },
+          body,
+        }),
+      ),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+export function useDeletePayment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) =>
+      unwrap(
+        await api.DELETE('/api/payments/{payment_id}', { params: { path: { payment_id: id } } }),
+      ),
+    onSuccess: () => invalidateRecords(queryClient),
   })
 }

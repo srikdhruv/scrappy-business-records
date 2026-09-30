@@ -1,13 +1,14 @@
 import {
   LayoutDashboardIcon,
   ReceiptIndianRupeeIcon,
+  ShieldCheckIcon,
   UsersIcon,
   type LucideIcon,
 } from 'lucide-react'
-import { NavLink, Outlet } from 'react-router'
+import { NavLink, Outlet, useLocation } from 'react-router'
+import { useEffect } from 'react'
 
 import { useHealth } from '@/api/queries'
-import { LogPaymentButton } from '@/components/log-payment'
 import { cn } from '@/lib/utils'
 
 interface NavItem {
@@ -49,58 +50,76 @@ function AppVersion() {
   const { data } = useHealth()
   return (
     <p className="text-xs text-muted-foreground" data-testid="app-version">
-      {data ? `Version ${data.version}` : ' '}
+      {data ? `Version ${data.version}` : ' '}
     </p>
   )
 }
 
 export function AppShell() {
+  const { pathname } = useLocation()
+  // Each page starts at the top, like a normal website.
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [pathname])
+
   return (
-    <div className="flex min-h-screen flex-col md:flex-row">
-      <aside className="flex shrink-0 flex-col gap-4 border-b border-sidebar-border bg-sidebar p-4 text-sidebar-foreground md:sticky md:top-0 md:h-screen md:w-64 md:gap-6 md:border-r md:border-b-0 md:p-5">
-        <div className="flex items-center justify-between gap-3 md:flex-col md:items-stretch md:gap-6">
-          <NavLink
-            to="/"
-            className="flex items-center gap-3 rounded-lg"
-            aria-label="Scrappy Records home"
-          >
-            <BrandMark />
-            <span className="text-xl font-extrabold tracking-tight">Scrappy Records</span>
-          </NavLink>
-          <LogPaymentButton className="md:w-full" />
-        </div>
+    <div className="flex min-h-screen flex-col lg:flex-row">
+      <aside className="shrink-0 border-b border-sidebar-border bg-sidebar text-sidebar-foreground lg:w-60 lg:border-r lg:border-b-0">
+        <div className="flex flex-col gap-3 px-4 py-3 lg:sticky lg:top-0 lg:h-screen lg:gap-8 lg:py-6">
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 lg:flex-col lg:items-stretch lg:gap-8">
+            <NavLink
+              to="/"
+              className="flex items-center gap-3 rounded-lg px-1 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+              aria-label="Scrappy Records home"
+            >
+              <BrandMark />
+              <span className="text-xl font-extrabold tracking-tight">Scrappy Records</span>
+            </NavLink>
 
-        <nav aria-label="Main">
-          <ul className="flex gap-1 md:flex-col">
-            {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
-              <li key={to}>
-                <NavLink
-                  to={to}
-                  end={end}
-                  className={({ isActive }) =>
-                    cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-2.5 text-base font-semibold transition-colors',
-                      'hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none',
-                      isActive
-                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                        : 'text-muted-foreground hover:text-sidebar-foreground',
-                    )
-                  }
-                >
-                  <Icon className="size-5" aria-hidden />
-                  {label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </nav>
+            <nav aria-label="Main">
+              <ul className="flex gap-1 lg:flex-col">
+                {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
+                  <li key={to}>
+                    <NavLink
+                      to={to}
+                      end={end}
+                      className={({ isActive }) =>
+                        cn(
+                          'flex items-center gap-3 rounded-xl px-3 py-2.5 text-base font-bold transition-colors',
+                          'outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
+                          isActive
+                            ? 'bg-card text-foreground shadow-soft'
+                            : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                        )
+                      }
+                    >
+                      {({ isActive }) => (
+                        <>
+                          <Icon
+                            className={cn('size-5', isActive && 'text-primary-strong')}
+                            aria-hidden
+                          />
+                          {label}
+                        </>
+                      )}
+                    </NavLink>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          </div>
 
-        <div className="mt-auto hidden md:block">
-          <AppVersion />
+          <div className="mt-auto hidden space-y-3 px-2 lg:block">
+            <p className="flex items-start gap-2 text-sm text-muted-foreground">
+              <ShieldCheckIcon className="mt-0.5 size-4 shrink-0 text-paid" aria-hidden />
+              Your records stay on this laptop and are backed up every day.
+            </p>
+            <AppVersion />
+          </div>
         </div>
       </aside>
 
-      <main className="flex-1 px-4 py-6 md:px-10 md:py-8">
+      <main className="min-w-0 flex-1 px-5 py-6 sm:px-8 lg:px-10 lg:py-8">
         <div className="mx-auto w-full max-w-6xl">
           <Outlet />
         </div>
