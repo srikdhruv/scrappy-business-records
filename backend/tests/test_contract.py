@@ -71,7 +71,111 @@ def test_validation_error_body(client: TestClient) -> None:
     )
     assert response.status_code == 422
     [item] = response.json()["detail"]
-    assert "left_month cannot be before joined_month" in item["msg"]
+    assert item["loc"] == ["body", "left_month"]
+    assert item["msg"] == "Left month can't be before the joined month"
+
+
+# Every schema-level rule must name its field in `loc`, with a plain message, so the UI can show
+# it next to the right input (ApiError.fields).
+STUDENT = {"name": "Kabir Mehta", "monthly_fee_paise": 150000, "joined_month": "2026-01"}
+PAYMENT = {
+    "student_id": 1,
+    "amount_paise": 150000,
+    "paid_on": "2026-01-05",
+    "for_month": "2026-01",
+    "method": "upi",
+}
+MAX = schemas.MAX_AMOUNT_PAISE
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body", "loc", "msg"),
+    [
+        ("post", "/api/students", {**STUDENT, "name": "   "}, "name", "Name is required"),
+        ("post", "/api/students", {**STUDENT, "name": ""}, "name", "Name is required"),
+        (
+            "post",
+            "/api/students",
+            {**STUDENT, "left_month": "2025-12"},
+            "left_month",
+            "Left month can't be before the joined month",
+        ),
+        ("patch", "/api/students/1", {"name": None}, "name", "Name is required"),
+        ("patch", "/api/students/1", {"name": " "}, "name", "Name is required"),
+        (
+            "patch",
+            "/api/students/1",
+            {"joined_month": None},
+            "joined_month",
+            "Joined month is required",
+        ),
+        (
+            "patch",
+            "/api/students/1",
+            {"monthly_fee_paise": None},
+            "monthly_fee_paise",
+            "Monthly fee is required",
+        ),
+        (
+            "patch",
+            "/api/students/1",
+            {"fee_effective_month": "2026-03"},
+            "fee_effective_month",
+            "Send the new monthly fee together with the month it starts",
+        ),
+        (
+            "patch",
+            "/api/students/1",
+            {"joined_month": "2026-05", "left_month": "2026-04"},
+            "left_month",
+            "Left month can't be before the joined month",
+        ),
+        ("patch", "/api/payments/1", {"amount_paise": None}, "amount_paise", "Amount is required"),
+        ("patch", "/api/payments/1", {"student_id": None}, "student_id", "Student is required"),
+        ("patch", "/api/payments/1", {"paid_on": None}, "paid_on", "Paid-on date is required"),
+        ("patch", "/api/payments/1", {"for_month": None}, "for_month", "Month is required"),
+        ("patch", "/api/payments/1", {"method": None}, "method", "Payment method is required"),
+    ],
+)
+def test_422_names_the_field(
+    client: TestClient, method: str, path: str, body: dict, loc: str, msg: str
+) -> None:
+    response = client.request(method, path, json=body)
+    assert response.status_code == 422
+    [item] = response.json()["detail"]
+    assert item["loc"] == ["body", loc]
+    assert item["msg"] == msg
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body", "loc"),
+    [
+        ("post", "/api/payments", {**PAYMENT, "amount_paise": MAX + 1}, "amount_paise"),
+        ("patch", "/api/payments/1", {"amount_paise": MAX + 1}, "amount_paise"),
+        ("post", "/api/students", {**STUDENT, "monthly_fee_paise": MAX + 1}, "monthly_fee_paise"),
+        ("patch", "/api/students/1", {"monthly_fee_paise": MAX + 1}, "monthly_fee_paise"),
+    ],
+)
+def test_amounts_are_capped(
+    client: TestClient, method: str, path: str, body: dict, loc: str
+) -> None:
+    response = client.request(method, path, json=body)
+    assert response.status_code == 422
+    [item] = response.json()["detail"]
+    assert item["loc"] == ["body", loc]
+    assert item["type"] == "less_than_equal"
+
+
+def test_amount_cap_value_and_boundary() -> None:
+    assert MAX == 10_00_000 * 100  # ₹10,00,000; frontend MAX_AMOUNT_PAISE must match
+    assert schemas.PaymentCreate(**{**PAYMENT, "amount_paise": MAX}).amount_paise == MAX
+    assert schemas.StudentCreate(**{**STUDENT, "monthly_fee_paise": MAX}).monthly_fee_paise == MAX
+
+
+def test_openapi_advertises_the_cap(client: TestClient) -> None:
+    components = client.get("/api/openapi.json").json()["components"]["schemas"]
+    assert components["PaymentCreate"]["properties"]["amount_paise"]["maximum"] == MAX
+    assert components["StudentCreate"]["properties"]["monthly_fee_paise"]["maximum"] == MAX
 
 
 NOT_YET_IMPLEMENTED = [

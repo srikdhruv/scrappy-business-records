@@ -401,7 +401,7 @@ export interface components {
             student_id: number;
             /**
              * Amount Paise
-             * @description Amount in paise, more than 0.
+             * @description Amount in paise: more than 0, at most 100000000 (₹10,00,000).
              */
             amount_paise: number;
             /**
@@ -497,7 +497,7 @@ export interface components {
             name: string;
             /**
              * Monthly Fee Paise
-             * @description Amount in paise, 0 or more.
+             * @description Monthly fee in paise: 0 or more, at most 100000000 (₹10,00,000).
              */
             monthly_fee_paise: number;
             /**

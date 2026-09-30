@@ -23,8 +23,10 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
-    model_validator,
+    ValidationInfo,
+    field_validator,
 )
+from pydantic_core import PydanticCustomError
 
 from app.models import PaymentMethod
 from app.months import MONTH_PATTERN, format_month
@@ -95,13 +97,80 @@ UtcDatetime = Annotated[
 ]
 """A timestamp, always timezone-aware UTC (serialized with a trailing "Z")."""
 
-Name = Annotated[str, BeforeValidator(_strip), Field(min_length=1, max_length=200)]
+
+def _field_error(message: str) -> PydanticCustomError:
+    """A validation error whose `msg` is exactly `message` (no "Value error, " prefix).
+
+    Raise it from a field validator so the 422's `loc` names the field. The UI shows `msg` to the
+    person as-is, so write it in plain words.
+    """
+    return PydanticCustomError("value_error", message)
+
+
+# Plain-words names for "... is required" messages.
+_LABELS = {
+    "name": "Name",
+    "joined_month": "Joined month",
+    "monthly_fee_paise": "Monthly fee",
+    "student_id": "Student",
+    "amount_paise": "Amount",
+    "paid_on": "Paid-on date",
+    "for_month": "Month",
+    "method": "Payment method",
+}
+
+
+def _not_null(value: object, info: ValidationInfo) -> object:
+    if value is None:
+        raise _field_error(f"{_LABELS.get(info.field_name or '', 'This field')} is required")
+    return value
+
+
+def _check_left_month(left: str | None, joined: str | None) -> str | None:
+    # "YYYY-MM" strings compare correctly as text.
+    if left is not None and joined is not None and left < joined:
+        raise _field_error("Left month can't be before the joined month")
+    return left
+
+
+def _name_not_blank(value: str) -> str:
+    if not value:
+        raise _field_error("Name is required")
+    return value
+
+
+Name = Annotated[
+    str, BeforeValidator(_strip), AfterValidator(_name_not_blank), Field(max_length=200)
+]
 ShortText = Annotated[Annotated[str, Field(max_length=200)] | None, BeforeValidator(_blank_to_none)]
 LongText = Annotated[Annotated[str, Field(max_length=5000)] | None, BeforeValidator(_blank_to_none)]
 
+MAX_AMOUNT_PAISE = 100_000_000
+"""₹10,00,000: the most a single payment or monthly fee can be. A typo guard (an extra zero or
+two), not a business rule. Mirrored by `MAX_AMOUNT_PAISE` in frontend/src/lib/format.ts."""
+
+# Response amounts. Not capped: totals (e.g. a student's whole backlog) can exceed the cap.
 PositivePaise = Annotated[int, Field(gt=0, description="Amount in paise, more than 0.")]
 NonNegativePaise = Annotated[int, Field(ge=0, description="Amount in paise, 0 or more.")]
 SignedPaise = Annotated[int, Field(description="Amount in paise; may be negative.")]
+
+# Request amounts: one payment or one monthly fee, capped at MAX_AMOUNT_PAISE.
+PaymentAmountPaise = Annotated[
+    int,
+    Field(
+        gt=0,
+        le=MAX_AMOUNT_PAISE,
+        description="Amount in paise: more than 0, at most 100000000 (₹10,00,000).",
+    ),
+]
+FeePaise = Annotated[
+    int,
+    Field(
+        ge=0,
+        le=MAX_AMOUNT_PAISE,
+        description="Monthly fee in paise: 0 or more, at most 100000000 (₹10,00,000).",
+    ),
+]
 
 
 class _Model(BaseModel):
@@ -179,7 +248,7 @@ class ErrorResponse(_ReadModel):
 
 class StudentCreate(_Model):
     name: Name
-    monthly_fee_paise: NonNegativePaise
+    monthly_fee_paise: FeePaise
     joined_month: Month = Field(description="First month they owe.")
     phone: ShortText = None
     guardian_name: ShortText = None
@@ -189,11 +258,10 @@ class StudentCreate(_Model):
         default=None, description="Last month they owe. Setting it archives the student."
     )
 
-    @model_validator(mode="after")
-    def _left_not_before_joined(self) -> StudentCreate:
-        if self.left_month is not None and self.left_month < self.joined_month:
-            raise ValueError("left_month cannot be before joined_month")
-        return self
+    @field_validator("left_month")
+    @classmethod
+    def _left_not_before_joined(cls, value: str | None, info: ValidationInfo) -> str | None:
+        return _check_left_month(value, info.data.get("joined_month"))
 
 
 class StudentUpdate(_Model):
@@ -223,30 +291,36 @@ class StudentUpdate(_Model):
     notes: LongText = None
     joined_month: Month | None = None
     left_month: Month | None = None
-    monthly_fee_paise: NonNegativePaise | None = None
+    monthly_fee_paise: FeePaise | None = None
     fee_effective_month: Month | None = Field(
         default=None,
         description="Month the new fee starts. Only with monthly_fee_paise. Defaults to now.",
     )
 
-    @model_validator(mode="after")
-    def _check(self) -> StudentUpdate:
-        sent = self.model_fields_set
-        if "name" in sent and self.name is None:
-            raise ValueError("name cannot be empty")
-        if "joined_month" in sent and self.joined_month is None:
-            raise ValueError("joined_month cannot be empty")
-        if "monthly_fee_paise" in sent and self.monthly_fee_paise is None:
-            raise ValueError("monthly_fee_paise cannot be empty")
-        if self.fee_effective_month is not None and self.monthly_fee_paise is None:
-            raise ValueError("fee_effective_month needs monthly_fee_paise")
-        if (
-            self.left_month is not None
-            and self.joined_month is not None
-            and self.left_month < self.joined_month
-        ):
-            raise ValueError("left_month cannot be before joined_month")
-        return self
+    # Field-level checks, so a 422's `loc` names the field (["body", "left_month"]) and the UI
+    # can show the message next to it. Fields are validated in declaration order, so
+    # `info.data` holds the already-valid fields declared above the one being checked.
+
+    @field_validator("name", "joined_month", "monthly_fee_paise")
+    @classmethod
+    def _not_null(cls, value: object, info: ValidationInfo) -> object:
+        # Only runs for fields that were sent: omitting a field is fine, sending null isn't.
+        return _not_null(value, info)
+
+    @field_validator("left_month")
+    @classmethod
+    def _left_not_before_joined(cls, value: str | None, info: ValidationInfo) -> str | None:
+        # Only against a joined_month sent in the same request; the router checks the stored one.
+        return _check_left_month(value, info.data.get("joined_month"))
+
+    @field_validator("fee_effective_month")
+    @classmethod
+    def _fee_month_needs_fee(cls, value: str | None, info: ValidationInfo) -> str | None:
+        # A monthly_fee_paise that failed its own validation is absent from info.data (the
+        # default 0 here); don't pile a second error on top of that one.
+        if value is not None and info.data.get("monthly_fee_paise", 0) is None:
+            raise _field_error("Send the new monthly fee together with the month it starts")
+        return value
 
 
 class StudentRead(_ReadModel):
@@ -315,7 +389,7 @@ class SuggestedPayment(_ReadModel):
 
 class PaymentCreate(_Model):
     student_id: int = Field(gt=0)
-    amount_paise: PositivePaise
+    amount_paise: PaymentAmountPaise
     paid_on: dt.date
     for_month: Month
     method: PaymentMethod
@@ -326,18 +400,17 @@ class PaymentUpdate(_Model):
     """Partial update. Only fields that are sent change."""
 
     student_id: int | None = Field(default=None, gt=0)
-    amount_paise: PositivePaise | None = None
+    amount_paise: PaymentAmountPaise | None = None
     paid_on: dt.date | None = None
     for_month: Month | None = None
     method: PaymentMethod | None = None
     note: LongText = None
 
-    @model_validator(mode="after")
-    def _required_stay_set(self) -> PaymentUpdate:
-        for field in ("student_id", "amount_paise", "paid_on", "for_month", "method"):
-            if field in self.model_fields_set and getattr(self, field) is None:
-                raise ValueError(f"{field} cannot be empty")
-        return self
+    @field_validator("student_id", "amount_paise", "paid_on", "for_month", "method")
+    @classmethod
+    def _not_null(cls, value: object, info: ValidationInfo) -> object:
+        # Only runs for fields that were sent: omitting a field is fine, sending null isn't.
+        return _not_null(value, info)
 
 
 class PaymentRead(_ReadModel):

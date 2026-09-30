@@ -30,6 +30,19 @@ describe('ApiError', () => {
     expect(error.fields).toEqual({ amount_paise: 'Input should be greater than 0' })
   })
 
+  it('attaches schema rule errors to their field', () => {
+    // What the backend sends for a left month before the joined month.
+    const error = new ApiError(422, [
+      {
+        loc: ['body', 'left_month'],
+        msg: "Left month can't be before the joined month",
+        type: 'value_error',
+      },
+    ])
+    expect(error.message).toBe("Left month can't be before the joined month")
+    expect(error.fields).toEqual({ left_month: "Left month can't be before the joined month" })
+  })
+
   it('falls back to a friendly message', () => {
     expect(new ApiError(500, undefined).message).toBe('Something went wrong (error 500).')
   })
