@@ -375,6 +375,7 @@ function YetToPayRow({
         <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
           <Link
             to={`/students/${item.student_id}`}
+            title={item.student_name}
             className="max-w-full truncate rounded text-base font-bold outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             {item.student_name}
@@ -455,7 +456,9 @@ function Backlog({
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <StudentAvatar name={item.student_name} size="sm" />
-                  <span className="min-w-0 flex-1 truncate font-bold">{item.student_name}</span>
+                  <span className="min-w-0 flex-1 truncate font-bold" title={item.student_name}>
+                    {item.student_name}
+                  </span>
                   <span className={cn('shrink-0 font-extrabold tabular-nums', TONE_TEXT.owed)}>
                     {formatRupees(item.total_owed_paise)}
                   </span>
@@ -509,7 +512,9 @@ function Overpaid({ items }: { items: OverpaidItem[] }) {
               >
                 <StudentAvatar name={item.student_name} size="sm" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-bold">{item.student_name}</span>
+                  <span className="block truncate font-bold" title={item.student_name}>
+                    {item.student_name}
+                  </span>
                   <span className="block text-sm text-muted-foreground tabular-nums">
                     {formatMonth(item.month)} · paid {formatRupees(item.paid_paise)}, fee{' '}
                     {formatRupees(item.expected_paise)}
