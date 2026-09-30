@@ -1,7 +1,6 @@
 """The API contract: every endpoint from docs/data-model.md exists with the right shape.
 
-Endpoints still answering 501 are filled in by the backend PR; update `NOT_YET_IMPLEMENTED`
-as they land.
+Behaviour is tested endpoint by endpoint in the test_api_*.py files.
 """
 
 import pytest
@@ -178,7 +177,7 @@ def test_openapi_advertises_the_cap(client: TestClient) -> None:
     assert components["StudentCreate"]["properties"]["monthly_fee_paise"]["maximum"] == MAX
 
 
-NOT_YET_IMPLEMENTED = [
+EVERY_ENDPOINT = [
     ("get", "/api/students", None),
     ("get", "/api/students/1", None),
     ("delete", "/api/students/1", None),
@@ -197,10 +196,11 @@ NOT_YET_IMPLEMENTED = [
 ]  # fmt: skip
 
 
-@pytest.mark.parametrize(("method", "path", "body"), NOT_YET_IMPLEMENTED)
-def test_stubs_answer_501(client: TestClient, method: str, path: str, body: object) -> None:
+@pytest.mark.parametrize(("method", "path", "body"), EVERY_ENDPOINT)
+def test_no_stubs_left(client: TestClient, method: str, path: str, body: object) -> None:
+    """Every endpoint is implemented (on an empty database most answer 404, not 501)."""
     response = client.request(method, path, json=body)
-    assert response.status_code == 501
+    assert response.status_code < 500
 
 
 @pytest.mark.parametrize("month", ["2026-1", "2026-13", "26-01", "2026-00", "2026-01-01", ""])

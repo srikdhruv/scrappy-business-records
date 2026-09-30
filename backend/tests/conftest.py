@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.clock import get_current_month
 from app.db import dispose_engines
 from app.main import create_app
 
@@ -26,4 +28,17 @@ def scrappy_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pa
 def client() -> Iterator[TestClient]:
     """A client for a fresh app; entering it runs startup (folders + migrations)."""
     with TestClient(create_app()) as c:
+        yield c
+
+
+FROZEN_MONTH = dt.date(2026, 6, 1)
+"""The current month as far as the `api` fixture's app is concerned."""
+
+
+@pytest.fixture
+def api() -> Iterator[TestClient]:
+    """Like `client`, but the app's current month is frozen at `FROZEN_MONTH`."""
+    app = create_app()
+    app.dependency_overrides[get_current_month] = lambda: FROZEN_MONTH
+    with TestClient(app) as c:
         yield c
