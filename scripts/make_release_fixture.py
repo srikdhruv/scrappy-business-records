@@ -64,9 +64,7 @@ def _normalise_timestamps(conn: sqlite3.Connection, today: dt.date) -> None:
     saving) to noon on `today`, so regenerating a fixture gives the same bytes. They aren't
     something the owner entered, and the upgrade test doesn't compare them (ADR 0004)."""
     stamp = f"{today.isoformat()} 12:00:00"
-    tables = [
-        r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-    ]
+    tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
     for table in tables:
         columns = {r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
         for column in sorted(columns & {"created_at", "updated_at"}):
