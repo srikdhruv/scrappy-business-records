@@ -13,6 +13,7 @@ import {
   LoaderCircleIcon,
   MessageSquareWarningIcon,
   SaveIcon,
+  TriangleAlertIcon,
   type LucideIcon,
 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
@@ -34,8 +35,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { clientInfo, recentErrors } from '@/lib/diagnostics'
 import { errorMessage } from '@/lib/errors'
-import { feedbackOutcome, MESSAGE_LIMIT, type Outcome } from '@/lib/feedback'
-import { captureScreen, type Screenshot } from '@/lib/screenshot'
+import { feedbackOutcome, MESSAGE_LIMIT, NOT_SENDING_NOTE, type Outcome } from '@/lib/feedback'
+import { CAPTURE_TIMEOUT_MS, captureScreen, type Screenshot } from '@/lib/screenshot'
 import { cn } from '@/lib/utils'
 
 const CATEGORIES: { value: FeedbackCategory; label: string; icon: LucideIcon; hint: string }[] = [
@@ -83,13 +84,15 @@ export function FeedbackDialog({
 
 function FeedbackForm({ onClose }: { onClose: () => void }) {
   const location = useLocation()
-  const route = `${location.pathname}${location.search}`
+  // The page only: a query (a search, say) could hold a student's name.
+  const route = location.pathname
   const [id] = useState(newId)
   const [category, setCategory] = useState<FeedbackCategory>('problem')
   const [message, setMessage] = useState('')
   const [includeShot, setIncludeShot] = useState(true)
   const [shot, setShot] = useState<Shot>({ state: 'taking' })
   const [showMissing, setShowMissing] = useState(false)
+  const [enlarged, setEnlarged] = useState(false)
   const [savedId, setSavedId] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState(0)
   const [now, setNow] = useState(0)
@@ -105,7 +108,7 @@ function FeedbackForm({ onClose }: { onClose: () => void }) {
   // take a second or two on a big page; Send waits for it if needed.
   useEffect(() => {
     let cancelled = false
-    capture.current ??= captureScreen()
+    capture.current ??= captureScreen({ timeoutMs: CAPTURE_TIMEOUT_MS })
     void capture.current.then((result) => {
       if (!cancelled) setShot(result ? { state: 'ready', shot: result } : { state: 'none' })
     })
@@ -182,6 +185,16 @@ function FeedbackForm({ onClose }: { onClose: () => void }) {
           </DialogDescription>
         </DialogHeader>
 
+        {about.data && !about.data.feedback_sending && (
+          <p
+            role="note"
+            className="flex items-start gap-2 rounded-lg border border-partial/40 bg-partial-soft px-3 py-2 text-sm"
+          >
+            <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-partial" aria-hidden />
+            {NOT_SENDING_NOTE}
+          </p>
+        )}
+
         <fieldset className="grid gap-2">
           <legend className="mb-2 text-[0.9375rem] leading-none font-semibold">Type</legend>
           <ToggleGroup
@@ -236,7 +249,12 @@ function FeedbackForm({ onClose }: { onClose: () => void }) {
 
         <div className="grid gap-3 rounded-xl border bg-muted/40 p-3">
           <div className="flex items-start gap-3">
-            <ScreenPreview shot={shot} dimmed={!includeShot} />
+            <ScreenPreview
+              shot={shot}
+              dimmed={!includeShot}
+              enlarged={enlarged}
+              onToggle={() => setEnlarged((e) => !e)}
+            />
             <div className="grid min-w-0 gap-1.5">
               <label htmlFor={shotId} className="flex items-center gap-2 font-semibold">
                 <input
@@ -253,14 +271,30 @@ function FeedbackForm({ onClose }: { onClose: () => void }) {
                 <p className="text-sm text-muted-foreground">
                   The picture couldn’t be taken, so the message goes without it.
                 </p>
+              ) : shot.state === 'taking' ? (
+                <p className="text-sm text-muted-foreground">Taking the picture…</p>
               ) : (
                 <p className="text-sm text-muted-foreground">
                   The picture may show student names and amounts. It goes only to the developer’s
-                  private feedback inbox.
+                  private feedback inbox. Click it to see it bigger.
                 </p>
               )}
             </div>
           </div>
+          {enlarged && shot.state === 'ready' && (
+            <button
+              type="button"
+              onClick={() => setEnlarged(false)}
+              className="overflow-hidden rounded-md border bg-card outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+              aria-label="Make the picture smaller"
+            >
+              <img
+                src={shot.shot.dataUrl}
+                alt="The picture of this screen, bigger"
+                className={cn('w-full', !includeShot && 'opacity-40')}
+              />
+            </button>
+          )}
         </div>
 
         <details className="group rounded-xl border px-3 py-2 text-sm">
@@ -277,11 +311,12 @@ function FeedbackForm({ onClose }: { onClose: () => void }) {
               .
             </li>
             <li>
-              The page you’re on (<span className="font-mono">{route}</span>).
+              The page you’re on (<span className="font-mono">{route}</span>), without what you
+              searched for.
             </li>
             <li>
-              The last problems the app noticed ({errors === 0 ? 'none so far' : errors}) and the
-              last lines of its log file.
+              The last problems the app noticed ({errors === 0 ? 'none so far' : errors}), and its
+              last warnings and errors from the log file, with names and values taken out.
             </li>
             <li>Your computer’s system, browser and screen size.</li>
             <li>A random number for this copy of the app. It doesn’t say who you are.</li>
@@ -291,7 +326,9 @@ function FeedbackForm({ onClose }: { onClose: () => void }) {
             </li>
           </ul>
           <p className="mt-2 text-muted-foreground">
-            It’s saved on this laptop first, and sent when the internet is on.
+            {about.data && !about.data.feedback_sending
+              ? 'It’s saved on this laptop. This version can’t send it yet.'
+              : 'It’s saved on this laptop first, and sent when the internet is on.'}
           </p>
         </details>
 
@@ -317,9 +354,19 @@ function FeedbackForm({ onClose }: { onClose: () => void }) {
   )
 }
 
-function ScreenPreview({ shot, dimmed }: { shot: Shot; dimmed: boolean }) {
+function ScreenPreview({
+  shot,
+  dimmed,
+  enlarged,
+  onToggle,
+}: {
+  shot: Shot
+  dimmed: boolean
+  enlarged: boolean
+  onToggle: () => void
+}) {
   const frame =
-    'flex h-20 w-32 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-card'
+    'flex h-28 w-44 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-card'
   if (shot.state === 'taking') {
     return (
       <div className={frame} aria-label="Taking a picture of the screen">
@@ -335,13 +382,24 @@ function ScreenPreview({ shot, dimmed }: { shot: Shot; dimmed: boolean }) {
     )
   }
   return (
-    <div className={cn(frame, dimmed && 'opacity-40')}>
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={enlarged}
+      aria-label={enlarged ? 'Make the picture smaller' : 'See the picture bigger'}
+      className={cn(
+        frame,
+        'cursor-zoom-in outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
+        enlarged && 'cursor-zoom-out',
+        dimmed && 'opacity-40',
+      )}
+    >
       <img
         src={shot.shot.dataUrl}
         alt="Picture of this screen"
         className="h-full w-full object-cover object-top"
       />
-    </div>
+    </button>
   )
 }
 
@@ -371,6 +429,17 @@ function FeedbackOutcome({ outcome }: { outcome: Outcome }) {
         <span>
           <strong>Saved on this laptop,</strong> but the feedback inbox didn’t accept it. Please
           tell the developer another way.
+        </span>
+      </p>
+    )
+  }
+  if (outcome === 'held') {
+    return (
+      <p className="flex items-start gap-3 text-base" role="status">
+        <SaveIcon className="mt-0.5 size-5 shrink-0 text-partial" aria-hidden />
+        <span>
+          <strong>Saved on this laptop.</strong> It can’t be sent yet — please also tell the
+          developer another way.
         </span>
       </p>
     )

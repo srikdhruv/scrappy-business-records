@@ -61,7 +61,9 @@ function makeHome(name, { seed }) {
     ...process.env,
     SCRAPPY_HOME: home,
     SCRAPPY_BACKUP_DIR: path.join(home, 'backups'),
-    SCRAPPY_FEEDBACK_URL: '', // the pictures never send feedback anywhere
+    // Sending "on" (so the window looks as it will once the relay is set up), but to a port
+    // where nothing listens: the pictures never send feedback anywhere.
+    SCRAPPY_FEEDBACK_URL: 'http://127.0.0.1:9/feedback',
   }
   if (seed) {
     execFileSync('uv', [...GUIDE_SERVER, 'seed', '--today', GUIDE_TODAY], {

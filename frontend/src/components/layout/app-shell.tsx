@@ -88,7 +88,10 @@ export function AppShell() {
   return (
     <div className="flex min-h-screen flex-col lg:flex-row">
       <aside className="shrink-0 border-b border-sidebar-border bg-sidebar text-sidebar-foreground lg:w-60 lg:border-r lg:border-b-0 print:hidden">
-        <div className="flex flex-col gap-3 px-4 py-3 lg:sticky lg:top-0 lg:h-screen lg:gap-8 lg:py-6">
+        <div
+          data-screenshot-sticky
+          className="flex flex-col gap-3 px-4 py-3 lg:sticky lg:top-0 lg:h-screen lg:gap-8 lg:py-6"
+        >
           <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 lg:flex-col lg:items-stretch lg:gap-8">
             <NavLink
               to="/"
