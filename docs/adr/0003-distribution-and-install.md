@@ -17,7 +17,12 @@ For Windows the bundle is `scrappy-records-windows-x64.zip`. It contains:
 - every dependency preinstalled into its `site-packages`, from `uv export --frozen`;
 - the backend package, including migrations;
 - the built React UI in `app/static/`;
-- `VERSION` and `Start Scrappy Records.cmd`.
+- `VERSION`, the app icon (`scrappy.ico`, `scrappy.png`) and `Start Scrappy Records.cmd`;
+- a `.pth` file in `site-packages` that puts the bundle folder on `sys.path`, so
+  `python -m app.launcher` works whatever the current folder is.
+
+The macOS bundle is `scrappy-records-macos-arm64.zip`, with the same contents, and
+`scripts/install.sh` creates a small `Scrappy Records.app` in `~/Applications` to open it.
 
 The asset names carry no version, so
 `https://github.com/<owner>/<repo>/releases/latest/download/scrappy-records-windows-x64.zip`
@@ -59,9 +64,10 @@ run from disk.
 
 ## Consequences
 
-- Downloads are larger (about 40–60 MB), and we build once per platform (windows-x64 first, macOS
-  arm64 as secondary).
-- What runs on the user's laptop is exactly the artifact CI tested. A Windows CI job installs the bundle
-  on a runner with no Python on its PATH and checks it.
+- Downloads are larger (about 25 MB for Windows, 32 MB for macOS), and we build once per platform
+  (windows-x64 first, macOS arm64 as secondary).
+- What runs on the user's laptop is exactly the artifact CI tested. The `windows-install` CI job
+  installs the bundle with Windows PowerShell 5.1 on a runner with no Python on its PATH, and
+  checks that data survives a restart and an update. `macos-install` does the same on a Mac.
 - The Start Menu entry and an Edge `--app` window are deferred. The MVP has a Desktop shortcut
   only.

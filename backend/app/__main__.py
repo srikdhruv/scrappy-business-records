@@ -5,7 +5,8 @@ This is how the server is always started, including by the Desktop launcher, whi
 None, and uvicorn's default logging config crashes on them ("Unable to configure formatter
 'default'"). So uvicorn gets `log_config=None` and `use_colors=False`, and we only attach a
 plain console handler when there is a console. uvicorn's loggers propagate to the root logger,
-so a file handler added there (the packaging PR's rotating log) receives them too.
+where the rotating `logs/server.log` handler (`app/logs.py`) is added first thing, so the log
+file also records startup failures and uncaught errors.
 """
 
 from __future__ import annotations
