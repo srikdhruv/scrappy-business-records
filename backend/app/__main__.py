@@ -42,8 +42,10 @@ def server_config() -> uvicorn.Config:
 
 
 def main() -> None:
+    # The log file comes first: under pythonw it is the only place a startup failure (port in
+    # use, a migration error, a crash) can be seen. See app/logs.py.
+    logs.setup_server_log()
     configure_console_logging()
-    logs.setup(rotate=True)  # logs/server.log, rotating (app/logs.py)
     uvicorn.Server(server_config()).run()
 
 

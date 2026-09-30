@@ -6,7 +6,10 @@ import contextlib
 import http.server
 import json
 import logging
+import os
 import socket
+import subprocess
+import sys
 import threading
 from collections.abc import Iterator
 from pathlib import Path
@@ -154,3 +157,33 @@ def test_logs_setup_is_idempotent(scrappy_home: Path) -> None:
     logging.getLogger("scrappy.test").info("hello from the test")
     assert "hello from the test" in logs.log_file().read_text(encoding="utf-8")
     assert logs.log_file().parent == scrappy_home / "logs"
+
+
+def test_server_logs_a_port_clash_to_server_log(scrappy_home: Path) -> None:
+    """`python -m app` with the port taken exits, and says why in logs/server.log."""
+    with socket.socket() as blocker:
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen()
+        port = blocker.getsockname()[1]
+        result = subprocess.run(
+            [sys.executable, "-m", "app"],
+            env={**os.environ, "SCRAPPY_PORT": str(port)},
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+    assert result.returncode != 0
+    log_text = (scrappy_home / "logs" / "server.log").read_text(encoding="utf-8")
+    assert "error while attempting to bind" in log_text
+
+
+def test_uncaught_exceptions_are_logged(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "excepthook", sys.excepthook)
+    monkeypatch.setattr(threading, "excepthook", threading.excepthook)
+    logs.setup_server_log()
+    try:
+        raise RuntimeError("boom from the test")
+    except RuntimeError:
+        sys.excepthook(*sys.exc_info())
+    assert "boom from the test" in logs.log_file().read_text(encoding="utf-8")

@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import threading
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -99,6 +100,41 @@ def setup(*, rotate: bool, console: bool = False, level: int = logging.INFO) -> 
         root.addHandler(h)
     root.setLevel(level)
     return path
+
+
+def setup_server_log() -> Path | None:
+    """For `python -m app`: the rotating server.log, plus logging of uncaught exceptions.
+
+    Never raises: if the log folder can't be written, the server still runs (without a file).
+    """
+    try:
+        path = setup(rotate=True)
+    except Exception:
+        return None
+    log_uncaught_exceptions()
+    return path
+
+
+def log_uncaught_exceptions() -> None:
+    """Send uncaught exceptions (main thread and other threads) to the log, not just stderr."""
+    logger = logging.getLogger("scrappy")
+    previous = sys.excepthook
+
+    def hook(exc_type, exc, tb) -> None:  # type: ignore[no-untyped-def]
+        if not issubclass(exc_type, KeyboardInterrupt):
+            logger.critical("Uncaught error, stopping", exc_info=(exc_type, exc, tb))
+        if previous is not None and sys.stderr is not None:
+            previous(exc_type, exc, tb)
+
+    def thread_hook(args: threading.ExceptHookArgs) -> None:
+        logger.error(
+            "Uncaught error in thread %s",
+            args.thread.name if args.thread else "?",
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),  # type: ignore[arg-type]
+        )
+
+    sys.excepthook = hook
+    threading.excepthook = thread_hook
 
 
 class _Quieter(logging.Filter):
