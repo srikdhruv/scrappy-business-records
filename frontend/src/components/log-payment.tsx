@@ -21,8 +21,10 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
+  type KeyboardEvent,
   type ReactNode,
 } from 'react'
 import { toast } from 'sonner'
@@ -280,6 +282,8 @@ function PaymentForm({
   const createPayment = useCreatePayment()
   const updatePayment = useUpdatePayment()
   const saving = createPayment.isPending || updatePayment.isPending
+  // Also blocks a second save that starts before `saving` has re-rendered (a held-down Enter).
+  const savingNow = useRef(false)
 
   const clientErrors = validate({ studentId, amount, paidOn, forMonth })
   const errors: Partial<Record<Field, string>> = submitted
@@ -292,17 +296,31 @@ function PaymentForm({
     setServerErrors((e) => ({ ...e, student: undefined }))
   }
 
-  const onSubmit = async (event: FormEvent) => {
+  const onSubmit = (event: FormEvent) => {
     event.preventDefault()
+    void save(method)
+  }
+
+  // Enter on a method button (UPI, Cash, Other) saves too, with that method: after clicking
+  // Cash, the focus is on it, and Enter should still save. Arrow keys still move between them.
+  const onMethodKeyDown = (event: KeyboardEvent<HTMLButtonElement>, value: PaymentMethod) => {
+    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+    event.preventDefault() // not a click: that would toggle the button instead
+    setMethod(value)
+    void save(value)
+  }
+
+  const save = async (chosenMethod: PaymentMethod) => {
     setSubmitted(true)
     setFormError(null)
-    if (Object.keys(clientErrors).length > 0 || saving) return
+    if (Object.keys(clientErrors).length > 0 || saving || savingNow.current) return
+    savingNow.current = true
     const body = {
       student_id: studentId!,
       amount_paise: rupeesToPaise(amount)!,
       paid_on: paidOn,
       for_month: forMonth!,
-      method,
+      method: chosenMethod,
       note: note.trim() || null,
     }
     try {
@@ -328,6 +346,8 @@ function PaymentForm({
       }
       setServerErrors(byField)
       if (Object.keys(byField).length === 0) setFormError(errorMessage(error))
+    } finally {
+      savingNow.current = false
     }
   }
 
@@ -528,6 +548,7 @@ function PaymentForm({
               value={value}
               variant="outline"
               aria-label={label}
+              onKeyDown={(event) => onMethodKeyDown(event, value)}
               className={cn(
                 'h-12 w-full bg-card text-base',
                 'data-[state=on]:border-primary data-[state=on]:bg-primary/25 data-[state=on]:text-foreground',

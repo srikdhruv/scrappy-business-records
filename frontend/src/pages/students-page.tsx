@@ -7,7 +7,6 @@ import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 
 import { useStudents } from '@/api/queries'
-import type { StudentRead } from '@/api/types'
 import { PageHeader } from '@/components/layout/page-header'
 import { Panel } from '@/components/panel'
 import { EmptyState, ErrorState, ListSkeleton } from '@/components/states'
@@ -27,6 +26,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatMonthShort, formatRupees } from '@/lib/format'
 import { tenureLabel } from '@/lib/labels'
+import { studentMatches } from '@/lib/search'
 
 type Tab = 'active' | 'left' | 'all'
 const TABS: { value: Tab; label: string }[] = [
@@ -34,13 +34,6 @@ const TABS: { value: Tab; label: string }[] = [
   { value: 'left', label: 'Left' },
   { value: 'all', label: 'All' },
 ]
-
-function matches(student: StudentRead, needle: string): boolean {
-  if (!needle) return true
-  return [student.name, student.phone, student.guardian_name, student.batch_label].some((v) =>
-    v?.toLowerCase().includes(needle),
-  )
-}
 
 export function StudentsPage() {
   const [params, setParams] = useSearchParams()
@@ -52,14 +45,16 @@ export function StudentsPage() {
   const students = useStudents('all')
 
   const all = students.data ?? []
-  const needle = search.trim().toLowerCase()
+  const needle = search.trim()
   const counts = {
     active: all.filter((s) => s.is_active).length,
     left: all.filter((s) => !s.is_active).length,
     all: all.length,
   }
   const shown = all.filter(
-    (s) => (tab === 'all' || (tab === 'active' ? s.is_active : !s.is_active)) && matches(s, needle),
+    (s) =>
+      (tab === 'all' || (tab === 'active' ? s.is_active : !s.is_active)) &&
+      studentMatches(s, needle),
   )
 
   return (

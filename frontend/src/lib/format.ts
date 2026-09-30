@@ -81,6 +81,18 @@ export function rupeesToPaise(
   input: string,
   { allowZero = false }: { allowZero?: boolean } = {},
 ): number | null {
+  const paise = parseRupees(input)
+  if (paise === null || !Number.isSafeInteger(paise) || paise > MAX_AMOUNT_PAISE) return null
+  if (paise === 0 && !allowZero) return null
+  return paise
+}
+
+/**
+ * The paise in `input`, read exactly as `rupeesToPaise` reads it, but without the ₹10,00,000
+ * cap or the check for 0: "₹20,00,000/-" -> 200000000. Null if it isn't written like an amount
+ * at all. Lets a form tell "too big" apart from "not an amount".
+ */
+export function parseRupees(input: string): number | null {
   const cleaned = input
     .trim()
     .replace(/^(?:₹|rs\.?|inr)\s*/i, '')
@@ -99,10 +111,7 @@ export function rupeesToPaise(
     return null
   }
   const rupees = Number(whole.replace(/,/g, '') || '0')
-  const paise = rupees * 100 + Number((decimals ?? '').padEnd(2, '0'))
-  if (!Number.isSafeInteger(paise) || paise > MAX_AMOUNT_PAISE) return null
-  if (paise === 0 && !allowZero) return null
-  return paise
+  return rupees * 100 + Number((decimals ?? '').padEnd(2, '0'))
 }
 
 /** Paise -> the plain number to prefill an amount box with: 150000 -> "1500", 150050 -> "1500.50". */

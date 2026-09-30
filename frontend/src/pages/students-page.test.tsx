@@ -47,6 +47,38 @@ describe('students page', () => {
     expect(rows.getByRole('link', { name: 'Kabir Mehta' })).toBeInTheDocument()
   })
 
+  it('searches like Log payment: any word order, accents, phone numbers without spaces', async () => {
+    mockDb.createStudent({
+      name: 'Émile Dsouza',
+      monthly_fee_paise: 150000,
+      joined_month: '2026-10',
+      phone: '98765-43210',
+    })
+    const user = userEvent.setup()
+    renderApp('/students?tab=all')
+    await studentRows()
+    const search = screen.getByRole('searchbox', { name: 'Search students' })
+    const names = async () =>
+      (await studentRows()).queryAllByRole('link').map((link) => link.textContent)
+
+    for (const [typed, expected] of [
+      ['kabir', ['Kabir Mehta']],
+      ['mehta kabir', ['Kabir Mehta']],
+      ['nair ARJUN', ['Arjun Nair']],
+      ['9000000004', ['Arjun Nair']], // saved as "90000 00004"
+      ['90000-00004', ['Arjun Nair']],
+      ['emile', ['Émile Dsouza']],
+      ['9876543210', ['Émile Dsouza']],
+    ] as const) {
+      await user.clear(search)
+      await user.type(search, typed)
+      await waitFor(async () => expect(await names()).toEqual(expected))
+    }
+    await user.clear(search)
+    await user.type(search, 'kabir arjun')
+    expect(await screen.findByText('No students match “kabir arjun”.')).toBeInTheDocument()
+  })
+
   it('creates a student', async () => {
     const user = userEvent.setup()
     renderApp('/students')

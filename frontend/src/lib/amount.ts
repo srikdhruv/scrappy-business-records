@@ -1,5 +1,5 @@
 /** Plain-words checks for what someone types into an amount box (payments and fees). */
-import { formatRupees, MAX_AMOUNT_PAISE, rupeesToPaise } from '@/lib/format'
+import { formatRupees, MAX_AMOUNT_PAISE, parseRupees, rupeesToPaise } from '@/lib/format'
 
 /**
  * The problem with `input` as an amount, or null if it's fine. `allowZero` for fees.
@@ -12,9 +12,10 @@ export function amountProblem(
   if (input.trim() === '') return `Enter the ${what}.`
   const paise = rupeesToPaise(input, { allowZero: true })
   if (paise === null) {
-    // Well-formed but too big? Say so, instead of a puzzling format message.
-    const digits = input.replace(/^\s*(?:₹|rs\.?|inr)\s*/i, '').replace(/[,\s]/g, '')
-    if (/^\d+(?:\.\d{0,2})?$/.test(digits) && Number(digits) * 100 > MAX_AMOUNT_PAISE) {
+    // Written like an amount, but too big ("₹20,00,000/-")? Say so, instead of a puzzling
+    // format message. It's the same reading as rupeesToPaise, so the two can't disagree.
+    const uncapped = parseRupees(input)
+    if (uncapped !== null && uncapped > MAX_AMOUNT_PAISE) {
       return `The most you can enter is ${formatRupees(MAX_AMOUNT_PAISE)}.`
     }
     const article = /^[aeiou]/i.test(what) ? 'an' : 'a'
