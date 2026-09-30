@@ -119,13 +119,15 @@ function StudentForm({
 
   const feePaise = rupeesToPaise(fee, { allowZero: true })
   const fees = student?.fee_history ?? []
-  // "New fee applies from" shows for a fee different from this month's, and, once the fee box
-  // has been touched, whenever they have more than one fee: then the typed fee can differ from
-  // the fee in effect in another month (to undo a scheduled raise, or end a month off).
+  // "New fee applies from" shows for a fee different from this month's. It also shows whenever
+  // they have a fee change that hasn't started yet, and, once the fee box has been touched,
+  // whenever they have more than one fee: then this month's fee can still differ from the fee in
+  // effect in the chosen month (to undo a scheduled raise, or end a month off).
+  const hasScheduled = fees.some((f, i) => i > 0 && f.effective_month > now)
   const showFeeFrom =
     editing &&
     feePaise !== null &&
-    (feePaise !== student.monthly_fee_paise || (feeEdited && fees.length > 1))
+    (feePaise !== student.monthly_fee_paise || hasScheduled || (feeEdited && fees.length > 1))
   // Only a fee different from the one already in effect in the chosen month is recorded.
   const feeChanged = showFeeFrom && feeFrom !== null && feePaise !== feeAt(fees, feeFrom)
   const replaces = feeChanged ? fees.find((f) => f.effective_month === feeFrom) : undefined

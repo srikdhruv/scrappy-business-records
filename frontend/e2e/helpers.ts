@@ -21,7 +21,13 @@ export async function serverMonth(request: APIRequestContext): Promise<string> {
 
 export async function createStudent(
   request: APIRequestContext,
-  body: { name: string; monthly_fee_paise: number; joined_month: string; left_month?: string },
+  body: {
+    name: string
+    monthly_fee_paise: number
+    joined_month: string
+    left_month?: string
+    phone?: string
+  },
 ): Promise<number> {
   const response = await request.post('/api/students', { data: body })
   expect(response.status(), await response.text()).toBe(201)
