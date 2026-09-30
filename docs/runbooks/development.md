@@ -135,31 +135,46 @@ the Alembic config in code, so it works from any install folder.
 ## Testing the install
 
 The installers can only really be tested on the OS they're for, so CI does it on every PR.
-Look at these jobs when you change anything in `scripts/`, `launcher.py`, `backup.py`, `logs.py`
-or `__main__.py`.
+Look at these jobs when you change anything in `scripts/`, `launcher.py`, `backup.py`, `logs.py`,
+`lifetime.py` or `__main__.py`.
 
 **`windows-install`** (on `windows-latest`) builds the UI and the bundle (with its self-test),
 then runs `scripts/ci/smoke_install_windows.ps1` in **Windows PowerShell 5.1** with PATH cut
-down to Windows' own folders, so no Python or uv can be used by accident. In a temporary
-install folder it checks, in order:
+down to Windows' own folders, so no Python or uv can be used by accident. Every installer run
+happens in a fresh `powershell.exe` with default settings, using the published line's form (TLS
+prefix, then the script text piped into `iex`; test options come from `SCRAPPY_INSTALL_*`
+environment variables). The install folder's name has a space, an apostrophe and non-English
+letters. It checks, in order:
 
-1. The one-line form works: the script text piped into `Invoke-Expression`, with the test
-   options passed as `SCRAPPY_INSTALL_*` environment variables.
-2. The shortcut exists and points at `pythonw.exe -m app.launcher`, with the icon and working
+1. Asking for a release that doesn't exist (a real download from GitHub) fails with the
+   friendly "The download was not found" message, and leaves no zip or app folder behind.
+2. The one-line install works.
+3. The shortcut exists and points at `pythonw.exe -m app.launcher`, with the icon and working
    folder. `data\` doesn't exist yet.
-3. `pythonw.exe -m app` (no console at all) answers `/api/health` with the bundle's version, and
-   writes `server.log`.
-4. Two launchers started at the same moment, from another folder, start exactly one server.
-5. A student added straight into `records.db` (the bundled Python's `sqlite3`) survives a
+4. `pythonw.exe -m app` (no console at all) answers `/api/health` with the bundle's version, and
+   writes `server.log`. A second `pythonw -m app` for the same data exits cleanly (code 0).
+5. Two launchers started at the same moment, from another folder, start exactly one server.
+6. A student added straight into `records.db` (the bundled Python's `sqlite3`) survives a
    restart, and today's daily backup exists and is a sound SQLite copy.
-6. Re-running the installer with the app running (the update path, `-Param` form, launching the
-   app) stops the old server, takes a pre-update backup containing the student, keeps the data,
-   and leaves no `app.new` or `app.old` behind.
-7. With port 8765 held by another program, the launcher exits with code 1 and `server.log` says
+7. Re-running the installer with the app running (the update path, `-Param` form, launching the
+   app) stops the old server **politely** (its log says the installer asked), takes a
+   pre-update backup containing the student, keeps the data, and leaves no `app.new` or
+   `app.old` behind.
+8. After a crash mid-save (`db_probe.py hot-journal` leaves a hot `records.db-journal`), an
+   update still takes a proper backup (not the file-copy fallback) without the half-saved
+   change, and the app starts with the data intact.
+9. With port 8765 held by another program, the launcher exits with code 1 and `server.log` says
    "Something else is using port 8765"; `pythonw -m app` itself logs "error while attempting to
    bind".
-8. A failing `| iex` install prints the friendly message and throws, but doesn't end the
-   PowerShell session (it never calls `exit`).
+10. A failing one-line install prints the friendly message and throws a catchable error, but
+    doesn't end the PowerShell session (it never calls `exit`).
+
+**`post-release-verify.yml`** runs after each release is published (called by `release.yml`,
+or by hand from the Actions tab). On a fresh `windows-latest` it pastes the *literal* published
+line, which downloads `main`'s `install.ps1` and the `releases/latest/download/` asset. It then
+checks the version, the shortcut, a restart, a re-run (the update, with its backup) and the
+`-Version <tag>` form (`scripts/ci/verify_release_windows.ps1`). This can't run before the first
+release exists.
 
 **`macos-install`** (on `macos-latest`) does the same for `scripts/install.sh` with
 `scripts/ci/smoke_install_mac.sh`, under `env -i PATH=/usr/bin:/bin`. Run it locally with:

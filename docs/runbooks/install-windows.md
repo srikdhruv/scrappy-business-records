@@ -13,10 +13,11 @@ installed first, and you don't need an administrator password.
 2. **Paste the install line.** Copy this whole line:
 
    ```powershell
-   irm https://raw.githubusercontent.com/srikdhruv/scrappy-business-records/main/scripts/install.ps1 | iex
+   [Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor 3072; irm https://raw.githubusercontent.com/srikdhruv/scrappy-business-records/main/scripts/install.ps1 | iex
    ```
 
-   Click inside the PowerShell window, **right-click** to paste, then press **Enter**.
+   It's one long line: copy all of it. (The first part lets older Windows connect securely to
+   GitHub.) Click inside the PowerShell window, **right-click** to paste, then press **Enter**.
 
 3. **Wait.** You'll see:
 

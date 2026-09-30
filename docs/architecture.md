@@ -39,6 +39,7 @@ no Docker, no database server and no separate web server.
 | Launcher | Small Python script: health-check, spawn server, open browser, explain failures | `backend/app/launcher.py` |
 | Backups | SQLite online `backup()` API into the user's Documents folder | `backend/app/backup.py` |
 | Logging | Rotating `logs/server.log`, set up before anything else | `backend/app/logs.py` |
+| Server lifetime | One server per database (lock), polite stop, daily backup while running | `backend/app/lifetime.py` |
 | Packaging | Script that assembles a portable Python and the app into a zip, then self-tests it | `scripts/build_bundle.py` |
 | App icon | Marigold circle with a ₹, drawn at build time in the theme colours | `scripts/make_icon.py` |
 | Installer | PowerShell (Windows) and sh (macOS) | `scripts/install.ps1`, `scripts/install.sh` |
@@ -64,7 +65,9 @@ Everything is per-user, so no admin rights are needed.
   app.new\, app.old\                    ← only exist for a moment during an update
   data\
     records.db                          ← ALL user data; installs/updates never touch it
+    server.lock                         ← held by the running server: one server per database
     backups\                            ← only if the Documents backup folder can't be written
+  stop-server.request                   ← written by the installer to ask the server to stop
   logs\
     server.log (+ .1, .2)               ← rotating log (about 1 MB each), for troubleshooting
     server-console.log                  ← the server's raw output; started fresh at each start
@@ -108,7 +111,23 @@ logging at all: its loggers propagate to the root logger, which gets a console h
 when a console exists. Before anything else, `python -m app` adds the rotating log file
 (`logs\server.log`, about 1 MB × 3 files, `app/logs.py`) to the root logger, and logs uncaught
 exceptions there too (`sys.excepthook`). Under `pythonw` that file is the only place a startup
-failure (port in use, a migration error) can be seen. Don't start the server as
+failure (port in use, a migration error) can be seen.
+
+Then, still before uvicorn starts (so before any backup or migration), it takes the **server
+lock**: an exclusive lock on `data\server.lock`, held until the process exits (the OS releases
+it if the process dies). If another server already holds it, this one logs "already running or
+starting" and exits with code 0. That makes "two servers backing up and migrating the same
+database at once" impossible, even if a launcher gave up on a very slow first start and the user
+double-clicked again.
+
+While it runs, a housekeeping thread (`app/lifetime.py`) checks once a second:
+- for `stop-server.request` in `$SCRAPPY_HOME`, which the installer writes to ask for a polite
+  stop. The server then finishes its requests and exits normally, instead of being killed
+  mid-write. A request left over from before the server started is ignored.
+- whether the date has changed (and, hourly, whether today's backup is still missing). If so,
+  it takes the **daily backup**, so a laptop that only ever sleeps still gets one each day.
+
+Don't start the server as
 `pythonw -m uvicorn app.main:app`: that uses uvicorn's default logging and crashes without a
 console.
 
@@ -119,15 +138,21 @@ The Desktop shortcut runs `pythonw.exe -m app.launcher` (`backend/app/launcher.p
 1. **Is it already running?** It first checks whether it could bind `127.0.0.1:$SCRAPPY_PORT`
    itself (a quick test: on Windows a refused connection takes about 2 s). If the port is busy,
    it asks `GET /api/health`. An answer with `"app": "scrappy-records"` means the server is up.
+   If not, it checks the **server lock**: if it's held, our own server exists but isn't
+   answering yet (starting up, or stuck), so it waits for that one instead of starting another.
 2. **If not, start it**: `pythonw.exe -m app`, fully detached (Windows: `DETACHED_PROCESS`,
    `CREATE_NEW_PROCESS_GROUP` and `CREATE_NO_WINDOW`; macOS: a new session), with the bundle
    folder as its working directory and its raw output in `logs\server-console.log`. It keeps
    running after the launcher exits.
-3. **Wait** for `/api/health`, polling for up to 20 s. If the server process is visibly still
-   starting (a slow first start), it waits up to 60 s.
+3. **Wait** for `/api/health`, polling for up to 20 s, or up to 60 s while a server is visibly
+   still starting (our process is running, or the server lock is held). A server that exits
+   with code 0 found another one holding the lock, so the launcher waits for that one.
 4. **Open the browser** at `http://127.0.0.1:8765/` (`webbrowser`).
 5. **On failure**, it shows a plain-language native message box (`MessageBoxW` on Windows,
-   `osascript` on macOS) that names the log file, and exits with code 1.
+   `osascript` on macOS) that names the log file, and exits with code 1. The messages tell apart
+   another program on the port ("restart the laptop"), our own server holding the port without
+   answering ("seems to be stuck, restart the laptop") and a slow start ("still starting, wait a
+   minute, then double-click again").
 
 Steps 1–3 hold a lock file (`logs\launcher.lock`), so double-clicking the shortcut twice starts
 one server: the second launcher waits, sees the first one's server and just opens the browser.
@@ -143,7 +168,8 @@ messages instead of showing a box, which would otherwise wait for a click.
    `data/backups` instead.)
 2. Take the **daily backup** (`records-YYYY-MM-DD.db`), if none exists for today, and delete all
    but the 30 newest dailies. There's nothing to back up on the very first start. A failed daily
-   backup is logged and the app still opens.
+   backup is logged and the app still opens. (The running server takes later dailies itself,
+   see "Starting the server".)
 3. If a database exists and is behind the latest Alembic revision (`app.migrate.needs_upgrade()`),
    take a **pre-migration backup**. If that backup fails, startup stops: we never upgrade a
    database we couldn't copy first. Then `alembic upgrade head`
@@ -165,11 +191,20 @@ launcher doesn't start a server; it logs "Something else is using port 8765" to 
 shows a message box saying so. (If the server is started by hand anyway, uvicorn can't bind, and
 logs "error while attempting to bind" to `server.log` before exiting.)
 
-**Shutdown.** The server runs until the user logs off or shuts down. The installer stops any
-running server, found by its executable path, before replacing `app\`.
+**Our server stuck on the port.** The port is busy, `/api/health` doesn't answer, and the
+server lock is held: it's our own server. The launcher waits up to 60 s, then says "Scrappy
+Records seems to be stuck. Restart the laptop."
 
-**Backups** use SQLite's online backup API (`sqlite3.Connection.backup`) from a read-only
-connection, into a temporary file that is renamed when complete. See
+**Shutdown.** The server runs until the user logs off or shuts down. Before replacing `app\`, the
+installer finds any running server by its executable path (`Win32_Process`), asks it to stop
+(`stop-server.request`), and only force-stops what is still running after 10 seconds.
+
+**Backups** use SQLite's online backup API (`sqlite3.Connection.backup`) into a temporary file
+that is renamed when complete. The live database is opened read-write (never created), so a hot
+`records.db-journal` left by a crash or a forced stop is rolled back first; a read-only
+connection would fail with "attempt to write a readonly database". If the backup folder can't be
+written (an `OSError` *or* a `sqlite3.Error` such as "unable to open database file", as with
+Controlled Folder Access or a OneDrive lock), the copy goes to `data\backups`. See
 [backups](runbooks/backup-and-restore.md).
 
 ## Why the bundle works on a bare laptop

@@ -64,6 +64,6 @@ Earlier months keep the old fee.
 
 Yes.
 - Everything stays on this laptop.
-- Every day, the first time you open the app, a copy is saved in `Documents\ScrappyRecords
+- Once a day a copy is saved in `Documents\ScrappyRecords
   Backups`. The last 30 days are kept.
 - See [backups](backup-and-restore.md).

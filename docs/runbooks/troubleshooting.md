@@ -28,7 +28,8 @@ most problems.
 | Message starts with | What it means | Fix |
 |---|---|---|
 | "Scrappy Records couldn't start because another program is using its connection (port 8765)" | Something else is using the app's port | See the next section |
-| "Scrappy Records is taking too long to start" | The server didn't answer within a minute | Restart the laptop and try again. If it keeps happening, send `server.log` |
+| "Scrappy Records is still starting" | It's busy starting up (the first start after installing or updating can take a while) | Wait a minute, then double-click Scrappy Records again |
+| "Scrappy Records seems to be stuck" | The app is running but not answering | Restart the laptop, then open it again. If it keeps happening, send `server.log` |
 | "Scrappy Records couldn't start" | The server stopped straight away | Send `server.log`; it has the reason |
 | "Scrappy Records is running, but the browser didn't open" | No default browser responded | Open the browser and go to `http://127.0.0.1:8765` |
 
@@ -50,11 +51,15 @@ changed."**, a hint, and the details. Nothing was changed, so it's safe to run t
 
 | Details contain | Fix |
 |---|---|
-| `Could not create SSL/TLS secure channel` | Your Windows is very old. Run Windows Update, then try again. |
+| `Could not create SSL/TLS secure channel` | Make sure you copied the **whole** install line, including the part before `irm`. If it still happens, run Windows Update, then try again. |
 | `The remote name could not be resolved` / `Unable to connect` | You're not connected to the internet. Connect, then try again. |
 | `Access to the path ... is denied` / `being used by another process` | The app or an antivirus scan is holding a file. Restart the laptop, then run the install line again. |
 | `404` / `Not Found` | No release has been published yet (or that version doesn't exist). Ask whoever set this up. |
 | `The download looks incomplete` | The download was cut short. Run the line again. |
+| `Couldn't save a backup copy of your data` | Restart the laptop, then run the line again. Nothing was changed. |
+
+If the installer finishes but shows a yellow **Note:** (for example, the Desktop shortcut
+couldn't be created), the app *was* installed; the note says what to do.
 
 If the `app` folder ends up missing after a failed update, running the install line again fixes
 it. Your data is in the separate `data` folder and is never touched by the installer.

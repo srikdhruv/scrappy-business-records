@@ -18,6 +18,7 @@ version tag.
    ```
 4. The `release` workflow (`.github/workflows/release.yml`):
    - checks that the tag matches the version in `backend/pyproject.toml`, and stops if not;
+   - runs the backend and frontend unit tests;
    - builds the UI once, and shares it with the next two jobs;
    - builds `scrappy-records-windows-x64.zip` on `windows-latest` and
      `scrappy-records-macos-arm64.zip` on `macos-latest` with `scripts/build_bundle.py`, which
@@ -26,12 +27,19 @@ version tag.
      `scripts/ci/smoke_install_mac.sh`);
    - only if all of that passed, creates the GitHub Release with auto-generated notes and attaches
      both zips.
-5. Check the release page. Both assets must be present.
-6. Update the user's laptop: follow [update.md](update.md), or ask them to run the install line
+5. After publishing, it runs the **post-release check** (`post-release-verify.yml`): on a fresh
+   Windows machine it pastes the literal install line, then checks the version, a restart, a
+   re-run (update) and `-Version`. Watch it go green in the Actions tab; if it fails, users would
+   hit the same problem, so fix it before telling anyone to update. (It can be re-run by hand:
+   Actions → Post-release check → Run workflow.)
+6. Check the release page. Both assets must be present.
+7. Update the user's laptop: follow [update.md](update.md), or ask them to run the install line
    again.
 
-If the workflow fails, nothing is published. Fix the problem on `main`, delete the tag
-(`git push --delete origin v0.2.0 && git tag -d v0.2.0`), and tag again.
+If the tests, a bundle or a smoke test fail, nothing is published. Fix the problem on `main`,
+delete the tag (`git push --delete origin v0.2.0 && git tag -d v0.2.0`), and tag again. If only
+the post-release check fails, the release is already live: fix forward with a patch release
+quickly, or delete the release on GitHub so `latest` points at the previous one again.
 
 ## Checking a bundle before tagging
 
@@ -53,6 +61,13 @@ newer release, copy both checksums (from the release's `SHA256SUMS`, or
 `gh api repos/astral-sh/python-build-standalone/releases/tags/<tag>`), and let CI's install
 jobs prove it works. Stay on 3.12, matching `requires-python`.
 
+## Compatibility with older installs
+
+`install.ps1` and `install.sh` are always fetched from `main`, but before an update they run the
+*installed* (possibly older) version's `python -m app.backup --reason pre-update`. Keep that
+command, and its meaning (exit code 0 = backed up, or nothing to back up), working in every
+release. The installer falls back to the new version's backup, then to a file copy, if it fails.
+
 ## Why asset names have no version
 
 `install.ps1` downloads
@@ -65,7 +80,7 @@ parsing. The version is in the bundle's `VERSION` file and at `/api/health`.
 Install a specific version:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/srikdhruv/scrappy-business-records/main/scripts/install.ps1))) -Version v0.1.0
+[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor 3072; & ([scriptblock]::Create((irm https://raw.githubusercontent.com/srikdhruv/scrappy-business-records/main/scripts/install.ps1))) -Version v0.1.0
 ```
 
 On a Mac: `curl -fsSL https://raw.githubusercontent.com/srikdhruv/scrappy-business-records/main/scripts/install.sh | sh -s -- --version v0.1.0`.
