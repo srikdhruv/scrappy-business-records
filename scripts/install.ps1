@@ -193,6 +193,69 @@ function Backup-ScrappyData([string[]]$Bundles, [string]$Database) {
     throw "Couldn't save a backup copy of your data, so nothing was changed. ($lastError)"
 }
 
+function New-ScrappyShortcut([string]$LinkPath, [string]$Target, [string]$Arguments, [string]$Directory, [string]$Icon) {
+    # WScript.Shell can't handle paths with letters outside the system code page (a Hindi
+    # username on English Windows, say), so use the shell's Unicode IShellLinkW, compiled on the
+    # fly with the C# compiler every Windows has. WScript.Shell is the fallback, for machines
+    # that block compiling (constrained language mode).
+    try {
+        if (-not ('ScrappyRecordsInstall.ShortcutV1' -as [type])) {
+            Add-Type -Language CSharp -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+using System.Text;
+namespace ScrappyRecordsInstall {
+    [ComImport, Guid("000214F9-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IShellLinkW {
+        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder file, int max, IntPtr findData, int flags);
+        void GetIDList(out IntPtr idList);
+        void SetIDList(IntPtr idList);
+        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder name, int max);
+        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string name);
+        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder dir, int max);
+        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string dir);
+        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder args, int max);
+        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string args);
+        void GetHotkey(out short hotkey);
+        void SetHotkey(short hotkey);
+        void GetShowCmd(out int showCmd);
+        void SetShowCmd(int showCmd);
+        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder path, int max, out int index);
+        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string path, int index);
+        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string path, int reserved);
+        void Resolve(IntPtr hwnd, int flags);
+        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string file);
+    }
+    [ComImport, Guid("00021401-0000-0000-C000-000000000046")]
+    class ShellLink { }
+    public static class ShortcutV1 {
+        public static void Create(string link, string target, string args, string dir, string icon, string description) {
+            IShellLinkW shellLink = (IShellLinkW)new ShellLink();
+            shellLink.SetPath(target);
+            shellLink.SetArguments(args);
+            shellLink.SetWorkingDirectory(dir);
+            shellLink.SetIconLocation(icon, 0);
+            shellLink.SetDescription(description);
+            ((IPersistFile)shellLink).Save(link, true);
+        }
+    }
+}
+'@
+        }
+        [ScrappyRecordsInstall.ShortcutV1]::Create($LinkPath, $Target, $Arguments, $Directory, $Icon, 'Open Scrappy Records')
+    } catch {
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($LinkPath)
+        $shortcut.TargetPath = $Target
+        $shortcut.Arguments = $Arguments
+        $shortcut.WorkingDirectory = $Directory
+        $shortcut.IconLocation = $Icon + ',0'
+        $shortcut.Description = 'Open Scrappy Records'
+        $shortcut.Save()
+    }
+}
+
 function Get-ScrappyHint([string]$Message) {
     if ($Message -match 'SSL|TLS|secure channel') {
         return 'Windows could not make a secure connection. Run Windows Update, then try again.'
@@ -329,14 +392,8 @@ function Install-ScrappyRecords {
         if (-not $ShortcutDir) { $ShortcutDir = [Environment]::GetFolderPath('Desktop') }
         if (-not $ShortcutDir) { $ShortcutDir = Join-Path $env:USERPROFILE 'Desktop' }
         New-Item -ItemType Directory -Force -Path $ShortcutDir | Out-Null
-        $shell = New-Object -ComObject WScript.Shell
-        $shortcut = $shell.CreateShortcut((Join-Path $ShortcutDir 'Scrappy Records.lnk'))
-        $shortcut.TargetPath = $pythonw
-        $shortcut.Arguments = '-m app.launcher'
-        $shortcut.WorkingDirectory = $appDir
-        $shortcut.IconLocation = (Join-Path $appDir 'scrappy.ico') + ',0'
-        $shortcut.Description = 'Open Scrappy Records'
-        $shortcut.Save()
+        New-ScrappyShortcut (Join-Path $ShortcutDir 'Scrappy Records.lnk') $pythonw '-m app.launcher' `
+            $appDir (Join-Path $appDir 'scrappy.ico')
     } catch {
         $warnings += "The Desktop shortcut couldn't be created ($($_.Exception.Message)). Run the install line again to retry, or open the app with: $appDir\Start Scrappy Records.cmd"
     }

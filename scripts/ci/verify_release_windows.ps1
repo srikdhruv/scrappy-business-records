@@ -91,8 +91,8 @@ if (-not (Test-Path -LiteralPath $shortcut)) { Fail "no Desktop shortcut at $sho
 Step 'Add a student, restart with the shortcut, still there'
 if ((Invoke-Probe insert $database $name) -ne 0) { Fail 'insert failed' }
 Stop-App
-$lnk = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
-Start-Process -FilePath $lnk.TargetPath -ArgumentList $lnk.Arguments -WorkingDirectory $lnk.WorkingDirectory
+$lnk = (New-Object -ComObject Shell.Application).Namespace((Split-Path -Parent $shortcut)).ParseName('Scrappy Records.lnk').GetLink
+Start-Process -FilePath $lnk.Path -ArgumentList $lnk.Arguments -WorkingDirectory $lnk.WorkingDirectory
 Wait-Health | Out-Null
 if ((Invoke-Probe check $database $name) -ne 0) { Fail 'the student did not survive a restart' }
 

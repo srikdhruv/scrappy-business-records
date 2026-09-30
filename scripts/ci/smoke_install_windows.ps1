@@ -169,11 +169,13 @@ try {
     Step 'The shortcut points at pythonw -m app.launcher, with the icon; no data folder yet'
     $lnkPath = Join-Path $shortcuts 'Scrappy Records.lnk'
     if (-not (Test-Path -LiteralPath $lnkPath)) { Fail "no shortcut at $lnkPath" }
-    $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut($lnkPath)
-    if ($lnk.TargetPath -ne $pythonw) { Fail "shortcut target is $($lnk.TargetPath)" }
+    # Read it back through Shell.Application, which (unlike WScript.Shell) handles any letters.
+    $lnk = (New-Object -ComObject Shell.Application).Namespace($shortcuts).ParseName('Scrappy Records.lnk').GetLink
+    if ($lnk.Path -ne $pythonw) { Fail "shortcut target is $($lnk.Path)" }
     if ($lnk.Arguments -ne '-m app.launcher') { Fail "shortcut arguments are $($lnk.Arguments)" }
     if ($lnk.WorkingDirectory -ne $appDir) { Fail "shortcut folder is $($lnk.WorkingDirectory)" }
-    if ($lnk.IconLocation -notlike '*scrappy.ico,0') { Fail "shortcut icon is $($lnk.IconLocation)" }
+    $lnkText = [Text.Encoding]::Unicode.GetString([IO.File]::ReadAllBytes($lnkPath))
+    if (-not $lnkText.Contains((Join-Path $appDir 'scrappy.ico'))) { Fail 'the shortcut does not use scrappy.ico' }
     if (-not (Test-Path -LiteralPath (Join-Path $appDir 'scrappy.ico'))) { Fail 'scrappy.ico is missing' }
     if (Test-Path -LiteralPath (Join-Path $root 'data')) { Fail 'installing created the data folder' }
     $version = (Get-Content -LiteralPath (Join-Path $appDir 'VERSION') -TotalCount 1).Trim()
