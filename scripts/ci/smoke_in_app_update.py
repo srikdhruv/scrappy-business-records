@@ -29,8 +29,9 @@ non-English letters, with no developer tools on PATH, it checks:
 8. Update now to B for real: a second start is refused, B answers, the data is there and in a
    pre-update backup, the attempt succeeded, nothing is left behind, the launcher saw the
    waiting page (no second tab);
-9. the pasted line's path: installing C over B → C doesn't start → B is put back and opened,
-   data intact; and a zip that doesn't match its SHA256SUMS changes nothing.
+9. the pasted line's path: installing D over B → B is put back and opened, and the records
+   are exactly the pre-update backup again; and a zip that doesn't match its SHA256SUMS
+   changes nothing.
 
 **Before a release is promoted** (`release.yml`, `--release-tag vX`): only steps 1, 2 and 8,
 with the release's real files: the app downloads `install.ps1` / `install.sh` and
@@ -49,6 +50,7 @@ import hashlib
 import http.server
 import json
 import os
+import re
 import shutil
 import socket
 import sqlite3
@@ -71,6 +73,7 @@ SCRIPT = "install.ps1" if IS_WINDOWS else "install.sh"
 ASSET = "scrappy-records-windows-x64.zip" if IS_WINDOWS else "scrappy-records-macos-arm64.zip"
 OLD_VERSION = "0.0.1"
 BROKEN_VERSION = "9.9.9"
+MIGRATING_VERSION = "9.9.8"
 NAME = "Ishaan Rao (in-app update test)"
 APP_HEADERS = {"Content-Type": "application/json", "X-Scrappy-Request": "1"}
 UPDATE_TIMEOUT = 300.0
@@ -98,22 +101,69 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def rezip(source: Path, target: Path, version: str, broken: bool = False) -> str:
-    """Copy the bundle with VERSION set to `version` (and, if `broken`, an app that can't even
-    be imported). Returns the bundle's real version."""
+DUMMY_TABLE = "ci_failed_update_dummy"
+
+
+def _head_revision(src: zipfile.ZipFile) -> str:
+    """The bundle's newest migration (the one no other one comes after)."""
+    revisions, downs = set(), set()
+    for name in src.namelist():
+        if name.startswith("app/migrations/versions/") and name.endswith(".py"):
+            text = src.read(name).decode()
+            rev = re.search(r'^revision[^=\n]*=\s*"([^"]+)"', text, re.M)
+            down = re.search(r'^down_revision[^=\n]*=\s*"([^"]+)"', text, re.M)
+            if rev:
+                revisions.add(rev.group(1))
+            if down:
+                downs.add(down.group(1))
+    [head] = revisions - downs
+    return head
+
+
+def rezip(source: Path, target: Path, version: str, broken: str = "") -> str:
+    """Copy the bundle with VERSION set to `version`, and, if `broken` is "import", an app that
+    can't even be imported; if "migrate", one that upgrades the records (a new table) and then
+    crashes on startup. Returns the bundle's real version."""
     with zipfile.ZipFile(source) as src, zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as dst:
         real = src.read("VERSION").decode().strip()
+        # (before copying: writestr() rewrites the ZipInfo it's given, so src can't be read after)
+        head = _head_revision(src) if broken == "migrate" else ""
+        changed = {"import": "app/__init__.py", "migrate": "app/main.py"}.get(broken, "")
+        cached = changed.replace("app/", "app/__pycache__/").removesuffix(".py") + "."
         for info in src.infolist():
             name = info.filename
-            if broken and name.startswith("app/__pycache__/__init__."):
+            if changed and name.startswith(cached):
                 continue  # the precompiled copy would be used instead of the source
             data = src.read(info)
             if name == "VERSION":
                 data = version.encode() + b"\n"
-            elif broken and name == "app/__init__.py":
+            elif broken == "import" and name == changed:
                 data = b'raise RuntimeError("a deliberately broken bundle")\n' + data
+            elif broken == "migrate" and name == changed:
+                data += (
+                    b"\n\n_ci_startup = run_startup_tasks\n\n\n"
+                    b"def run_startup_tasks() -> None:  # CI: upgrade the records, then crash\n"
+                    b"    _ci_startup()\n"
+                    b'    raise RuntimeError("upgraded the records, then crashed")\n'
+                )
             dst.writestr(info, data)
+        if broken == "migrate":
+            migration = (
+                "import sqlalchemy as sa\nfrom alembic import op\n\n"
+                f'revision = "9999ci"\ndown_revision = "{head}"\n'
+                "branch_labels = None\ndepends_on = None\n\n\n"
+                f'def upgrade() -> None:\n    op.create_table("{DUMMY_TABLE}", '
+                'sa.Column("id", sa.Integer, primary_key=True))\n\n\n'
+                f'def downgrade() -> None:\n    op.drop_table("{DUMMY_TABLE}")\n'
+            )
+            dst.writestr("app/migrations/versions/20991231_9999_ci_dummy.py", migration)
     return real
+
+
+def dump(db: Path) -> list[str]:
+    """Every table's definition and every row, as SQL (to compare two databases exactly)."""
+    with contextlib.closing(sqlite3.connect(f"file:{db}?mode=ro", uri=True)) as conn:
+        return list(conn.iterdump())
 
 
 # --------------------------------------------------------------------------- the fake GitHub
@@ -365,8 +415,11 @@ def main() -> int:
         else:
             github.release(tag, new_zip)
             broken_zip = work / f"broken-{ASSET}"
-            rezip(new_zip, broken_zip, BROKEN_VERSION, broken=True)
+            rezip(new_zip, broken_zip, BROKEN_VERSION, broken="import")
             github.release(f"v{BROKEN_VERSION}", broken_zip)
+            migrating_zip = work / f"migrating-{ASSET}"
+            rezip(new_zip, migrating_zip, MIGRATING_VERSION, broken="migrate")
+            github.release(f"v{MIGRATING_VERSION}", migrating_zip)
 
         extra = {
             "SCRAPPY_HOME": str(root),
@@ -431,6 +484,32 @@ def main() -> int:
 
         def servers_started() -> int:
             return server_log.read_text("utf-8", "replace").count("Started server process")
+
+        def records_put_back(running: str) -> None:
+            """After a version that upgraded the records and then crashed: the old version runs,
+            the records are exactly the pre-update backup, and the upgraded ones were kept."""
+            if health(port) != running:
+                fail(f"version {running} isn't running after the rollback")
+            pre_update = max(
+                backups.glob("records-pre-update-*.db"), key=lambda f: f.stat().st_mtime
+            )
+            if dump(root / "data" / "records.db") != dump(pre_update):
+                fail(f"the records aren't exactly the pre-update backup {pre_update.name}")
+            if any(DUMMY_TABLE in line for line in dump(root / "data" / "records.db")):
+                fail("the upgrade is still in the records")
+            failed = sorted(backups.glob("records-failed-update-*.db"))
+            if not failed or not any(DUMMY_TABLE in line for line in dump(failed[-1])):
+                fail(f"the upgraded records weren't kept aside: {failed}")
+            log_text = update_log.read_text("utf-8", "replace")
+            for words in (
+                "changed the records before it stopped",
+                "Kept the records as the new version left them",
+                "Checked the restored records",
+                "Your records were put back as they were before the update.",
+            ):
+                if words not in log_text:
+                    fail(f"update.log doesn't say '{words}'")
+            data_intact()
 
         def offer(version: str) -> dict[str, Any]:
             info = wait_for("the update check", lambda: update_checked(port), 60, logs)
@@ -565,6 +644,26 @@ def main() -> int:
             )
             if (app_dir / "VERSION").read_text().strip() != OLD_VERSION:
                 fail("the app folder isn't A after the rollback")
+            if "Your records were not changed" not in update_log.read_text("utf-8", "replace"):
+                fail("a version that never touched the records had them put back anyway")
+            if list(backups.glob("records-failed-update-*")):
+                fail("records were set aside though nothing changed them")
+
+            step(f"Update now to {MIGRATING_VERSION}, which upgrades the records then crashes")
+            github.latest = f"v{MIGRATING_VERSION}"
+            offer(MIGRATING_VERSION)
+            before = servers_started()
+            status, answer = start(MIGRATING_VERSION)
+            if status != 202:
+                fail(f"start answered {status} {answer}")
+            old_back_and_failed(before, "the new version upgraded the records, then crashed")
+            records_put_back(OLD_VERSION)
+            wait_for(
+                "the app to say the records were put back",
+                lambda: attempt(port).get("records_restored") is True,
+                60,
+                logs,
+            )
             github.latest = tag
             offer(new_version)
 
@@ -618,21 +717,26 @@ def main() -> int:
             fail("the launcher didn't notice the waiting page (it would open a second tab)")
 
         if not release_tag:
-            step("The pasted line's path: C over B doesn't start, so B is put back")
+            step("The pasted line's path: a version that upgrades the records then crashes")
             pasted = work / "pasted"
             pasted.mkdir()
-            shutil.copy(broken_zip, pasted / ASSET)
+            shutil.copy(migrating_zip, pasted / ASSET)
             (pasted / "SHA256SUMS").write_text(
                 f"{sha256((pasted / ASSET).read_bytes())}  {ASSET}\n"
             )
             output = run(installer(pasted / ASSET, root, no_launch=False), env, expect_ok=False)
-            for words in ("matches its checksum", "didn't start", "was put back"):
+            for words in (
+                "matches its checksum",
+                "didn't start",
+                "was put back",
+                "your records were put back as they were before the update",
+            ):
                 if words not in output:
                     fail(f"the installer didn't say '{words}'")
             wait_for(f"version {new_version} back", lambda: health(port) == new_version, 120, logs)
             if (app_dir / "VERSION").read_text().strip() != new_version:
                 fail("the app folder isn't B after the rollback")
-            data_intact()
+            records_put_back(new_version)
             if "didn't start, so version" not in update_log.read_text("utf-8", "replace"):
                 fail("update.log doesn't record the rollback")
 

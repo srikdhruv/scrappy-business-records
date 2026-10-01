@@ -125,6 +125,88 @@ on_exit() {
     fi
 }
 
+# A fingerprint of the records file and any journal next to it: if it changes, something wrote
+# to the records.
+records_state() {
+    for s in MAIN -journal -wal -shm; do
+        [ "$s" = MAIN ] && f="$1" || f="$1$s"
+        [ ! -f "$f" ] || printf '%s=%s|' "$s" "$(/usr/bin/shasum -a 256 "$f" | awk '{ print $1 }')"
+    done
+}
+
+# The pre-update backup this run just took (newer than the marker file $2).
+find_pre_update_backup() {
+    for dir in "${SCRAPPY_BACKUP_DIR:-$HOME/Documents/ScrappyRecords Backups}" "$(dirname "$1")/backups"; do
+        [ -d "$dir" ] && find "$dir" -maxdepth 1 -name 'records-pre-update-*.db' -newer "$2" -print
+    done 2>/dev/null | while IFS= read -r f; do printf '%s\t%s\n' "$(stat -f %m "$f")" "$f"; done |
+        sort -n | tail -n 1 | cut -f 2-
+}
+
+# Every step goes to logs/update.log (started from the app, all output already does).
+note() {
+    say "$*"
+    [ "$from_app" = 1 ] || log_line "$*"
+}
+
+# restore_records DB BACKUP PYTHON: put the pre-update backup back as the records (ADR 0004's
+# one exception: the new version never started, so nothing can have been entered since). The
+# records as the new version left them are kept, never deleted, next to the backup. If anything
+# goes wrong, everything is put back as it was before this step; restore_error says why.
+restore_records() {
+    db=$1
+    backup=$2
+    py=$3
+    restore_error=""
+    if [ -z "$backup" ] || [ ! -f "$backup" ]; then
+        restore_error="the backup taken before the update wasn't found"
+        note "Couldn't put the records back by themselves: $restore_error"
+        return 1
+    fi
+    aside="$(dirname "$backup")/records-failed-update-$(date +%Y%m%d-%H%M%S).db"
+    moved=""
+    copied=""
+    for s in MAIN -journal -wal -shm; do
+        [ "$s" = MAIN ] && x="" || x="$s"
+        if [ -f "$db$x" ]; then
+            if mv "$db$x" "$aside$x"; then moved="$moved $s"; else restore_error="couldn't move $db$x aside"; break; fi
+        fi
+    done
+    [ -n "$restore_error" ] || note "Kept the records as the new version left them: $aside"
+    if [ -z "$restore_error" ]; then
+        for s in -journal -wal -shm; do
+            if [ -f "$backup$s" ]; then
+                if cp "$backup$s" "$db$s"; then copied="$copied $s"; else restore_error="couldn't copy $backup$s"; fi
+            fi
+        done
+    fi
+    if [ -z "$restore_error" ]; then
+        if cp "$backup" "$db.restoring" && mv "$db.restoring" "$db"; then
+            copied="$copied MAIN"
+            note "Copied the backup from before the update back in: $backup"
+        else
+            restore_error="couldn't copy $backup in"
+        fi
+    fi
+    if [ -z "$restore_error" ]; then
+        check=$("$py" -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); r=c.execute('PRAGMA integrity_check').fetchone()[0]; t=c.execute('SELECT count(*) FROM sqlite_master').fetchone()[0]; print(r); sys.exit(0 if r == 'ok' and t else 1)" "$db" 2>&1) ||
+            restore_error="the restored copy didn't pass its check ($check)"
+    fi
+    if [ -z "$restore_error" ]; then
+        note "Checked the restored records: they open and are sound."
+        return 0
+    fi
+    # Undo this step: the copies of the backup go (the backup itself stays), the records as the
+    # new version left them come back. If even that fails, leave everything where it is.
+    for s in $copied; do [ "$s" = MAIN ] && rm -f "$db" || rm -f "$db$s"; done
+    rm -f "$db.restoring"
+    for s in $moved; do
+        [ "$s" = MAIN ] && x="" || x="$s"
+        [ -e "$db$x" ] || mv "$aside$x" "$db$x" 2>/dev/null || true
+    done
+    note "Couldn't put the records back by themselves: $restore_error"
+    return 1
+}
+
 # check_sum FILE NAME SUMS: FILE must have the SHA-256 that SUMS (sha256sum's format) gives for
 # NAME, or nothing is changed.
 check_sum() {
@@ -268,9 +350,17 @@ main() {
     stop_running_app "$root"
 
     # 4. Back up the data before changing anything.
+    # (and remember the records as they are now: if the new version won't start, this tells
+    # whether it changed them)
+    pre_update_backup=""
+    records_before=""
     if [ -f "$database" ]; then
         say "Saving a backup copy of your data..."
+        touch "$tmp/backup-start"
+        sleep 1 # so the backup is strictly newer than the marker
         backup_data "$database" "$app_dir" "$new_dir"
+        pre_update_backup=$(find_pre_update_backup "$database" "$tmp/backup-start")
+        records_before=$(records_state "$database")
     fi
     if [ -n "${SCRAPPY_TEST_FAIL_AFTER_BACKUP:-}" ] && [ -f "$SCRAPPY_TEST_FAIL_AFTER_BACKUP" ]; then
         rm -f "$SCRAPPY_TEST_FAIL_AFTER_BACKUP"
@@ -333,18 +423,32 @@ main() {
     if [ "$started" != 1 ]; then
         [ "$had_old" = 1 ] ||
             fail "The new version ($new_version) didn't start. Run the install line again, or ask whoever set this up."
-        say "Version $new_version didn't start: putting version $old_version back..."
+        note "Version $new_version didn't start: putting version $old_version back..."
         stop_running_app "$root"
         failed_dir="$root/app.failed-$(date +%Y%m%d%H%M%S)"
         { mv "$app_dir" "$failed_dir" && mv "$old_dir" "$app_dir"; } ||
             fail "The new version didn't start, and the old one couldn't be put back. Run the install line again."
         rm -rf "$failed_dir"
-        [ "$from_app" = 1 ] || log_line "Version $new_version didn't start, so version $old_version was put back."
+        note "Version $new_version didn't start, so version $old_version was put back."
+        # Did the failed start change the records (an upgrade that ran, then a crash)? Then the
+        # old version may not open them: put back the backup taken just before (ADR 0004).
+        records=""
+        if [ -n "$records_before" ] && [ "$(records_state "$database")" != "$records_before" ]; then
+            note "The new version changed the records before it stopped: putting back the backup from before the update..."
+            if restore_records "$database" "$pre_update_backup" "$app_dir/python/bin/python3"; then
+                note "Your records were put back as they were before the update."
+                records=", and your records were put back as they were before the update"
+            else
+                records=", but your records couldn't be put back as they were before the update by themselves ($restore_error). Nothing is lost: the backup from before the update is $pre_update_backup"
+            fi
+        elif [ -n "$records_before" ]; then
+            note "Your records were not changed."
+        fi
         if [ "$no_launch" != "1" ] || [ "$from_app" = 1 ]; then
             (cd "$app_dir" && ./python/bin/python3 -m app.launcher) >/dev/null 2>&1 || true
         fi
         launched=1 # opened (or not wanted): nothing more to open on the way out
-        fail "The new version ($new_version) didn't start, so the previous version ($old_version) was put back and opened again."
+        fail "The new version ($new_version) didn't start, so the previous version ($old_version) was put back and opened again$records."
     fi
     rm -rf "$old_dir"
 

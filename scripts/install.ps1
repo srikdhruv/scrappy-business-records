@@ -379,6 +379,94 @@ function Get-ScrappySums([string]$Url) {
     }
 }
 
+function Get-ScrappySha256([string]$File) {
+    # .NET's SHA256 rather than Get-FileHash: no module to load (a PSModulePath inherited from
+    # PowerShell 7 can stop Windows PowerShell 5.1 loading it).
+    $stream = [IO.File]::Open($File, 'Open', 'Read', 'ReadWrite')
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+        $stream.Dispose()
+    }
+}
+
+function Get-ScrappyRecordsState([string]$Database) {
+    # A fingerprint of the records file and any journal next to it: if it changes, something
+    # wrote to the records.
+    $parts = @()
+    foreach ($suffix in @('', '-journal', '-wal', '-shm')) {
+        $file = $Database + $suffix
+        if (Test-Path -LiteralPath $file) { $parts += "$suffix=$(Get-ScrappySha256 $file)" }
+    }
+    return ($parts -join '|')
+}
+
+function Find-ScrappyPreUpdateBackup([string]$Database, [datetime]$Since) {
+    # The pre-update backup this run just took (in the backups folder, or data\backups).
+    $dirs = @((Get-ScrappyBackupDir), (Join-Path (Split-Path -Parent $Database) 'backups'))
+    $found = @(foreach ($dir in $dirs) {
+        if (Test-Path -LiteralPath $dir) {
+            Get-ChildItem -LiteralPath $dir -Filter 'records-pre-update-*.db' -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTime -ge $Since }
+        }
+    })
+    if ($found.Count -eq 0) { return $null }
+    return ($found | Sort-Object LastWriteTime | Select-Object -Last 1).FullName
+}
+
+function Restore-ScrappyRecords([string]$Database, [string]$Backup, [string]$Python, [scriptblock]$Log) {
+    # Put the pre-update backup back as the records (ADR 0004's one exception: the new version
+    # never started, so nothing can have been entered since the backup). The records as the new
+    # version left them are kept, never deleted, next to the backup. If anything goes wrong,
+    # everything is put back as it was before this step, and this throws.
+    if (-not $Backup -or -not (Test-Path -LiteralPath $Backup)) {
+        throw "the backup taken before the update wasn't found"
+    }
+    $aside = Join-Path (Split-Path -Parent $Backup) ('records-failed-update-{0}.db' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    $moved = @()
+    $copied = @()
+    try {
+        foreach ($suffix in @('', '-journal', '-wal', '-shm')) {
+            if (Test-Path -LiteralPath ($Database + $suffix)) {
+                Move-Item -LiteralPath ($Database + $suffix) -Destination ($aside + $suffix)
+                $moved += $suffix
+            }
+        }
+        & $Log "Kept the records as the new version left them: $aside"
+        foreach ($suffix in @('-journal', '-wal', '-shm')) {
+            if (Test-Path -LiteralPath ($Backup + $suffix)) {
+                Copy-Item -LiteralPath ($Backup + $suffix) -Destination ($Database + $suffix)
+                $copied += $suffix
+            }
+        }
+        Copy-Item -LiteralPath $Backup -Destination ($Database + '.restoring')
+        Move-Item -LiteralPath ($Database + '.restoring') -Destination $Database
+        $copied += ''
+        & $Log "Copied the backup from before the update back in: $Backup"
+        $code = "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); r=c.execute('PRAGMA integrity_check').fetchone()[0]; t=c.execute('SELECT count(*) FROM sqlite_master').fetchone()[0]; print(r); sys.exit(0 if r == 'ok' and t else 1)"
+        $check = Invoke-ScrappyProgram $Python ('-c "' + $code + '" "' + $Database + '"') (Split-Path -Parent $Python) 120
+        if ($check.ExitCode -ne 0) { throw "the restored copy didn't pass its check ($($check.Output))" }
+        & $Log 'Checked the restored records: they open and are sound.'
+    } catch {
+        $why = $_.Exception.Message
+        # Undo this step: the copies of the backup go (the backup itself stays), the records as
+        # the new version left them come back. If even that fails, leave everything where it is.
+        foreach ($suffix in $copied) { Remove-Item -LiteralPath ($Database + $suffix) -Force -ErrorAction SilentlyContinue }
+        Remove-Item -LiteralPath ($Database + '.restoring') -Force -ErrorAction SilentlyContinue
+        foreach ($suffix in $moved) {
+            try {
+                if (-not (Test-Path -LiteralPath ($Database + $suffix))) {
+                    Move-Item -LiteralPath ($aside + $suffix) -Destination ($Database + $suffix)
+                }
+            } catch { }
+        }
+        & $Log "Couldn't put the records back by themselves: $why"
+        throw $why
+    }
+}
+
 function Assert-ScrappyChecksum([string]$File, [string]$Name, [string]$Sums) {
     # $File must have the SHA-256 that $Sums (sha256sum's format) gives for $Name.
     $expected = $null
@@ -388,16 +476,7 @@ function Assert-ScrappyChecksum([string]$File, [string]$Name, [string]$Sums) {
         }
     }
     if (-not $expected) { throw "The checksum list (SHA256SUMS) doesn't include $Name, so the download can't be checked. Nothing was changed." }
-    # .NET's SHA256 rather than Get-FileHash: no module to load (a PSModulePath inherited from
-    # PowerShell 7 can stop Windows PowerShell 5.1 loading it).
-    $stream = [IO.File]::OpenRead($File)
-    $sha = [Security.Cryptography.SHA256]::Create()
-    try {
-        $actual = ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToLowerInvariant()
-    } finally {
-        $sha.Dispose()
-        $stream.Dispose()
-    }
+    $actual = Get-ScrappySha256 $File
     if ($actual -ne $expected) {
         throw "The download doesn't match its checksum (SHA256SUMS): it may be damaged, or not the real one. Nothing was changed."
     }
@@ -428,6 +507,9 @@ function Write-ScrappyLog([string]$HomeDir, [string]$Message) {
 }
 
 function Get-ScrappyHint([string]$Message) {
+    if ($Message -match "records couldn't be put back") {
+        return 'Nothing is lost: the copy from before the update is in the backups folder. Ask whoever set this up to restore it (docs/runbooks/backup-and-restore.md).'
+    }
     if ($Message -match "didn't start") {
         return 'Your previous version was put back and opened again, with your records. Tell whoever set this up.'
     }
@@ -501,6 +583,8 @@ function Install-ScrappyRecords {
     $stopped = 0
     $hadOld = $false
     $oldVersion = ''
+    $preUpdateBackup = $null
+    $recordsBefore = $null
     $warnings = @()
     try {
         # 1. Get the zip, check it against the release's SHA256SUMS, and unpack it next to the
@@ -559,10 +643,14 @@ function Install-ScrappyRecords {
         $stopped = Stop-ScrappyProcesses $InstallRoot $homeDir
         if ($stopped -gt 0) { Write-ScrappyStep 'Closed the running copy of Scrappy Records.' }
 
-        # 3. Back up the data before changing anything.
+        # 3. Back up the data before changing anything, and remember the records as they are
+        #    now: if the new version won't start, this tells whether it changed them.
         if (Test-Path -LiteralPath $database) {
             Write-ScrappyStep 'Saving a backup copy of your data...'
+            $backupStart = (Get-Date).AddSeconds(-2)
             Backup-ScrappyData @($appDir, $newDir) $database
+            $preUpdateBackup = Find-ScrappyPreUpdateBackup $database $backupStart
+            $recordsBefore = Get-ScrappyRecordsState $database
         }
         if ($env:SCRAPPY_TEST_FAIL_AFTER_BACKUP -and (Test-Path -LiteralPath $env:SCRAPPY_TEST_FAIL_AFTER_BACKUP)) {
             Remove-Item -LiteralPath $env:SCRAPPY_TEST_FAIL_AFTER_BACKUP -Force
@@ -637,18 +725,35 @@ function Install-ScrappyRecords {
             if (-not $homeWasSet) { Remove-Item Env:SCRAPPY_HOME -ErrorAction SilentlyContinue }
             throw "The new version ($newVersion) didn't start. Run the install line again, or ask whoever set this up."
         }
-        Write-ScrappyStep "Version $newVersion didn't start: putting version $oldVersion back..."
+        # Every step goes to logs\update.log (started from the app, all output already does).
+        $log = { param($Message) Write-ScrappyStep $Message; if (-not $fromApp) { Write-ScrappyLog $homeDir $Message } }
+        & $log "Version $newVersion didn't start: putting version $oldVersion back..."
         [void](Stop-ScrappyProcesses $InstallRoot $homeDir)
         $failedDir = Join-Path $InstallRoot "app.failed-$(Get-Date -Format 'yyyyMMddHHmmss')"
         Move-ScrappyFolder $appDir $failedDir
         Move-ScrappyFolder $oldDir $appDir
         Remove-ScrappyFolder $failedDir -BestEffort
-        if (-not $fromApp) { Write-ScrappyLog $homeDir "Version $newVersion didn't start, so version $oldVersion was put back." }
+        & $log "Version $newVersion didn't start, so version $oldVersion was put back."
+        # Did the failed start change the records (an upgrade that ran, then a crash)? Then the
+        # old version may not open them: put back the backup taken just before (ADR 0004).
+        $records = ''
+        if ($recordsBefore -and (Get-ScrappyRecordsState $database) -ne $recordsBefore) {
+            & $log 'The new version changed the records before it stopped: putting back the backup from before the update...'
+            try {
+                Restore-ScrappyRecords $database $preUpdateBackup (Join-Path $appDir 'python\python.exe') $log
+                & $log 'Your records were put back as they were before the update.'
+                $records = ', and your records were put back as they were before the update'
+            } catch {
+                $records = ", but your records couldn't be put back as they were before the update by themselves ($($_.Exception.Message)). Nothing is lost: the backup from before the update is $preUpdateBackup"
+            }
+        } elseif ($recordsBefore) {
+            & $log 'Your records were not changed.'
+        }
         if (-not $NoLaunch -or $fromApp) {
             try { [void](Start-ScrappyApp $appDir -AfterUpdate:$fromApp) } catch { }
         }
         if (-not $homeWasSet) { Remove-Item Env:SCRAPPY_HOME -ErrorAction SilentlyContinue }
-        throw "The new version ($newVersion) didn't start, so the previous version ($oldVersion) was put back and opened again."
+        throw "The new version ($newVersion) didn't start, so the previous version ($oldVersion) was put back and opened again$records."
     }
     Remove-ScrappyFolder $oldDir -BestEffort
 

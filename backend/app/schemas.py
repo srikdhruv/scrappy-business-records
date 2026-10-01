@@ -1799,6 +1799,11 @@ class UpdateAttemptRead(_ReadModel):
     technical: str = Field(
         "", description="The installer's own words, for whoever looks after the app (or empty)."
     )
+    records_restored: bool = Field(
+        False,
+        description="The new version changed the records and then didn't start, so the installer "
+        "put back the backup taken just before the update (ADR 0004).",
+    )
 
 
 class UpdateInfo(_ReadModel):

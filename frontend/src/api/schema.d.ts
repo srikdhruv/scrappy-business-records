@@ -2865,6 +2865,12 @@ export interface components {
              * @default
              */
             technical: string;
+            /**
+             * Records Restored
+             * @description The new version changed the records and then didn't start, so the installer put back the backup taken just before the update (ADR 0004).
+             * @default false
+             */
+            records_restored: boolean;
         };
         /**
          * UpdateCheckError

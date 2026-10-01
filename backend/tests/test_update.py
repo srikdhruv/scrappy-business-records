@@ -908,6 +908,42 @@ def test_restart_on_the_old_version_is_failure() -> None:
     assert updater.reconcile_attempt() == settled  # settled once
 
 
+def test_restart_after_the_installer_put_the_records_back() -> None:
+    config.log_dir().mkdir(parents=True)
+    updater.save_attempt(_attempt(NEXT))
+    (config.log_dir() / "update.log").write_text(
+        "\n==== 2026-09-30T10:00:00+00:00 Updating from 0.1.0 to v99.0.0 ====\n"
+        "  - Version 99.0.0 didn't start, so version 0.1.0 was put back.\n"
+        "  - Your records were put back as they were before the update.\n",
+        encoding="utf-8",
+    )
+    settled = updater.reconcile_attempt()
+    assert settled and settled.outcome == "failed" and settled.records_restored
+    # The installer's Details line comes after this version reopened: picked up later.
+    with open(config.log_dir() / "update.log", "a", encoding="utf-8") as f:
+        f.write(
+            "Details: The new version (99.0.0) didn't start, so the previous version (0.1.0) was "
+            "put back and opened again, and your records were put back as they were before the "
+            "update.\n"
+        )
+    later = updater.settled_attempt()
+    assert later and later.records_restored and "records were put back" in later.technical
+    read = later.read()
+    assert read and read.records_restored
+
+
+def test_an_earlier_attempts_log_doesnt_count() -> None:
+    config.log_dir().mkdir(parents=True)
+    updater.save_attempt(_attempt(NEXT))
+    (config.log_dir() / "update.log").write_text(
+        "\n==== earlier ====\n  - Your records were put back as they were before the update.\n"
+        "\n==== 2026-09-30T10:00:00+00:00 this one ====\n  - Unpacking...\n",
+        encoding="utf-8",
+    )
+    settled = updater.reconcile_attempt()
+    assert settled and not settled.records_restored
+
+
 def test_reconcile_without_or_with_a_broken_file() -> None:
     assert updater.reconcile_attempt() is None
     config.log_dir().mkdir(parents=True)

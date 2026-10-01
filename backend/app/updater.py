@@ -386,6 +386,7 @@ class Attempt:
     finished_at: str | None = None
     detail: str = ""
     technical: str = ""  # the installer's own words (newer field: older apps don't write it)
+    records_restored: bool = False  # the installer put the pre-update backup back
 
     def read(self) -> UpdateAttemptRead | None:
         try:
@@ -399,6 +400,7 @@ class Attempt:
                 outcome=UpdateOutcome(self.outcome),
                 detail=self.detail,
                 technical=self.technical,
+                records_restored=self.records_restored,
             )
         except ValueError:
             return None
@@ -416,6 +418,7 @@ def load_attempt() -> Attempt | None:
             finished_at=data.get("finished_at") or None,
             detail=str(data.get("detail", "")),
             technical=str(data.get("technical", "")),
+            records_restored=data.get("records_restored") is True,
         )
     except (OSError, ValueError, KeyError, TypeError):
         return None
@@ -430,7 +433,11 @@ def settled_attempt(now: dt.datetime | None = None) -> Attempt | None:
             # The installer may say why only after it reopened this version (a rollback).
             technical = _installer_problem(None)
             if technical:
-                attempt = replace(attempt, technical=technical)
+                attempt = replace(
+                    attempt,
+                    technical=technical,
+                    records_restored=attempt.records_restored or _records_put_back(),
+                )
                 with contextlib.suppress(OSError):
                     save_attempt(attempt)
         return attempt
@@ -489,6 +496,8 @@ def reconcile_attempt(current: str = __version__) -> Attempt | None:
             finished_at=now,
             detail=_failed_detail(attempt.to_version, current),
             technical=_installer_problem(None),
+            # Said before the installer reopens this version, so it's in the log already.
+            records_restored=_records_put_back(),
         )
         log.warning("The update to %s didn't finish; still on %s", attempt.to_version, current)
     with contextlib.suppress(OSError):
@@ -669,19 +678,32 @@ def spawn_installer(
     raise last
 
 
-def _installer_problem(code: int | None) -> str:
-    """The installer's own "Details:" line from update.log, if it printed one."""
+RECORDS_PUT_BACK = "Your records were put back as they were before the update."
+"""What an installer prints when it put the pre-update backup back after a failed start (a
+contract with newer installers: docs/runbooks/release.md)."""
+
+
+def _attempt_log() -> str:
+    """update.log since the last header the server wrote (this attempt's part)."""
     with contextlib.suppress(OSError):
         with open(update_log_file(), "rb") as f:
             f.seek(0, os.SEEK_END)
-            f.seek(max(0, f.tell() - 8192))
+            f.seek(max(0, f.tell() - 16384))
             tail = f.read().decode("utf-8", "replace")
-        # Only this attempt's part: after the last header the server wrote.
-        tail = tail.rsplit("\n==== ", 1)[-1]
-        for line in reversed(tail.splitlines()):
-            if line.strip().startswith("Details:"):
-                return line.strip()[:300]
+        return tail.rsplit("\n==== ", 1)[-1]
+    return ""
+
+
+def _installer_problem(code: int | None) -> str:
+    """The installer's own "Details:" line from update.log, if it printed one."""
+    for line in reversed(_attempt_log().splitlines()):
+        if line.strip().startswith("Details:"):
+            return line.strip()[:300]
     return "" if code is None else f"The installer stopped with code {code}."
+
+
+def _records_put_back() -> bool:
+    return RECORDS_PUT_BACK in _attempt_log()
 
 
 def _clean_old_temp_folders() -> None:
