@@ -69,7 +69,7 @@ def test_a_release_is_only_promoted_after_the_in_app_update_works() -> None:
                 "SCRAPPY_UPDATE_FROM_APP",
                 "SCRAPPY_INSTALL_ROOT",
                 "SHA256SUMS",
-                "Get-FileHash",
+                "Security.Cryptography.SHA256",
                 "SCRAPPY_AFTER_UPDATE",
             ],
         ),

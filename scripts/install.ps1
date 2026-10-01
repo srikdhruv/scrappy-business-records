@@ -335,8 +335,11 @@ function Get-ScrappyRunningVersion([string]$Port) {
     $client = New-Object Net.WebClient
     $client.Proxy = $null
     try {
-        $health = $client.DownloadString("http://127.0.0.1:$Port/api/health") | ConvertFrom-Json
-        if ($health.app -eq 'scrappy-records') { return [string]$health.version }
+        # A regular expression, not ConvertFrom-Json: nothing to load from a module.
+        $body = $client.DownloadString("http://127.0.0.1:$Port/api/health")
+        if ($body -match '"app"\s*:\s*"scrappy-records"' -and $body -match '"version"\s*:\s*"([^"]+)"') {
+            return $Matches[1]
+        }
     } catch { }
     finally { $client.Dispose() }
     return $null
@@ -385,7 +388,16 @@ function Assert-ScrappyChecksum([string]$File, [string]$Name, [string]$Sums) {
         }
     }
     if (-not $expected) { throw "The checksum list (SHA256SUMS) doesn't include $Name, so the download can't be checked. Nothing was changed." }
-    $actual = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant()
+    # .NET's SHA256 rather than Get-FileHash: no module to load (a PSModulePath inherited from
+    # PowerShell 7 can stop Windows PowerShell 5.1 loading it).
+    $stream = [IO.File]::OpenRead($File)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $actual = ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+        $stream.Dispose()
+    }
     if ($actual -ne $expected) {
         throw "The download doesn't match its checksum (SHA256SUMS): it may be damaged, or not the real one. Nothing was changed."
     }
