@@ -21,7 +21,9 @@
 
 export const POLL_MS = 2_000
 export const SLOW_MS = 3 * 60_000
-export const GIVE_UP_MS = 10 * 60_000
+// Longer than the installer waits for a slow first start (10 minutes), so the page never gives
+// up on an update that is still going to work.
+export const GIVE_UP_MS = 15 * 60_000
 const REQUEST_TIMEOUT_MS = 5_000
 
 export type UpdatePhase =

@@ -363,14 +363,15 @@ is only allowed to `127.0.0.1` (the tests' fake relay).
    `SCRAPPY_INSTALL_ROOT` (the running copy's folder, as its Python was started) and its output
    in `logs/update.log`. One at a time: a second start answers 409.
 4. **The installer** does what it always does: check the zip against `SHA256SUMS`, stop
-   politely, back up, swap, open the new version and wait up to 3 minutes for it to answer as
+   politely, back up, swap, open the new version and wait (up to 10 minutes while it is still
+   starting) for it to answer as
    itself (else put `app.old` back and open that), shortcut. Started from the app, it also
    opens the version still installed if it fails after closing the app, and runs the launcher
    with `SCRAPPY_AFTER_UPDATE=1`.
 5. **The page** shows "Updating… the app will reopen in a minute" and polls
    `/api/health?waiting_for_update=true` every 2 s (`lib/update.ts`): another version → reload;
    the same version and a failed attempt in `/api/update` → "The update didn't finish", with the
-   log's location (the installer's own line folded under "Technical details"); 10 minutes →
+   log's location (the installer's own line folded under "Technical details"); 15 minutes →
    "taking too long", and that window doesn't show the screen for that attempt again. Other
    open windows of the app see the running attempt and show the same screen. A running attempt
    older than 30 minutes is failed by the server. After a failed or cut-short update, the page

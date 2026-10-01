@@ -2244,7 +2244,7 @@ If it takes more than 3 minutes, it adds *This is taking longer than usual, but 
 working* (a slow internet connection can do that). If it can't finish, the card says **The update
 didn't finish**, why in plain words, and that **your records are safe** and the old version
 is still there, with **Back to the app**. A small folded **Technical details** line under it has
-the installer's own words, for whoever helps you. After 10 minutes with no answer it says **The
+the installer's own words, for whoever helps you. After 15 minutes with no answer it says **The
 update is taking too long**, what to do (open it from the Desktop, then **Check again**), and
 the name of the log file to send to whoever set up the app. That window won't show the
 Updating card for that update again.
@@ -2252,7 +2252,9 @@ Updating card for that update again.
 **If an update was cut short** (the laptop restarted in the middle, say) or failed while the
 window was closed, the next time you open the app an amber note says once: **The last update
 didn't finish — your records are safe.** *You still have version 0.1.0, just as it was.* With
-**Try again** (when the new version can be installed) and **OK**.
+**Try again** (when the new version can be installed) and **OK**. If the new version had changed
+your records before it stopped, it says instead **…your records were put back as they were
+before the update.**
 
 ### What you can do
 
@@ -2292,9 +2294,11 @@ didn't finish — your records are safe.** *You still have version 0.1.0, just a
 - **Clicking twice starts it once.** If you have the app open in two browser windows, both show
   *Updating…* and both reload on the new version.
 - **If it fails**, the old version is put back and opened again, exactly as it was. That
-  includes a new version that won't start on this laptop: the installer waits for it to open,
-  and if it doesn't within 3 minutes it puts the old one back. Try again later; if it keeps
-  failing, see [troubleshooting](runbooks/troubleshooting.md#the-update-didnt-finish).
+  includes a new version that won't start on this laptop: the installer waits for it to open
+  (a few minutes if it's slow), and if it never does it puts the old one back, and, if the new
+  one had already changed your records, puts them back as they were before the update (the
+  note then says so). Try again later; if it keeps failing, see
+  [troubleshooting](runbooks/troubleshooting.md#the-update-didnt-finish).
 - **Only this laptop's own pages can use the app.** Another website open in the browser can't
   read your records or start an update.
 - **Version 0.2.0 is the first with this button**, so getting *to* 0.2.0 needs the pasted line
@@ -2310,7 +2314,7 @@ didn't finish — your records are safe.** *You still have version 0.1.0, just a
   buttons in `components/about-dialog.tsx`).
 - **Waiting:** `src/lib/update.ts` (`nextPhase`, `watchUpdate`): polls
   `/api/health?waiting_for_update=true` every 2 s; another version → reload; the same version
-  and a failed attempt → failed; 3 min → slow; 10 min → timeout. Not now and "Updated" once are
+  and a failed attempt → failed; 3 min → slow; 15 min → timeout. Not now and "Updated" once are
   in `localStorage`.
 - **Unsaved input:** `src/lib/unsaved.ts` (`findUnsavedInput`, a `BroadcastChannel` to ask other
   windows), `components/track-unsaved.tsx` around the payment, student and feedback forms, and

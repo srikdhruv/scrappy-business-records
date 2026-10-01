@@ -67,7 +67,7 @@ outbound call, besides feedback.
    minute" and polls `/api/health?waiting_for_update=true` every 2 s. A different version
    answering → reload (the new version's UI). The same version answering and
    `/api/update` saying this attempt failed → say so in plain words, with the log's location.
-   Nothing after 10 minutes → say what to do; that window never shows the Updating screen for
+   Nothing after 15 minutes (longer than the installer waits for a slow start) → say what to do; that window never shows the Updating screen for
    that attempt again. The attempt is written to `logs/update-attempt.json` before the installer
    starts; the next server to start settles it (its own version is the new one → succeeded;
    else failed), the server marks it failed itself if the installer ends while it still runs,
@@ -79,21 +79,32 @@ outbound call, besides feedback.
    installer fails before swapping (download, checksum, backup), nothing was changed; started
    from the app, it opens the version still installed if it had closed it. If the swap itself
    fails, the old folder is put back. After the swap, the old version is kept (`app.old`) until
-   the new one answers `/api/health` **as the new version** (up to 3 minutes; with `-NoLaunch`
-   it must at least import). If it doesn't, the installer stops it, puts the old version back,
-   opens it, logs the failure (`logs/update.log`) and says so. This is the installer's own
-   logic, so it also protects the pasted line (including the v0.1.0 → v0.2.0 update, which uses
-   `main`'s installer), on Windows and macOS. **Not covered:** if the new version upgraded the
-   records (a migration) and *then* failed to start, the old version may not open the upgraded
-   records; the pre-update backup has them as they were
-   ([backups](../runbooks/backup-and-restore.md)). Migrations only add and are tested on every
-   release's data ([ADR 0004](0004-data-is-never-lost.md)), so this is unlikely. After an update, the launcher doesn't open a second browser tab if the page that
+   the new one answers `/api/health` **as the new version**. A first start can be slow (an
+   antivirus scan, a backup and an upgrade first), so the installer keeps waiting, up to 10
+   minutes, while any of the new version's programs is running, and gives up early only once
+   none is left (it crashed); with `-NoLaunch` it must at least import. **Once the new version
+   has answered, nothing is undone** (she may have used it). If it never answers, the installer
+   stops it, puts the old version back (each move is checked: if the old one can't come back,
+   the new one is put back in place, so there's always an app, and it says so), opens it, logs
+   every step (`logs/update.log`) and says so. **If that failed start changed the records** (a
+   fingerprint of `records.db` and its journal, taken right after this run's backup, differs:
+   an upgrade ran, then a crash), it also puts the pre-update backup back: ADR 0004's one
+   documented exception, decided by the owner. The changed records are kept aside as
+   `records-failed-update-<time>.db`, the restored copy must pass `PRAGMA integrity_check`, and
+   if the restore fails it's undone and the old version isn't opened on records it may not
+   read. The page then says "The last update didn't finish — your records were put back as they
+   were before the update" (`records_restored`, from the installer's line "Your records were put
+   back as they were before the update." in `update.log`). This is the installer's own logic,
+   so it also protects the pasted line (including the v0.1.0 → v0.2.0 update, which uses
+   `main`'s installer), on Windows and macOS. After an update, the launcher doesn't open a second browser tab if the page that
    started it is still waiting (`page_waiting` in `/api/update`, set by the page's
    `waiting_for_update` polls); otherwise it opens the browser as usual.
 8. **Switches for tests and dev.** `SCRAPPY_UPDATE_FEED_URL` overrides the feed (empty turns
    the check off: dev mode, the unit tests, the bundle self-test and the guide pictures). The
-   test hooks work **only with `SCRAPPY_TEST_MODE=1`** (CI sets it), and are ignored otherwise:
-   plain HTTP (only to this laptop: `127.0.0.1` or `localhost`), and
+   test hooks work **only with `SCRAPPY_TEST_MODE=1`** (CI sets it), and are ignored otherwise,
+   in the app and in the installers: plain HTTP (only to this laptop: `127.0.0.1` or
+   `localhost`), the installers' `SCRAPPY_TEST_FORCE_FILE_COPY_BACKUP` and
+   `SCRAPPY_TEST_FAIL_AFTER_BACKUP`, and
    `SCRAPPY_UPDATE_DOWNLOAD_URL` (a local stand-in for a release's files, passed on to the
    installer as `SCRAPPY_INSTALL_DOWNLOAD_URL`). There is no way to hand the update a local zip.
    A copy running from source (not an installed bundle) never updates itself.
@@ -110,7 +121,8 @@ Updating means running code from GitHub on the owner's laptop. What makes that s
 - **Checksums.** Every release has `SHA256SUMS` for both zips and both installers. The app
   checks the installer, and the installer checks the zip, before using them. The pasted line
   (which fetches `install.ps1` from `main`) checks the zip too. Only v0.1.0, from before
-  checksums, has none, and is the only version installed unchecked.
+  checksums, has none, and is only installed unchecked when asked for by name
+  (`-Version v0.1.0`); the latest path always needs `SHA256SUMS`.
 - **Only checked releases become "latest".** A new release is a prerelease until it has been
   installed and updated to by the real files on Windows and macOS; the app only offers
   "latest".

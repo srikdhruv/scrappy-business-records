@@ -67,12 +67,17 @@ match), in the background with no window. Its messages go to `logs\update.log`. 
    the backups folder or `data\backups`. If nothing works, it stops without changing anything.
 4. The new version is swapped in: `app` becomes `app.old`, `app.new` becomes `app`. If the swap
    fails, the old version is put back. The `data` folder is never touched.
-5. The new version opens, and the installer waits (up to 3 minutes) for it to answer as the
-   new version. If its database layout changed, it takes another backup
-   (`records-pre-migration-…`) before upgrading the database. **If it doesn't start**, the
-   installer puts the old version back (from `app.old`), opens it, and says so (*"The new
-   version didn't start, so the previous version was put back"*); the line is also written to
-   `logs\update.log`. Otherwise `app.old` is deleted.
+5. The new version opens, and the installer waits for it to answer as the new version (up to
+   10 minutes while it's still starting: a first start can be slow). If its database layout
+   changed, it takes another backup (`records-pre-migration-…`) before upgrading the database.
+   **If it doesn't start**, the installer puts the old version back (from `app.old`), opens it,
+   and says so (*"The new version didn't start, so the previous version was put back"*). **If
+   that failed start had already changed your records** (its upgrade ran, then it crashed), it
+   also puts back the backup it took in step 3, so the old version can open them: nothing is
+   lost, because the new version never started, so nothing could have been entered. The
+   records as the new version left them are kept as `records-failed-update-<date>-<time>.db`
+   in the backups folder. Every step is written to `logs\update.log`. Otherwise `app.old` is
+   deleted. (Once the new version has answered, nothing is ever undone.)
 6. The Desktop shortcut is recreated and the downloaded zip is deleted. (If the shortcut can't be
    made, the installer says so in yellow, but the update itself has worked.) After **Update
    now**, the page that started it reloads itself, so no second browser tab opens. If the

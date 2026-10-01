@@ -10,6 +10,11 @@ version tag.
 > fix `main`, **bump the patch version** (`0.2.0` → `0.2.1`) and release again. See
 > [ADR 0006, Trust model](../adr/0006-in-app-update.md#trust-model).
 
+> **Between merging checksums and releasing v0.2.0:** `main`'s installers require `SHA256SUMS`
+> on the latest path, and v0.1.0 has none, so the plain install line refuses to install v0.1.0
+> (`-Version v0.1.0` still works). Release v0.2.0 promptly after merging; from then on the
+> latest release always has `SHA256SUMS`.
+
 ## Before the first release: GitHub account safety
 
 Whoever can publish a release can put code on the owner's laptop (the app updates itself to the
@@ -69,9 +74,13 @@ goes into `main` before tagging.
      install this version; then restart, update and `-Version`;
    - if that last check fails, **rolls back**: the release becomes a prerelease again, so
      `latest` points at the previous version. A failed check never leaves a bad "latest".
-     (Checked on a test repository: on an immutable release, `--prerelease=false --latest` and
-     `--prerelease` still work, and the notes can still be edited; only the files and the tag
-     are locked.)
+     (Checked on 2026-10-01 on a throwaway private repository with immutable releases: a draft
+     with all five files, published with `--draft=false --prerelease`, became immutable;
+     uploading another file was then refused ("Cannot upload assets to an immutable release");
+     `gh release edit <tag> --prerelease=false --latest` promoted it, `--prerelease` rolled it
+     back and `releases/latest` went back to the previous one, `--latest` on the previous one
+     worked, and the notes could still be edited. Only the files and the tag are locked; a
+     deleted release's tag can't be used again.)
 5. Watch the whole workflow go green in the Actions tab. The release page must show the new
    version as **Latest**, with its five files. (The check can be re-run by hand: Actions →
    Post-release check → Run workflow, with `mode` `latest` or `tagged`.)
@@ -162,8 +171,11 @@ supporting the oldest app still in use (v0.2.0 onwards), so these are a contract
    ends that PowerShell), but the pasted line still needs `throw`, so keep using `throw`.
 4. **It ends with the app open.** On success, open the new version, with `SCRAPPY_AFTER_UPDATE=1`
    for the launcher, and keep the old one until the new one answers as itself (else put the
-   old one back). If it fails after closing the app, open the version still installed. Print
-   the reason on a `Details: ...` line: the app shows it as the technical detail.
+   old one back, and the pre-update backup too if the failed start changed the records). If it
+   fails after closing the app, open the version still installed. Print the reason on a
+   `Details: ...` line: the app shows it as the technical detail. After putting the records
+   back, print the line `Your records were put back as they were before the update.` (before
+   reopening the old version): the old app reads it to tell her.
 5. **The server's side.** The new server must keep answering `GET /api/health` with
    `{"app": "scrappy-records", "version": ...}` and accepting `?waiting_for_update=true`, which the
    old page polls (from `127.0.0.1:<port>`, which every request must be addressed to); and keep

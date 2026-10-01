@@ -11,6 +11,7 @@ Copies are saved automatically to **`Documents\ScrappyRecords Backups`**:
 |---|---|---|
 | Once a day: when the app starts, and at midnight (or on waking) while it runs | `records-2026-10-05.db` | 30 days |
 | Before an update | `records-pre-update-20261005-101500.db` | Kept until you delete it |
+| Only if an update's new version upgraded the records and then didn't start: the records as it left them, set aside when the pre-update backup was put back | `records-failed-update-20261005-101530.db` | Kept until you delete it |
 | Before a database upgrade | `records-pre-migration-20261005-101500.db` | Kept until you delete it |
 | Before adding an Excel upload (**Upload Excel** → **Add**) | `records-pre-import-20261005-101500.db` | Kept until you delete it |
 | Before turning labels into batches ("Create batches from existing labels") | `records-pre-batches-20261005-101500.db` | Kept until you delete it |
@@ -27,6 +28,13 @@ data instead: `%LOCALAPPDATA%\ScrappyRecords\data\backups`.
 
 Rarely, a pre-update backup is a plain file copy (the installer says "file copy"). It may then
 come with a second file of the same name ending in `-journal`. Keep the two together.
+
+**After an update that didn't start.** If a new version upgraded the records and then crashed
+before it ever opened, the installer puts back the pre-update backup by itself (nothing can
+have been entered in between) and keeps the records it replaced as
+`records-failed-update-….db`. You don't need to do anything. If it says it *couldn't* put
+them back, restore the newest `records-pre-update-….db` as below (the app may not open until
+you do); nothing is lost.
 
 > **Extra safety.** If your Documents folder is synced to OneDrive or Google Drive, your backups
 > are automatically copied off the laptop too. You can also copy the backups folder to a USB

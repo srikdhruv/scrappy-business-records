@@ -112,7 +112,7 @@ describe('watchUpdate', () => {
     expect(phases.map((p) => p.kind)).toEqual(['waiting', 'failed'])
   })
 
-  it('gives up after 10 minutes', async () => {
+  it('gives up after 15 minutes', async () => {
     const { phases } = watch([null])
     await vi.advanceTimersByTimeAsync(GIVE_UP_MS + POLL_MS)
     expect(phases.at(-1)).toEqual({ kind: 'timeout', appRunning: false })

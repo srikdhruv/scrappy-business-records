@@ -56,8 +56,8 @@ too long"**).
   a Mac, open it from Applications), then click **Check again**.
 - **Try again later** from **⚙ Settings → About → Update now**. The most common cause is the
   internet dropping during the download.
-- **"The last update didn't finish — your records are safe"** at the top of the page means an
-  update was cut short (the laptop restarted in the middle, say) or failed while the window
+- **"The last update didn't finish — your records are safe"** (or *"…your records were put back
+  as they were before the update"*) at the top of the page means an update was cut short (the laptop restarted in the middle, say) or failed while the window
   wasn't open. Nothing is lost; click **Try again** when it suits you.
 - The page says it in plain words; **Technical details** (folded, under the message) has the
   installer's own words, for whoever helps you.
@@ -85,7 +85,10 @@ changed."**, a hint, and the details. Nothing was changed, so it's safe to run t
 | `The download looks incomplete` | The download was cut short. Run the line again. |
 | `Couldn't save a backup copy of your data` | Restart the laptop, then run the line again. Nothing was changed. |
 | `doesn't match its checksum` / `SHA256SUMS` | The download isn't exactly the file that was published (cut short, or changed on the way). Nothing was changed. Try again later; if it keeps happening, tell whoever set this up. |
-| `The new version (…) didn't start, so the previous version (…) was put back` | The new version couldn't start on this laptop. Your previous version is back and open, with your records. Tell whoever set this up (send `logs\update.log` and `logs\server.log`). |
+| `The new version (…) didn't start, so the previous version (…) was put back` | The new version couldn't start on this laptop. Your previous version is back and open, with your records (if the new version had already changed them, they were put back as they were before the update; its copy is kept as `records-failed-update-….db`). Tell whoever set this up (send `logs\update.log` and `logs\server.log`). |
+| `…your records couldn't be put back as they were before the update by themselves` | Nothing is lost, but the old version may not open the records the new one changed, so it wasn't opened. Restore the `records-pre-update-….db` named in the message ([backups and restore](backup-and-restore.md#restore-a-backup)), then open the app. |
+| `…the previous version couldn't be put back` | Something held a file. Restart the laptop, then run the install line again. Your records are safe. |
+| `This release has no checksum list (SHA256SUMS)` | Only v0.1.0 was published without one, and is only installed with `-Version v0.1.0`. For anything else, ask whoever set this up. |
 
 If the installer finishes but shows a yellow **Note:** (for example, the Desktop shortcut
 couldn't be created), the app *was* installed; the note says what to do.

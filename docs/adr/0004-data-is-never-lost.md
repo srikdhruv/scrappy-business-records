@@ -20,7 +20,22 @@ code had written.
 
 1. **Updates never touch the data folder.** Installing or updating only replaces the app folder.
    `data\records.db` (and its backups) is never moved, rewritten or deleted by an installer
-   ([ADR 0003](0003-distribution-and-install.md)).
+   ([ADR 0003](0003-distribution-and-install.md)), with **one documented exception**, decided by
+   the owner:
+
+   > **A new version that never started.** If, after an update, the new version never answers
+   > (it crashed while starting) *and* that failed start changed the records (its upgrade ran,
+   > then it crashed), the installer puts the old version back **and** puts back the backup it
+   > took moments before, in that same run. Nothing can be lost: the new version never started,
+   > so nothing could have been entered since the backup; the only change is its own upgrade,
+   > which the old version may not be able to read. The records as the new version left them
+   > are kept, never deleted, as `records-failed-update-<time>.db` next to the backup; the
+   > restored copy must pass `PRAGMA integrity_check` before the old version opens; if any step
+   > fails, that step is undone, nothing is deleted, and the installer says so plainly
+   > (pointing to [backups and restore](../runbooks/backup-and-restore.md)), and doesn't open
+   > the old version on records it may not read. If the records weren't changed, the data
+   > folder isn't touched. If the new version answered even once, nothing is undone at all
+   > (she may have used it). See [ADR 0006](0006-in-app-update.md) (rule 7).
 2. **Schema changes only add, with defaults.** A migration may add tables, columns (nullable, or
    with a default so existing rows get a value), indexes and constraints. It may not drop or
    rename a table or column that holds the owner's data, change a column's type, make a column
@@ -56,6 +71,7 @@ code had written.
 | Every release has its sample | The release workflow stops if any earlier release has none | `scripts/ci/check_release_fixture.py`, `.github/workflows/release.yml` |
 | A table rebuild keeps linked rows | Migration tests | `backend/tests/test_migration_safety.py` |
 | Backup before any upgrade; no upgrade without it | Startup code | `backend/app/main.py`, `backend/app/backup.py` |
+| The one exception: records put back only after a failed start that changed them, kept aside, checked | The install jobs' in-app update test (a version that upgrades, then crashes; in-app and the pasted line) | `scripts/install.ps1`, `scripts/install.sh`, `scripts/ci/smoke_in_app_update.py` |
 | One transaction, foreign-key check, rollback | Migration environment | `backend/app/migrations/env.py` |
 
 *Data safety* is a required check: a pull request can't be merged while it fails.
