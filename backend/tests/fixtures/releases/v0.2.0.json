@@ -1,10 +1,30 @@
 {
  "format": 1,
- "tag": "v0.1.0",
- "revision": "0002",
+ "tag": "v0.2.0",
+ "revision": "0006",
  "today": "2026-09-30",
  "note": "Made by scripts/make_release_fixture.py from the released code. Fictional data. Never edit by hand: regenerate it instead.",
  "tables": {
+  "batches": {
+   "count": 4,
+   "columns": [
+    "id",
+    "name",
+    "location",
+    "days",
+    "start_time",
+    "end_time",
+    "default_fee_paise",
+    "notes"
+   ],
+   "sha256": "7a3613a68954b8ad197b17e34178306eaacffd03f8cb93bbe125c224b0dad823",
+   "rows": [
+    [1, "Mon/Wed 5pm – Koramangala", "Koramangala", "1010000", "17:00", "18:00", 180000, "Hall B – upstairs"],
+    [2, "Sat 10am – Jayanagar Studio", null, "0000000", null, null, null, null],
+    [3, "Weekend – Café studio", null, "0000000", null, null, null, null],
+    [4, "Café Seniors – रविवार", "Café studio", "0000011", "09:30", "11:00", 149950, null]
+   ]
+  },
   "fee_changes": {
    "count": 20,
    "columns": [
@@ -36,6 +56,26 @@
     [20, 11, "2026-12-01", 100000000, "fee"],
     [21, 11, "2027-01-01", 1, "fee"],
     [23, 12, "2026-09-01", 110000, "fee"]
+   ]
+  },
+  "feedback": {
+   "count": 1,
+   "columns": [
+    "id",
+    "category",
+    "message",
+    "route",
+    "diagnostics",
+    "screenshot_file",
+    "status",
+    "attempts",
+    "last_error",
+    "sent_at",
+    "remote_ref"
+   ],
+   "sha256": "6b3c2221f556f308693fe3fbbf7a2c70324490236c798091998c63537f02c50f",
+   "rows": [
+    ["00000000-0000-4000-8000-000000000001", "idea", "Could the dashboard show last month too?\nThanks — Ananya's mum", "/", "{\"install_id\": \"79c26fcd-5591-4b49-8b4c-d386980db2b7\", \"server\": {\"app_version\": \"0.2.0\", \"build_id\": \"ab2fa6924bd10849f33dcd6f98163fddc4f2d4f0\", \"os\": \"macOS-26.5-arm64-arm-64bit\", \"machine\": \"arm64\", \"python\": \"3.12.13\", \"db_revision\": \"0006\", \"server_time\": \"2026-09-30T21:42:34-07:00\", \"server_timezone\": \"PDT\"}, \"client\": {\"local_time\": \"2026-09-30T10:30:00+05:30\", \"timezone\": \"\", \"language\": \"\", \"user_agent\": \"\", \"screen\": \"\", \"window\": \"\", \"ui_build\": \"\", \"errors\": []}, \"log_tail\": \"\"}", null, "pending", 0, null, null, null]
    ]
   },
   "payments": {
@@ -100,22 +140,40 @@
     "batch_label",
     "joined_month",
     "left_month",
-    "notes"
+    "notes",
+    "uid",
+    "batch_id"
    ],
-   "sha256": "048947d9c3ccd9a0ac26979d4906f7e29a745cd0879ce3815cbe5c1bc0668ced",
+   "sha256": "fc6ba80e3ecfc60f8006afbc04dce15c885295ba08e13500ce5e3de4c7723345",
    "rows": [
-    [1, "Ananya Rao", "90000 00010", "Lakshmi Rao", "Mon/Wed 5pm – Koramangala", "2026-01-01", null, "Prefers the evening batch.\nSister may join next year."],
-    [2, "Kabir Mehta", "90000 00011", "Sunil Mehta", "Sat 10am – Jayanagar Studio", "2025-11-01", "2026-06-01", "Moved to Pune."],
-    [3, "Diya D'Souza", "90000 00012", "Maria D'Souza", "Mon/Wed 5pm – Koramangala", "2025-12-01", null, null],
-    [4, "Ishaan Gupta", null, null, null, "2026-04-01", null, "Scholarship – no fee."],
-    [5, "Vihaan Joshi", "90000 00013", "Neha Joshi", "Sat 10am – Jayanagar Studio", "2026-09-01", null, null],
-    [6, "Zoë Fernandes", "+91 90000 00014", null, "Weekend – Café studio", "2026-05-01", null, null],
-    [7, "अनिका शर्मा", "90000 00015", "राजेश शर्मा", null, "2026-03-01", null, "नोट: शनिवार को आती है 🙂"],
-    [8, "Arjun Menon", "90000 00016", "Vivek Menon", "Mon/Wed 5pm – Koramangala", "2026-05-01", null, null],
-    [9, "Tara", null, null, null, "2026-08-01", null, null],
-    [11, "Nisha Kulkarni", "90000 00017", null, "Sat 10am – Jayanagar Studio", "2026-06-01", null, null],
-    [12, "Kiran Bose", null, null, null, "2026-09-01", null, null]
+    [1, "Ananya Rao", "90000 00010", "Lakshmi Rao", "Mon/Wed 5pm – Koramangala", "2026-01-01", null, "Prefers the evening batch.\nSister may join next year.", null, 1],
+    [2, "Kabir Mehta", "90000 00011", "Sunil Mehta", "Sat 10am – Jayanagar Studio", "2025-11-01", "2026-06-01", "Moved to Pune.", null, 2],
+    [3, "Diya D'Souza", "90000 00012", "Maria D'Souza", "Mon/Wed 5pm – Koramangala", "2025-12-01", null, null, null, 1],
+    [4, "Ishaan Gupta", null, null, null, "2026-04-01", null, "Scholarship – no fee.", null, null],
+    [5, "Vihaan Joshi", "90000 00013", "Neha Joshi", "Sat 10am – Jayanagar Studio", "2026-09-01", null, null, null, 2],
+    [6, "Zoë Fernandes", "+91 90000 00014", null, "Weekend – Café studio", "2026-05-01", null, null, null, 4],
+    [7, "अनिका शर्मा", "90000 00015", "राजेश शर्मा", null, "2026-03-01", null, "नोट: शनिवार को आती है 🙂", null, 4],
+    [8, "Arjun Menon", "90000 00016", "Vivek Menon", "Mon/Wed 5pm – Koramangala", "2026-05-01", null, null, null, 1],
+    [9, "Tara", null, null, null, "2026-08-01", null, null, null, null],
+    [11, "Nisha Kulkarni", "90000 00017", null, "Sat 10am – Jayanagar Studio", "2026-06-01", null, null, null, 2],
+    [12, "Kiran Bose", null, null, null, "2026-09-01", null, null, null, null]
    ]
+  },
+  "unassigned_payments": {
+   "count": 0,
+   "columns": [
+    "id",
+    "student_text",
+    "phone",
+    "amount_paise",
+    "paid_on",
+    "for_month",
+    "method",
+    "note",
+    "source"
+   ],
+   "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "rows": []
   }
  }
 }
