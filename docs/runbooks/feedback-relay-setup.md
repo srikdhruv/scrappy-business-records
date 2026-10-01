@@ -12,6 +12,8 @@ This is a one-time setup, about 20 minutes. You need a terminal with `git`, `gh`
 `srikdhruv`) and Node.js 24, in a clone of this repo. `npx wrangler …` downloads Cloudflare's
 command-line tool (Wrangler) the first time; nothing needs installing.
 
+> **Status:** set up on 1 Oct 2026. The relay runs at `https://scrappy-feedback.srikdhruv.workers.dev`, its database is `scrappy-feedback`, and `FEEDBACK_URL` in `backend/app/config.py` points at it. The steps below are kept for rebuilding it or moving it to a new account.
+
 ## 1. Create a Cloudflare account
 
 Sign up at <https://dash.cloudflare.com/sign-up>. The free plan is enough (see
