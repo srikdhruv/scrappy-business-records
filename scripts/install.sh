@@ -27,9 +27,12 @@
 # again: the new version if it worked, else the old one (if this closed it). Older apps start
 # newer copies of this file this way: keep it working (docs/runbooks/release.md).
 #
-# Same steps as scripts/install.ps1: download and unpack to app.new, stop the running app, back
-# up the data, swap app.new in for app (the data folder is never touched), create the launcher,
-# delete the download, open the app.
+# Same steps as scripts/install.ps1: download, check against the release's SHA256SUMS and
+# unpack to app.new, stop the running app, back up the data, swap app.new in for app (the data
+# folder is never touched), create the launcher, delete the download, open the app and wait for
+# the new version to answer (else put the old one back, kept as app.old until then).
+#   [SCRAPPY_TEST_MODE=1 + SCRAPPY_INSTALL_DOWNLOAD_URL=URL/]  Testing only: download the
+#                        release's files (zip, SHA256SUMS) from URL instead of GitHub.
 
 set -eu
 
@@ -41,7 +44,8 @@ say() { printf '  - %s\n' "$*"; }
 
 fail() {
     printf '\n\033[31mSorry, Scrappy Records was NOT installed. Your data has not been changed.\033[0m\n' >&2
-    printf '%s\n' "$*" >&2
+    # "Details:" as install.ps1 says it: the app shows this line as the technical reason.
+    printf 'Details: %s\n' "$*" >&2
     printf 'Help: %s\n' "$HELP_URL" >&2
     exit 1
 }
@@ -121,6 +125,47 @@ on_exit() {
     fi
 }
 
+# check_sum FILE NAME SUMS: FILE must have the SHA-256 that SUMS (sha256sum's format) gives for
+# NAME, or nothing is changed.
+check_sum() {
+    expected=$(awk -v n="$2" '{ f = $2; sub(/^\*/, "", f); if (f == n && length($1) == 64) print tolower($1) }' "$3" | tail -n 1)
+    [ -n "$expected" ] ||
+        fail "The checksum list (SHA256SUMS) doesn't include $2, so the download can't be checked. Nothing was changed."
+    actual=$(/usr/bin/shasum -a 256 "$1" | awk '{ print tolower($1) }')
+    [ "$actual" = "$expected" ] ||
+        fail "The download doesn't match its checksum (SHA256SUMS): it may be damaged, or not the real one. Nothing was changed."
+    say "The download matches its checksum."
+}
+
+# The version /api/health answers with ("" if Scrappy Records isn't answering).
+running_version() {
+    /usr/bin/curl -fsS --max-time 3 "http://127.0.0.1:${SCRAPPY_PORT:-8765}/api/health" 2>/dev/null |
+        sed -n 's/.*"app":"scrappy-records".*"version":"\([^"]*\)".*/\1/p'
+}
+
+# wait_for_version VERSION LAUNCHER_OK ROOT: up to 3 minutes for VERSION to answer. Gives up
+# early if the launcher failed and none of the app's programs is running (it won't start).
+wait_for_version() {
+    i=0
+    while [ $i -lt 360 ]; do
+        [ "$(running_version)" != "$1" ] || return 0
+        if [ "$2" != 1 ] && [ -z "$(app_pids "$3")" ]; then
+            sleep 1
+            [ "$(running_version)" = "$1" ]
+            return
+        fi
+        sleep 0.5
+        i=$((i + 1))
+    done
+    return 1
+}
+
+# One line in logs/update.log (an update started from the app writes all its output there).
+log_line() {
+    logs="${SCRAPPY_HOME:-$root}/logs"
+    mkdir -p "$logs" 2>/dev/null && printf '%s %s\n' "$(date +%Y-%m-%dT%H:%M:%S)" "$*" >>"$logs/update.log" || true
+}
+
 applescript_string() {
     # Quote a value for an AppleScript string literal.
     printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
@@ -169,22 +214,43 @@ main() {
         database="${SCRAPPY_HOME:-$root}/data/records.db"
     fi
 
-    # 1. Get the zip.
+    # 1. Get the zip, and check it against the release's SHA256SUMS.
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/scrappy-install.XXXXXX")
     if [ -n "$zip_path" ]; then
         [ -f "$zip_path" ] || fail "No such file: $zip_path"
         say "Using $zip_path"
+        # A local zip (tests, or whoever set this up) is checked if a SHA256SUMS lies next to it.
+        local_sums="$(dirname "$zip_path")/SHA256SUMS"
+        [ ! -f "$local_sums" ] || check_sum "$zip_path" "$(basename "$zip_path")" "$local_sums"
     else
         if [ -n "$version" ]; then
             case "$version" in v*) ;; *) version="v$version" ;; esac
-            url="https://github.com/$REPO/releases/download/$version/$ASSET"
+        fi
+        if [ "${SCRAPPY_TEST_MODE:-}" = 1 ] && [ -n "${SCRAPPY_INSTALL_DOWNLOAD_URL:-}" ]; then
+            base="${SCRAPPY_INSTALL_DOWNLOAD_URL%/}/"  # testing only: a local release server
+        elif [ -n "$version" ]; then
+            base="https://github.com/$REPO/releases/download/$version/"
         else
-            url="https://github.com/$REPO/releases/latest/download/$ASSET"
+            base="https://github.com/$REPO/releases/latest/download/"
         fi
         zip_path="$tmp/$ASSET"
         say "Downloading Scrappy Records (about 30 MB, this can take a minute)..."
-        if ! curl -fL --retry 3 --silent --show-error -o "$zip_path" "$url"; then
+        if ! curl -fL --retry 3 --silent --show-error -o "$zip_path" "$base$ASSET"; then
             fail "The download failed or was not found. Check the internet connection and try again; if it keeps failing, the release may not be published yet."
+        fi
+        sums_status=$(curl -L --retry 3 --silent -o "$tmp/SHA256SUMS" -w '%{http_code}' "${base}SHA256SUMS") ||
+            fail "Couldn't download the checksum list (SHA256SUMS). Check the internet connection and try again."
+        if [ "$sums_status" = 200 ]; then
+            check_sum "$zip_path" "$ASSET" "$tmp/SHA256SUMS"
+        elif [ "$sums_status" = 404 ]; then
+            # Only releases from before checksums (v0.1.0) have no SHA256SUMS.
+            zip_version=$(/usr/bin/unzip -p "$zip_path" VERSION 2>/dev/null | head -n 1 | tr -d '\r ')
+            case "$zip_version" in
+                0.0.* | 0.1.0) say "Version $zip_version was published before checksums; installing it unchecked." ;;
+                *) fail "This release has no checksum list (SHA256SUMS), so the download can't be checked. Nothing was changed." ;;
+            esac
+        else
+            fail "Couldn't download the checksum list (SHA256SUMS). Check the internet connection and try again."
         fi
     fi
 
@@ -211,17 +277,21 @@ main() {
         fail "Test hook: failing after the backup, as asked."
     fi
 
-    # 5. Swap.
-    say "Installing version $(head -n 1 "$new_dir/VERSION")..."
-    rm -rf "$old_dir"
+    # 5. Swap. The old copy is kept (app.old) until the new one has started.
+    new_version=$(head -n 1 "$new_dir/VERSION")
+    say "Installing version $new_version..."
+    rm -rf "$old_dir" "$root"/app.failed-*
+    had_old=0
+    old_version=""
     if [ -d "$app_dir" ]; then
+        old_version=$(head -n 1 "$app_dir/VERSION" 2>/dev/null || true)
         mv "$app_dir" "$old_dir" || fail "Couldn't replace the old version. Restart the Mac and try again."
+        had_old=1
     fi
     if ! mv "$new_dir" "$app_dir"; then
         [ -d "$old_dir" ] && [ ! -d "$app_dir" ] && mv "$old_dir" "$app_dir"
         fail "Couldn't install the new version. Restart the Mac and try again."
     fi
-    rm -rf "$old_dir"
 
     # 6. A small app in ~/Applications that runs the launcher (it can be kept in the Dock).
     say "Creating Scrappy Records in $apps_dir..."
@@ -245,16 +315,38 @@ main() {
         chmod +x "$launcher"
     fi
 
-    # 7. Open the app.
+    # 7. Open the new version and wait (up to 3 minutes) for it to answer as the new version
+    #    (with --no-launch: check it can at least load). If it doesn't, put the old one back.
+    started=0
     if [ "$no_launch" != "1" ]; then
         say "Opening Scrappy Records in your browser..."
         launched=1
         # After an update from the app, the launcher doesn't open a second tab if the old page
-        # is still waiting (it reloads itself).
+        # is still waiting (it reloads itself). No message boxes while this waits for it.
         [ "$from_app" != 1 ] || export SCRAPPY_AFTER_UPDATE=1
-        (cd "$app_dir" && ./python/bin/python3 -m app.launcher) ||
-            say "The app didn't open by itself. Open it from $apps_dir."
+        launcher_ok=0
+        (cd "$app_dir" && SCRAPPY_NO_DIALOG=1 ./python/bin/python3 -m app.launcher) && launcher_ok=1
+        if wait_for_version "$new_version" "$launcher_ok" "$root"; then started=1; fi
+    elif (cd "$app_dir" && ./python/bin/python3 -c 'import app.main') >/dev/null 2>&1; then
+        started=1
     fi
+    if [ "$started" != 1 ]; then
+        [ "$had_old" = 1 ] ||
+            fail "The new version ($new_version) didn't start. Run the install line again, or ask whoever set this up."
+        say "Version $new_version didn't start: putting version $old_version back..."
+        stop_running_app "$root"
+        failed_dir="$root/app.failed-$(date +%Y%m%d%H%M%S)"
+        { mv "$app_dir" "$failed_dir" && mv "$old_dir" "$app_dir"; } ||
+            fail "The new version didn't start, and the old one couldn't be put back. Run the install line again."
+        rm -rf "$failed_dir"
+        [ "$from_app" = 1 ] || log_line "Version $new_version didn't start, so version $old_version was put back."
+        if [ "$no_launch" != "1" ] || [ "$from_app" = 1 ]; then
+            (cd "$app_dir" && ./python/bin/python3 -m app.launcher) >/dev/null 2>&1 || true
+        fi
+        launched=1 # opened (or not wanted): nothing more to open on the way out
+        fail "The new version ($new_version) didn't start, so the previous version ($old_version) was put back and opened again."
+    fi
+    rm -rf "$old_dir"
 
     printf '\n\033[32mScrappy Records is installed\033[0m\n'
     printf 'From now on, open "Scrappy Records" from the Applications folder in your home folder.\n'

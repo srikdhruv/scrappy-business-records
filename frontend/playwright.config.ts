@@ -79,6 +79,7 @@ export default defineConfig({
         SCRAPPY_FEEDBACK_URL: `${relayURL}/feedback`,
         // The update check asks the fake relay's stand-in for GitHub, never the internet.
         SCRAPPY_UPDATE_FEED_URL: `${relayURL}/releases/latest`,
+        SCRAPPY_TEST_MODE: '1', // plain http to the fake feed is only allowed in test mode
       },
       // The server's request log is only worth reading when CI fails.
       stdout: 'ignore',

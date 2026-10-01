@@ -425,6 +425,15 @@ def settled_attempt(now: dt.datetime | None = None) -> Attempt | None:
     """The last attempt; one still "running" after 30 minutes is marked failed (the installer
     died, or the laptop was switched off), so the page stops waiting and Update now works again."""
     attempt = load_attempt()
+    if attempt is not None and attempt.outcome == UpdateOutcome.failed.value:
+        if not attempt.technical:
+            # The installer may say why only after it reopened this version (a rollback).
+            technical = _installer_problem(None)
+            if technical:
+                attempt = replace(attempt, technical=technical)
+                with contextlib.suppress(OSError):
+                    save_attempt(attempt)
+        return attempt
     if attempt is None or attempt.outcome != UpdateOutcome.running.value:
         return attempt
     now = now or _utcnow()

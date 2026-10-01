@@ -195,7 +195,7 @@ jobs:
     # PowerShell 5.1 and no Python or uv on PATH. See scripts/ci/smoke_install_windows.ps1.
     name: Windows install (bundle, installer, launcher, data survives restart and update)
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -235,7 +235,7 @@ jobs:
     # The same for the Mac bundle and scripts/install.sh (see scripts/ci/smoke_install_mac.sh).
     name: macOS install (bundle, installer, launcher, data survives restart and update)
     runs-on: macos-latest
-    timeout-minutes: 40
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
