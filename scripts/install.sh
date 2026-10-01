@@ -16,6 +16,8 @@
 #                        ~/Library/Application Support/ScrappyRecords. [SCRAPPY_INSTALL_ROOT]
 #   --apps-dir DIR       Testing only: put "Scrappy Records.app" here instead of
 #                        ~/Applications.                            [SCRAPPY_APPS_DIR]
+#   [SCRAPPY_TEST_MODE=1 + SCRAPPY_TEST_FORCE_FILE_COPY_BACKUP=1]  Testing only: skip the app's
+#                        own pre-update backup, so CI can check the file-copy fallback.
 #   [SCRAPPY_TEST_MODE=1 + SCRAPPY_TEST_FAIL_AFTER_BACKUP=FILE]  Testing only: if FILE exists, delete it and fail just
 #                        after the backup, so CI can check what a failed update does.
 #
@@ -87,11 +89,19 @@ stop_running_app() {
 backup_data() {
     database="$1"
     shift
+    # Sets pre_update_backup to the exact path it wrote (the restore after a failed start uses
+    # it), or leaves it empty if an older version's backup didn't say where.
     for bundle in "$@"; do
         [ -x "$bundle/python/bin/python3" ] || continue
-        if (cd "$bundle" && ./python/bin/python3 -m app.backup --reason pre-update); then
+        # Testing only: skip the app's own backup, so CI can check the file-copy fallback.
+        if [ "${SCRAPPY_TEST_MODE:-}" = 1 ] && [ "${SCRAPPY_TEST_FORCE_FILE_COPY_BACKUP:-}" = 1 ]; then continue; fi
+        if out=$(cd "$bundle" && PYTHONIOENCODING=utf-8 ./python/bin/python3 -m app.backup --reason pre-update); then
+            printf '%s\n' "$out"
+            saved=$(printf '%s\n' "$out" | sed -n 's/^Backup saved: //p' | tail -n 1)
+            [ ! -f "$saved" ] || pre_update_backup="$saved"
             return 0
         fi
+        printf '%s\n' "$out"
         say "A backup attempt didn't work."
     done
     name="records-pre-update-$(date +%Y%m%d-%H%M%S).db"
@@ -104,6 +114,7 @@ backup_data() {
                 fi
             done
             if [ $ok = 1 ] && cp "$database" "$dir/$name" 2>/dev/null; then
+                pre_update_backup="$dir/$name"
                 say "Backup saved (file copy): $dir/$name"
                 return 0
             fi
@@ -165,6 +176,11 @@ restore_records() {
     aside="$(dirname "$backup")/records-failed-update-$(date +%Y%m%d-%H%M%S).db"
     moved=""
     copied=""
+    originals=""
+    for s in MAIN -journal -wal -shm; do
+        [ "$s" = MAIN ] && x="" || x="$s"
+        [ ! -f "$db$x" ] || originals="$originals $s"
+    done
     for s in MAIN -journal -wal -shm; do
         [ "$s" = MAIN ] && x="" || x="$s"
         if [ -f "$db$x" ]; then
@@ -197,7 +213,13 @@ restore_records() {
     fi
     # Undo this step: the copies of the backup go (the backup itself stays), the records as the
     # new version left them come back. If even that fails, leave everything where it is.
-    for s in $copied; do [ "$s" = MAIN ] && rm -f "$db" || rm -f "$db$s"; done
+    # Anything at the records' names now that isn't an original still in place (a copy of the
+    # backup, or a -wal/-shm the check left behind) goes first, so nothing blocks them.
+    for s in MAIN -journal -wal -shm; do
+        [ "$s" = MAIN ] && x="" || x="$s"
+        case " $moved " in *" $s "*) rm -f "$db$x"; continue ;; esac
+        case " $originals " in *" $s "*) ;; *) rm -f "$db$x" ;; esac
+    done
     rm -f "$db.restoring"
     for s in $moved; do
         [ "$s" = MAIN ] && x="" || x="$s"
@@ -221,7 +243,7 @@ check_sum() {
 
 # The version /api/health answers with ("" if Scrappy Records isn't answering).
 running_version() {
-    /usr/bin/curl -fsS --max-time 3 "http://127.0.0.1:${SCRAPPY_PORT:-8765}/api/health" 2>/dev/null |
+    /usr/bin/curl -fsS --connect-timeout 1 --max-time 2 "http://127.0.0.1:${SCRAPPY_PORT:-8765}/api/health" 2>/dev/null |
         sed -n 's/.*"app":"scrappy-records".*"version":"\([^"]*\)".*/\1/p'
 }
 
@@ -230,8 +252,8 @@ running_version() {
 # its programs is still running; give up early only once none is left (it crashed). The
 # launcher has already returned when this runs. Succeeds as soon as it answers once.
 wait_for_version() {
-    i=0
-    while [ $i -lt 1200 ]; do
+    deadline=$(($(date +%s) + 600))
+    while [ "$(date +%s)" -lt "$deadline" ]; do
         [ "$(running_version)" != "$1" ] || return 0
         if [ -z "$(app_pids "$2")" ]; then
             sleep 2
@@ -239,7 +261,6 @@ wait_for_version() {
             [ -n "$(app_pids "$2")" ] || return 1
         fi
         sleep 0.5
-        i=$((i + 1))
     done
     return 1
 }
@@ -359,7 +380,9 @@ main() {
         touch "$tmp/backup-start"
         sleep 1 # so the backup is strictly newer than the marker
         backup_data "$database" "$app_dir" "$new_dir"
-        pre_update_backup=$(find_pre_update_backup "$database" "$tmp/backup-start")
+        # An older version's backup that didn't say where: the newest one since this run started.
+        [ -n "$pre_update_backup" ] ||
+            pre_update_backup=$(find_pre_update_backup "$database" "$tmp/backup-start")
         records_before=$(records_state "$database")
     fi
     if [ "${SCRAPPY_TEST_MODE:-}" = 1 ] && [ -n "${SCRAPPY_TEST_FAIL_AFTER_BACKUP:-}" ] &&

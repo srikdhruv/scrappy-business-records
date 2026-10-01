@@ -509,9 +509,8 @@ def main() -> int:
             the records are exactly the pre-update backup, and the upgraded ones were kept."""
             if health(port) != running:
                 fail(f"version {running} isn't running after the rollback")
-            pre_update = max(
-                backups.glob("records-pre-update-*.db"), key=lambda f: f.stat().st_mtime
-            )
+            # The newest by its name (the time it was taken): a file copy keeps the old mtime.
+            pre_update = sorted(backups.glob("records-pre-update-*.db"))[-1]
             if dump(root / "data" / "records.db") != dump(pre_update):
                 fail(f"the records aren't exactly the pre-update backup {pre_update.name}")
             if any(DUMMY_TABLE in line for line in dump(root / "data" / "records.db")):
@@ -737,14 +736,20 @@ def main() -> int:
 
         if not release_tag:
             step("The pasted line's path: a version that upgrades the records then crashes")
+            # ...with the installer's own file-copy backup (the app's backup switched off), so
+            # the restore has to use a backup whose file time is the records' old one.
             pasted = work / "pasted"
             pasted.mkdir()
             shutil.copy(migrating_zip, pasted / ASSET)
             (pasted / "SHA256SUMS").write_text(
                 f"{sha256((pasted / ASSET).read_bytes())}  {ASSET}\n"
             )
-            output = run(installer(pasted / ASSET, root, no_launch=False), env, expect_ok=False)
+            copy_env = {**env, "SCRAPPY_TEST_FORCE_FILE_COPY_BACKUP": "1"}
+            output = run(
+                installer(pasted / ASSET, root, no_launch=False), copy_env, expect_ok=False
+            )
             for words in (
+                "Backup saved (file copy)",
                 "matches its checksum",
                 "didn't start",
                 "was put back",

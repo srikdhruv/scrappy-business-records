@@ -187,6 +187,10 @@ function Invoke-ScrappyProgram([string]$FilePath, [string]$Arguments, [string]$W
         $psi.CreateNoWindow = $true
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true
+        # UTF-8 both ways, so paths with any letters (the backup's) come back intact.
+        $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
+        $psi.StandardErrorEncoding = [Text.Encoding]::UTF8
+        $psi.EnvironmentVariables['PYTHONIOENCODING'] = 'utf-8'
         $proc = [Diagnostics.Process]::Start($psi)
         $stdout = $proc.StandardOutput.ReadToEndAsync()
         $stderr = $proc.StandardError.ReadToEndAsync()
@@ -210,6 +214,7 @@ function Get-ScrappyBackupDir {
 }
 
 function Backup-ScrappyData([string[]]$Bundles, [string]$Database) {
+    # Returns the exact path of the backup it wrote (the restore after a failed start uses it).
     # 1. The app's own backup (SQLite's backup API; it also finishes any interrupted save),
     #    with the installed version's Python, else the new version's.
     foreach ($bundle in $Bundles) {
@@ -219,7 +224,10 @@ function Backup-ScrappyData([string[]]$Bundles, [string]$Database) {
         $result = Invoke-ScrappyProgram $python '-m app.backup --reason pre-update' $bundle 120
         if ($result.ExitCode -eq 0) {
             Write-ScrappyStep $result.Output
-            return
+            if ($result.Output -match '(?m)^Backup saved: (.+?)\s*$' -and (Test-Path -LiteralPath $Matches[1])) {
+                return $Matches[1]
+            }
+            return $null
         }
         Write-ScrappyStep "A backup attempt didn't work ($($result.Output))."
     }
@@ -239,7 +247,7 @@ function Backup-ScrappyData([string[]]$Bundles, [string]$Database) {
             }
             Copy-Item -LiteralPath $Database -Destination $target -Force
             Write-ScrappyStep "Backup saved (file copy): $target"
-            return
+            return $target
         } catch {
             $lastError = $_.Exception.Message
         }
@@ -430,6 +438,7 @@ function Restore-ScrappyRecords([string]$Database, [string]$Backup, [string]$Pyt
     $aside = Join-Path (Split-Path -Parent $Backup) ('records-failed-update-{0}.db' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
     $moved = @()
     $copied = @()
+    $originals = @(@('', '-journal', '-wal', '-shm') | Where-Object { Test-Path -LiteralPath ($Database + $_) })
     try {
         foreach ($suffix in @('', '-journal', '-wal', '-shm')) {
             if (Test-Path -LiteralPath ($Database + $suffix)) {
@@ -456,7 +465,13 @@ function Restore-ScrappyRecords([string]$Database, [string]$Backup, [string]$Pyt
         $why = $_.Exception.Message
         # Undo this step: the copies of the backup go (the backup itself stays), the records as
         # the new version left them come back. If even that fails, leave everything where it is.
-        foreach ($suffix in $copied) { Remove-Item -LiteralPath ($Database + $suffix) -Force -ErrorAction SilentlyContinue }
+        # Anything at the records' names now that isn't an original still in place (a copy of
+        # the backup, or a -wal/-shm the check left behind) goes first, so nothing blocks them.
+        foreach ($suffix in @('', '-journal', '-wal', '-shm')) {
+            if (($moved -contains $suffix) -or -not ($originals -contains $suffix)) {
+                Remove-Item -LiteralPath ($Database + $suffix) -Force -ErrorAction SilentlyContinue
+            }
+        }
         Remove-Item -LiteralPath ($Database + '.restoring') -Force -ErrorAction SilentlyContinue
         foreach ($suffix in $moved) {
             try {
@@ -635,8 +650,12 @@ function Install-ScrappyRecords {
         if (Test-Path -LiteralPath $database) {
             Write-ScrappyStep 'Saving a backup copy of your data...'
             $backupStart = (Get-Date).AddSeconds(-2)
-            Backup-ScrappyData @($appDir, $newDir) $database
-            $preUpdateBackup = Find-ScrappyPreUpdateBackup $database $backupStart
+            $preUpdateBackup = Backup-ScrappyData @($appDir, $newDir) $database
+            if (-not $preUpdateBackup) {
+                # An older version's backup that didn't say where (or not readably): the newest
+                # one written since this run started.
+                $preUpdateBackup = Find-ScrappyPreUpdateBackup $database $backupStart
+            }
             $recordsBefore = Get-ScrappyRecordsState $database
         }
         if ($env:SCRAPPY_TEST_MODE -eq '1' -and $env:SCRAPPY_TEST_FAIL_AFTER_BACKUP -and
