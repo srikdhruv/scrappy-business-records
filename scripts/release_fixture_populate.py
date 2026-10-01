@@ -5,7 +5,7 @@ created by that release's own startup (backups, migrations) and API.
 
     SCRAPPY_HOME=<empty folder> python release_fixture_populate.py --today 2026-09-30
 
-Everything is fictional (made-up names, 98765 xxxxx phone numbers) and relative to `--today`,
+Everything is fictional (made-up names, 90000 000xx phone numbers) and relative to `--today`,
 so the same tag and day always give the same rows.
 
 It must cover every kind of data a release can store. When a release adds a new kind (a new
@@ -92,7 +92,7 @@ def populate(api: Api) -> None:
         name="Ananya Rao",
         monthly_fee_paise=150000,
         joined_month=m(-8),
-        phone="98765 43210",
+        phone="90000 00010",
         guardian_name="Lakshmi Rao",
         batch_label=batch_a,
         notes="Prefers the evening batch.\nSister may join next year.",
@@ -122,7 +122,7 @@ def populate(api: Api) -> None:
         name="Kabir Mehta",
         monthly_fee_paise=250000,
         joined_month=m(-10),
-        phone="98765 43211",
+        phone="90000 00011",
         guardian_name="Sunil Mehta",
         batch_label=batch_b,
     )
@@ -136,7 +136,7 @@ def populate(api: Api) -> None:
         name="Diya D'Souza",
         monthly_fee_paise=120000,
         joined_month=m(-9),
-        phone="98765 43212",
+        phone="90000 00012",
         guardian_name="Maria D'Souza",
         batch_label=batch_a,
     )
@@ -167,7 +167,7 @@ def populate(api: Api) -> None:
         name="Vihaan Joshi",
         monthly_fee_paise=200000,
         joined_month=m(0),
-        phone="98765 43213",
+        phone="90000 00013",
         guardian_name="Neha Joshi",
         batch_label=batch_b,
     )
@@ -180,7 +180,7 @@ def populate(api: Api) -> None:
         name="Zoë Fernandes",
         monthly_fee_paise=100000,
         joined_month=m(-4),
-        phone="+91 98765 43214",
+        phone="+91 90000 00014",
         batch_label="Weekend \N{EN DASH} Café studio",
     )
     api.pay(zoe, m(-5), 100000, "cash", paid_on=f"{m(-5)}-28", note="Trial month, before joining")
@@ -200,7 +200,7 @@ def populate(api: Api) -> None:
         name="अनिका शर्मा",
         monthly_fee_paise=150000,
         joined_month=m(-6),
-        phone="98765 43215",
+        phone="90000 00015",
         guardian_name="राजेश शर्मा",
         notes="नोट: शनिवार को आती है 🙂",
     )
@@ -212,7 +212,7 @@ def populate(api: Api) -> None:
         name="Arjun Menon",
         monthly_fee_paise=120000,
         joined_month=m(-4),
-        phone="98765 43216",
+        phone="90000 00016",
         guardian_name="Vivek Menon",
         batch_label=batch_a,
     )
@@ -227,7 +227,7 @@ def populate(api: Api) -> None:
         name="Rohan Desai",
         monthly_fee_paise=250000,
         joined_month=m(-2),
-        phone="98765 43218",
+        phone="90000 00018",
         notes="Added by mistake",
     )
     api.pay(rohan, m(-2), 250000, "upi")
@@ -242,7 +242,7 @@ def populate(api: Api) -> None:
         name="Nisha Kulkarni",
         monthly_fee_paise=149_950,
         joined_month=m(-3),
-        phone="98765 43217",
+        phone="90000 00017",
         batch_label=batch_b,
     )
     api.pay(nisha, m(-3), 149_950, "upi", note="₹1,499.50")
@@ -292,7 +292,13 @@ def populate(api: Api) -> None:
                 "end_time": "18:00",
                 "default_fee_paise": 180000,
                 "notes": "Hall B \N{EN DASH} upstairs",
-                "apply_fee": {"from_month": m(1), "student_ids": [ananya]},
+                # Ananya has a fee change of her own later on, so she must be ticked explicitly
+                # (`confirm_planned`); the app refuses to override it otherwise.
+                "apply_fee": {
+                    "from_month": m(1),
+                    "student_ids": [ananya],
+                    "confirm_planned": [ananya],
+                },
             },
         )
         café = api.call(
