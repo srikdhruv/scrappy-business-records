@@ -263,6 +263,7 @@ def test_payment_rows_are_matched_and_classified(api: TestClient) -> None:
         "unassigned_added": 1,  # row 4 (ambiguous), kept by default
         "skipped": 7,  # row 6 (skipped), 7 and 8 (duplicates), 9-12 (problems)
         "backup_file": result["backup_file"],
+        "batches_added": 0,
     }
     assert result["backup_file"].startswith("records-pre-import-")
     [waiting] = api.get("/api/unassigned-payments").json()

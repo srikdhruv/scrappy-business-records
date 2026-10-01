@@ -21,12 +21,34 @@
 | `name` | TEXT NOT NULL | |
 | `phone` | TEXT NULL | |
 | `guardian_name` | TEXT NULL | |
-| `batch_label` | TEXT NULL | Free text for now; see future-features §1 |
+| `batch_label` | TEXT NULL | Free text typed before batches existed. Kept exactly as typed; "Create batches from existing labels" reads it and never changes it |
+| `batch_id` | INTEGER NULL, FK → `batches` | The batch they're in, or none. Added by migration `0005` (every existing student starts in none). Indexed. See [`batches`](#batches) |
 | `joined_month` | DATE NOT NULL | First month they owe |
 | `left_month` | DATE NULL | Last month they owe. Once it has passed, the student is *Left* (archived) |
 | `notes` | TEXT NULL | |
 | `uid` | TEXT NULL, unique | A random id (32 hex letters) the student keeps across Excel downloads and uploads; given the first time they're in a *Download everything* file, and kept by a restore. Added by migration `0004` (a new nullable column and index: `ALTER TABLE ... ADD COLUMN`, no row changed). See [Excel](#excel-download-and-upload) |
 | `created_at`, `updated_at` | DATETIME | |
+
+### `batches`
+A class students come to. Added by migration `0005`. A student is in one batch or none
+(`students.batch_id`).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `name` | TEXT NOT NULL, `COLLATE NOCASE`, UNIQUE | Not blank. Unique ignoring capitals (the database, A–Z) and, checked by the API, ignoring accents and spaces too (`same_text_key`) |
+| `location` | TEXT NULL | Free text |
+| `days` | TEXT(7) NOT NULL, default `'0000000'` | One character per weekday, **Monday first**: `'1010000'` is Mon and Wed. `CHECK (length(days) = 7 AND days NOT GLOB '*[^01]*')`. The API sends a list (`["mon", "wed"]`) |
+| `start_time`, `end_time` | TEXT(5) NULL | `"HH:MM"`, 24-hour, `00:00`–`23:59` (a CHECK). The API also checks the end is after the start |
+| `default_fee_paise` | INTEGER NULL | The **usual monthly fee**: it only prefills a new student's fee. 0 to `MAX_AMOUNT_PAISE` (a CHECK) |
+| `notes` | TEXT NULL | |
+| `created_at`, `updated_at` | DATETIME | |
+
+**Deleting a batch** never deletes a student. `students.batch_id` is declared
+`REFERENCES batches (id) ON DELETE SET NULL`, and `services/batches.delete_batch` also sets it
+to NULL itself before deleting the batch. (The column was added with a plain `ADD COLUMN`, so the
+link is written inline; SQLite can't read an inline link's `ON DELETE` back, so a later table
+rebuild could lose it. The app doesn't rely on it.)
 
 ### `fee_changes`
 The fee in effect for month *m* comes from the row with the greatest `effective_month ≤ m`.
@@ -84,7 +106,7 @@ ledger never sees them: no student's or month's totals, and not *Collected*.
 ### `feedback`
 In-app feedback (Settings → Send feedback), saved here first and then sent to the feedback
 relay by the server ([ADR 0005](adr/0005-feedback-is-the-only-outbound-call.md)). Not the
-owner's records: nothing in the ledger reads it. Added by migration `0005` (a new table only).
+owner's records: nothing in the ledger reads it. Added by migration `0006` (a new table only).
 
 | Column | Type | Notes |
 |---|---|---|
@@ -113,6 +135,8 @@ The database itself rejects bad rows, as a last line of defence behind the API's
   `CHECK (col IS date(col, 'start of month'))`. This rejects `'garbage'`, `'2026-10'`,
   `20261001` and `'2026-10-05'`. `paid_on` must be a real date (`paid_on IS date(paid_on)`).
 - `students.left_month ≥ joined_month`, and `name` isn't blank.
+- `batches.name` isn't blank and is unique (ignoring A–Z capitals); `days` is seven `0`/`1`
+  characters; times are `HH:MM`; `default_fee_paise` is 0 to ₹10,00,000.
 - `fee_changes.amount_paise ≥ 0`, and `(student_id, effective_month)` is unique.
 - `payments.amount_paise > 0`, and `method` is one of `upi`, `cash`, `other`.
 - `unassigned_payments` has the same checks as `payments` (amount, method, `for_month`,
@@ -120,8 +144,8 @@ The database itself rejects bad rows, as a last line of defence behind the API's
 - Foreign keys are enforced (`PRAGMA foreign_keys=ON` on every connection), so deleting a student
   deletes their fee changes and payments.
 
-Indexes: `students(name)`, `payments(student_id, for_month)`, `payments(for_month)` and
-`payments(paid_on)`.
+Indexes: `students(name)`, `students(batch_id)`, `payments(student_id, for_month)`,
+`payments(for_month)` and `payments(paid_on)`.
 
 Changes to these tables only ever **add** (new tables, or new columns that are nullable or have a
 default): nothing stored is dropped, renamed, retyped or rewritten by a migration. See
@@ -137,16 +161,24 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 | Method & path | Purpose |
 |---|---|
 | `GET /health?waiting_for_update=` | `{"app": "scrappy-records", "version": "0.1.0", "status": "ok"}`. A page waiting for an update to finish adds `waiting_for_update=true` (the launcher then opens no second tab). Older pages poll newer servers with it: keep both working ([ADR 0006](adr/0006-in-app-update.md)) |
-| `GET /students?status=active\|left\|all&q=` | List of students, each with `monthly_fee_paise` (current fee), `status` (`owes` / `credit` / `up_to_date`), `owed_paise`, `credit_paise`, `paid_ahead_paise` (all three after [credit allocation](#credit-allocation)) and the net `balance_paise`. `active` (default) = not left yet (no `left_month`, or `left_month ≥` the current month); `left` = the left month has passed. `q` matches name, guardian or phone, ignoring case and accents (and spaces in phone numbers). Sorted by name, ignoring case and accents |
-| `POST /students` | Create. Body: `name`, `monthly_fee_paise`, `joined_month`, and optionally `phone`, `guardian_name`, `batch_label`, `notes`, `left_month` |
+| `GET /students?status=active\|left\|all&q=&batch=&location=` | List of students, each with `monthly_fee_paise` (current fee), `status` (`owes` / `credit` / `up_to_date`), `owed_paise`, `credit_paise`, `paid_ahead_paise` (all three after [credit allocation](#credit-allocation)) and the net `balance_paise`. `active` (default) = not left yet (no `left_month`, or `left_month ≥` the current month); `left` = the left month has passed. `q` matches name, guardian or phone, ignoring case and accents (and spaces in phone numbers). `batch` is a batch id, or `none` for the students in no batch (anything else is a 422 on `["query", "batch"]`; an id that doesn't exist matches nobody). `location` keeps the students whose batch's location is the same ignoring case, accents and spaces. Sorted by name, ignoring case and accents |
+| `POST /students` | Create. Body: `name`, `monthly_fee_paise`, `joined_month`, and optionally `phone`, `guardian_name`, `batch_label`, `batch_id`, `notes`, `left_month`. A `batch_id` that names no batch is a 422 on `batch_id` ("That batch doesn't exist any more. Choose another one, or No batch.") |
 | `GET /students/{id}` | Detail, including `fee_history`, `months[]` (the ledger; see [Ledger computation](#ledger-computation)) and `payment_count` (so the UI can warn before a delete) |
-| `PATCH /students/{id}` | Partial update. A new fee is sent as `monthly_fee_paise` + `fee_effective_month` (which defaults to the current month, or `joined_month` if that is later). See the edit rules below |
+| `PATCH /students/{id}` | Partial update. A new fee is sent as `monthly_fee_paise` + `fee_effective_month` (which defaults to the current month, or `joined_month` if that is later). `batch_id` moves them to a batch (`null`: no batch), checked as in `POST`. See the edit rules below |
 | `DELETE /students/{id}` | Hard delete. Payments cascade |
 | `POST /students/{id}/return` | A student who left comes again (PRD ledger rule 11). Body: `{from_month, monthly_fee_paise?}`; `from_month` is any month after `left_month` and at most 24 months ahead. In one transaction, holding the write lock: a ₹0 fee change at the month after `left_month` (none if `from_month` is that month), fee changes in the gap between them removed, every `'away'` row after `left_month` removed, `monthly_fee_paise` (default: `return_fee`, the latest `'fee'` row on or before `from_month`) recorded from `from_month`, and `left_month` cleared. Answers 200 with the `StudentDetail`. 422 on `from_month` if they haven't been marked as left, or the month is too early or too late. See [Coming back after leaving](#coming-back-after-leaving) |
 | `DELETE /students/{id}/fee-changes/{fee_change_id}` | Remove a fee change that hasn't started yet (its month is after the current month); the fee before it carries on. 204. 404 if the student, or that fee change of theirs, doesn't exist. 422 (`loc: ["path", "fee_change_id"]`) for the first fee, one that has already started, or the fee they came back on (a `'fee'` row right after an `'away'` one: "This is the fee they came back on. To change it, set a new fee in Edit.") |
 | `GET /payments?student_id=&month=&q=&sort=paid_on\|for_month\|amount\|student\|method&order=asc\|desc` | List, including `student_name` and where each payment's money went (`paid_direct_paise`, `extra_sent[]`, `extra_unused_paise`; see [Credit allocation](#credit-allocation)). Always three queries (students, fee changes, payments), however many rows. `month` matches `for_month`; `q` matches the student's name or the note, ignoring case and accents ("emile" finds "Émile"). `sort=student` sorts by name ignoring case and accents; `method` sorts `cash`, `other`, `upi`. Ties go to the latest `paid_on`, then the newest entry |
 | `POST /payments` | Create. Body: `student_id`, `amount_paise`, `paid_on`, `for_month`, `method`, `note?`. 404 if the student doesn't exist. Any `for_month` within the [limits](#limits) is accepted, even one the student isn't active in (all of it is then extra, and pays the oldest month owed). Answers with the `PaymentRead`, including where its money went |
 | `GET /payments/{id}` · `PATCH /payments/{id}` · `DELETE /payments/{id}` | `PATCH` may move a payment to another student (404 if that student doesn't exist). An edit or delete changes where that payment's extra goes at once (nothing is stored) |
+| `GET /batches` | Every batch (`BatchRead`), sorted by name ignoring case and accents, with numbers in number order ("Batch 2" before "Batch 10") |
+| `POST /batches` | Create. Body (`BatchCreate`): `name`, and optionally `location`, `days`, `start_time`, `end_time`, `default_fee_paise`, `notes`. 201. A name already used (ignoring case, accents and spaces) is a 422 on `name` |
+| `GET /batches/{id}` · `PATCH /batches/{id}` · `DELETE /batches/{id}` | `PATCH` (`BatchUpdate`) is partial; `name` and `days` can't be `null`; the end time is checked against the stored start (and the other way round). A new `default_fee_paise` changes no student's fee, unless `apply_fee: {from_month, student_ids}` is sent with it: then each student listed gets the new fee from `from_month` (see [Batches](#batch-rules)), in the same transaction. `DELETE` answers 204; the batch's students are then in no batch |
+| `GET /batches/summary?month=YYYY-MM` | `BatchOverview`: for each batch (in the order of `GET /batches`) and for the students in no batch, a `BatchSummary` for the month (default: the current month). See [Batches](#batch-rules) |
+| `GET /batches/from-labels` | `LabelPreview`: what "Create batches from existing labels" would do. Changes nothing |
+| `GET /batches/{id}/fee-plan?fee_paise=&from_month=` | `FeePlan`: what "Also charge the new usual fee" would do to each student of the batch, and who is ticked at first (`getFeePlan`). The same rule `PATCH … apply_fee` uses. See [Batch rules](#batch-rules) |
+| `POST /batches/move` | `{student_ids, batch_id}` (`batch_id: null` for no batch): put them all in it at once, in one transaction; fees and labels don't change. 422 on `student_ids` if one doesn't exist, on `batch_id` if the batch doesn't. Answers `{moved}` (`moveStudents`) |
+| `POST /batches/from-labels` | Do it (`LabelConversion`). Takes a `pre-batches` backup first (none if there's nothing to do); a failed backup is a 422 and nothing changes. Running it again does nothing |
 | `GET /about` | Settings → About: `AboutResponse` (`version`, `build_id`, `data_dir`, `backup_dir`, `log_dir`, `feedback_sending`, `feedback_waiting`) |
 | `POST /feedback` | Save feedback (`FeedbackCreate`), answer 201 with `FeedbackRead` at once, and wake the sender. Idempotent: the same `id` again answers with the row already saved, unchanged. See [Feedback](#feedback) |
 | `GET /feedback/{feedback_id}` | `FeedbackRead`: whether it has been sent yet (the dialog polls it). 404 if unknown; 422 if not a UUID |
@@ -155,10 +187,10 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 | `POST /update/start` | Update now. Body `{version}` (`UpdateStart`): must be the `latest` shown. Downloads the new release's installer and starts it detached; answers **202** with `UpdateInfo` (`reason: updating`). **409** if already updating, up to date, can't update here, or `version` isn't the latest; **424** if GitHub couldn't be asked again just before starting, or the installer couldn't be downloaded or doesn't match the release's `SHA256SUMS` (nothing changed); **500** if it couldn't be started. Only from the app's own page: `Content-Type: application/json`, `X-Scrappy-Request: 1`, `Host` `127.0.0.1:<port>` or `localhost:<port>`, and no `Origin` / `Sec-Fetch-Site` from elsewhere, else **415** (not JSON) or **403** |
 | `GET /dashboard?month=YYYY-MM` | See the PRD's "Dashboard for a selected month M" section. Returns `month`, `current_month`, `summary`, `yet_to_pay[]`, `backlog[]`, `overpaid[]` (months holding credit) and `credit_moves[]` |
 | `GET /report?month=YYYY-MM` | The monthly report: one `ReportRow` per student relevant to the month, and `totals`. See [Monthly report](#monthly-report). `month` defaults to the current month |
-| `GET /report.xlsx?month=YYYY-MM&status=&q=&sort=&order=` | The report as the page shows it, as an Excel file (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`), a download named `scrappy-records-report-YYYY-MM.xlsx`. `status` is a `ReportFilter` (default `all`), `q` the search (as `lib/search.ts`: name, class or phone), `sort` a `ReportSort` and `order` `asc`/`desc` (ties keep the usual order): `services/report.shown`, the same rules as `frontend/src/lib/report.ts`. A title row (with the filter, search and sort in words), the date, frozen bold headings with Excel's filter buttons, one row per student in the screen's column order (money in rupees with the Indian-grouping formats `RUPEES` / `RUPEES_PAISE`), a bold totals row of `SUBTOTAL(109, …)` formulas, and a Collected line (a formula); A4 landscape, one page wide, when printed from Excel. `services/report_xlsx.py` (openpyxl) |
-| `GET /export/students.xlsx?status=active\|left\|all&q=` | The Students page as shown, as an Excel file (`exportStudents`). `q` uses the page's own search rules (`services/text.student_matches`, the Python twin of `lib/search.ts`), not the list endpoint's. See [Excel](#excel-download-and-upload) |
+| `GET /report.xlsx?month=YYYY-MM&status=&q=&sort=&order=&batch=&group=` | The report as the page shows it (`batch`: an id or `none`; `group=batch` puts each batch's rows under a heading row and ends them with a subtotal row of `SUBTOTAL(109, …)` formulas, batches A to Z, "No batch" last), as an Excel file (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`), a download named `scrappy-records-report-YYYY-MM.xlsx`. `status` is a `ReportFilter` (default `all`), `q` the search (as `lib/search.ts`: name, class or phone), `sort` a `ReportSort` and `order` `asc`/`desc` (ties keep the usual order): `services/report.shown`, the same rules as `frontend/src/lib/report.ts`. A title row (with the filter, search and sort in words), the date, frozen bold headings with Excel's filter buttons, one row per student in the screen's column order (money in rupees with the Indian-grouping formats `RUPEES` / `RUPEES_PAISE`), a bold totals row of `SUBTOTAL(109, …)` formulas, and a Collected line (a formula); A4 landscape, one page wide, when printed from Excel. `services/report_xlsx.py` (openpyxl) |
+| `GET /export/students.xlsx?status=active\|left\|all&q=&batch=` | The Students page as shown (`batch`: the tab, an id or `none`), as an Excel file (`exportStudents`), with a Batch and an Old class label column. `q` uses the page's own search rules (`services/text.student_matches`, the Python twin of `lib/search.ts`), not the list endpoint's. See [Excel](#excel-download-and-upload) |
 | `GET /export/payments.xlsx?student_id=&month=&q=&method=&sort=&order=` | The Payments page as shown: its filters (method included, which the list endpoint leaves to the UI) and the table's order (`exportPayments`) |
-| `GET /export/everything.xlsx` | Every record in one workbook: Students, Fee history, Payments and Unassigned payments, with each student's ID (`exportEverything`). Uploading it into an empty app restores everything |
+| `GET /export/everything.xlsx` | Every record in one workbook: Students (with each student's Batch), Batches (name, location, days as "Mon, Wed", starts, ends, usual fee, notes), Fee history, Payments and Unassigned payments, with each student's ID (`exportEverything`). Uploading it into an empty app restores everything, batches and each student's batch included |
 | `GET /import/template.xlsx?kind=students\|payments` | A blank sheet to fill in, and a *How to fill this in* sheet the upload skips (`importTemplate`) |
 | `POST /import/preview?filename=` | The `.xlsx` file itself as the body (at most 5 MB). Answers `ImportPreview`: what adding the file would do, with every row that needs a choice and the first rows of the rest, and counts for all. **Saves nothing.** A file that can't be read is a 422 with a plain message (`previewImport`) |
 | `POST /import/commit` | `ImportCommit`: the same file again (base64) and the owner's choices, for only the rows she chose something for. The file is read and every row checked again against the records as they are now, a `pre-import` backup is taken (only if anything will be added), and it is all added in one transaction. Answers `ImportResult` (`commitImport`) |
@@ -188,16 +220,16 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 
 | Model | Fields |
 |---|---|
-| `StudentRead` (list item) | `id`, `name`, `phone`, `guardian_name`, `batch_label`, `joined_month`, `left_month`, `notes`, `is_active`, `monthly_fee_paise`, `status` (see below), `owed_paise`, `credit_paise` (money no month needed), `paid_ahead_paise`, `balance_paise` (net, for reference only), `tenure_months`, `next_fee_change` (the first `FeeChangeRead` after the month `monthly_fee_paise` is for, or `null`), `current_month`, `created_at`, `updated_at` |
+| `StudentRead` (list item) | `id`, `name`, `phone`, `guardian_name`, `batch_label`, `batch_id`, `batch_name` (the batch's name, or `null`), `joined_month`, `left_month`, `notes`, `is_active`, `monthly_fee_paise`, `status` (see below), `owed_paise`, `credit_paise` (money no month needed), `paid_ahead_paise`, `balance_paise` (net, for reference only), `tenure_months`, `next_fee_change` (the first `FeeChangeRead` after the month `monthly_fee_paise` is for, or `null`), `current_month`, `created_at`, `updated_at` |
 | `StudentDetail` (`GET`/`POST`/`PATCH` of one student) | `StudentRead`, plus `fee_history[]` (`FeeChangeRead`: `id`, `effective_month`, `amount_paise`, `kind`), `months[]` (`LedgerMonth`), `payment_count` and `total_paid_paise` |
 | `LedgerMonth` | `month`, `expected_paise`, `paid_paise` (everything logged for the month, as typed), `paid_direct_paise` (the part of it that pays this month: at most the fee), `covered_by_credit_paise` (extra money from payments logged for other months that pays it), `credit_sources[]` (`CreditSource`: where that came from), `extra_sent[]` (`ExtraSent`: where this month's money above its fee went, one per month, oldest first), `extra_unused_paise` (this month's money no month needed: credit), `remaining_paise` (`max(0, expected − paid_direct − covered_by_credit)`), `excess_paise` (`max(0, paid − expected)` = Σ `extra_sent` + `extra_unused_paise`), `status`, `is_due` (month ≤ current month) |
 | `CreditSource` | `payment_id`, `paid_on`, `for_month` (the month that payment was logged for), `amount_paise` (how much of it pays this month) |
 | `ExtraSent` | `to_month`, `amount_paise` |
 | `PaymentRead` | `id`, `student_id`, `student_name`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `paid_direct_paise` (the part that pays `for_month`), `needs_check` (worth a glance in case of a typo: it pays 4 or more months ahead, or some of it is kept as credit; `ledger.needs_check`), `months_ahead` (how many months after the current one it pays), `extra_sent[]` (`ExtraSent`: the rest, paying other months, oldest first), `extra_unused_paise` (credit), `created_at`, `updated_at`. Always `amount = paid_direct + Σ extra_sent + extra_unused` |
-| `DashboardResponse` | `month`, `summary` (`expected_paise`, `collected_paise` (what pays M: Σ `paid_direct + covered_by_credit` for M over every student), `paid_ahead_paise` (for a month after the current one, the same as `collected_paise`; 0 otherwise), `still_due_paise`, `not_fully_paid_count`, `active_student_count`, `logged_paise` (every payment logged for M, as typed: the Payments page's total for M), `covered_by_credit_paise` (the part of `collected_paise` from other months' payments), `sent_elsewhere_paise` (the part of `logged_paise` that paid other months)), `current_month`, `yet_to_pay[]` (each with `paid_paise`, `covered_by_credit_paise` and `credit_paise`), `backlog[]` (each with `months[]` (`BacklogMonth`, with `covered_by_credit_paise`), `total_owed_paise` and `credit_paise`), `overpaid[]` (`OverpaidItem`: months holding credit, with `batch_label`, `phone`, `excess_paise` and `extra_unused_paise`) and `credit_moves[]` (`CreditMoveItem`) |
-| `CreditMoveItem` | Extra money moved into or out of M: `student_id`, `student_name`, `batch_label`, `phone`, `payment_id`, `paid_on`, `from_month` (the month the payment was logged for), `to_month` (the month it pays), `amount_paise`, `payment_amount_paise` (the whole payment), `payment_pays_until` (the latest month the payment pays: `ledger.pays_until`), `payment_needs_check`, `payment_months_ahead`, `payment_extra_unused_paise` (so the check can say why). One per payment and month (the UI groups them by payment); one of the two months is M. Sorted by student name, then `to_month`, then the payment's `(paid_on, id)` |
+| `DashboardResponse` | `month`, `summary` (`expected_paise`, `collected_paise` (what pays M: Σ `paid_direct + covered_by_credit` for M over every student), `paid_ahead_paise` (for a month after the current one, the same as `collected_paise`; 0 otherwise), `still_due_paise`, `not_fully_paid_count`, `active_student_count`, `logged_paise` (every payment logged for M, as typed: the Payments page's total for M), `covered_by_credit_paise` (the part of `collected_paise` from other months' payments), `sent_elsewhere_paise` (the part of `logged_paise` that paid other months)), `current_month`, `yet_to_pay[]` (each with `paid_paise`, `covered_by_credit_paise` and `credit_paise`), `backlog[]` (each with `months[]` (`BacklogMonth`, with `covered_by_credit_paise`), `total_owed_paise` and `credit_paise`), `overpaid[]` (`OverpaidItem`: months holding credit, with `batch_label`, `batch_name`, `phone`, `excess_paise` and `extra_unused_paise`) and `credit_moves[]` (`CreditMoveItem`) |
+| `CreditMoveItem` | Extra money moved into or out of M: `student_id`, `student_name`, `batch_label`, `batch_name`, `phone`, `payment_id`, `paid_on`, `from_month` (the month the payment was logged for), `to_month` (the month it pays), `amount_paise`, `payment_amount_paise` (the whole payment), `payment_pays_until` (the latest month the payment pays: `ledger.pays_until`), `payment_needs_check`, `payment_months_ahead`, `payment_extra_unused_paise` (so the check can say why). One per payment and month (the UI groups them by payment); one of the two months is M. Sorted by student name, then `to_month`, then the payment's `(paid_on, id)` |
 | `ReportResponse` | `month`, `current_month`, `today` (the server's date, printed on the report), `rows[]` (`ReportRow`, in `ReportStatus` order, then by name ignoring case and accents), `totals` (`ReportTotals`), `unassigned_count` and `unassigned_paise` (unassigned payments for M: in no row or total, so the report adds a line saying so, and its Excel file a note under the totals) |
-| `ReportRow` | `student_id`, `student_name`, `batch_label`, `phone`, `joined_month`, `left_month`, `is_enrolled` (active in M), `status` (`ReportStatus`), `no_fee_reason` (`NoFeeReason`, only for `no_fee`), `checks[]` (`ReportCheck`: payments logged for M that `ledger.needs_check` flags, with `payment_id`, `paid_on`, `amount_paise`, `pays_until`, `months_ahead`, `extra_unused_paise`, as on the dashboard); for M, the student's `LedgerMonth` fields: `fee_paise` (`expected_paise`), `paid_paise` (logged for M, as typed), `paid_direct_paise`, `covered_by_credit_paise` with `credit_sources[]`, `extra_sent_paise` (Σ `extra_sent`) with `extra_sent[]`, `extra_unused_paise`, `short_paise` (`remaining_paise`); `owed_before_paise` and `owed_before_months[]` (due months before M still Unpaid or Partial: the dashboard's `backlog` entry); and, as of the current month, `owed_now_paise`, `credit_paise`, `paid_ahead_paise` (the `StudentRead` values) |
+| `ReportRow` | `student_id`, `student_name`, `batch_label`, `batch_name`, `batch_id`, `phone`, `joined_month`, `left_month`, `is_enrolled` (active in M), `status` (`ReportStatus`), `no_fee_reason` (`NoFeeReason`, only for `no_fee`), `checks[]` (`ReportCheck`: payments logged for M that `ledger.needs_check` flags, with `payment_id`, `paid_on`, `amount_paise`, `pays_until`, `months_ahead`, `extra_unused_paise`, as on the dashboard); for M, the student's `LedgerMonth` fields: `fee_paise` (`expected_paise`), `paid_paise` (logged for M, as typed), `paid_direct_paise`, `covered_by_credit_paise` with `credit_sources[]`, `extra_sent_paise` (Σ `extra_sent`) with `extra_sent[]`, `extra_unused_paise`, `short_paise` (`remaining_paise`); `owed_before_paise` and `owed_before_months[]` (due months before M still Unpaid or Partial: the dashboard's `backlog` entry); and, as of the current month, `owed_now_paise`, `credit_paise`, `paid_ahead_paise` (the `StudentRead` values) |
 | `ReportTotals` | `student_count` and the sums of every row's money fields, plus `collected_paise` (Σ `paid_direct + covered_by_credit`), `not_fully_paid_count` (rows with `short_paise > 0`) and `active_student_count` (rows enrolled in M with a fee above 0). They are the dashboard summary for M: `fee_paise` = `expected_paise`, `paid_paise` = `logged_paise`, `extra_sent_paise` = `sent_elsewhere_paise`, `short_paise` = `still_due_paise`, and `collected_paise`, `covered_by_credit_paise` and the two counts are the same |
 | `SuggestedPayment` | `for_month` (nullable), `amount_paise` (nullable), `reason` |
 | `StudentReturn` (request) | `from_month`, `monthly_fee_paise` (optional) |
@@ -207,8 +239,16 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 `file_sha256` (of the file read, for Add). Every `similar`, `needs_student`, `follows_student` and `possible_duplicate` row is listed; of each other status the first 100 (problems: 1,000) |
 | `ImportStudentPreview` | `row`, `sheet`, `name`, `phone`, `monthly_fee_paise`, `joined_month`, `status`, `reason` (plain words), `student_id` (the student already here it is, or looks like), `add_by_default` (a `similar` row added unless skipped) |
 | `ImportPaymentPreview` | `row`, `sheet`, `student_text`, `amount_paise`, `paid_on`, `for_month`, `method`, `note`, `status`, `reason`, `student_id` (an existing student it goes to), `student_row` (a student in the same file it goes to), `candidate_ids` (who it may be) |
-| `ImportCommit` (request) | `file` (the .xlsx, base64), `file_sha256` (the preview's), `filename`, `students[]` (`{row, add}`: `add: true` adds a `similar` row, `false` skips any row), `payments[]` (`{sheet, row, choice, student_id?}`). Rows not mentioned do what their status says; rows that aren't in the file are ignored |
-| `ImportResult` | `students_added`, `fee_changes_added`, `payments_added`, `unassigned_added`, `skipped` (rows sent but not added), `backup_file` (the `records-pre-import-…` file, or `null` when nothing was added) |
+| `ImportCommit` (request) | `file` (the .xlsx, base64), `file_sha256` (the preview's), `filename`, `students[]` (`{row, add}`: `add: true` adds a `similar` row, `false` skips any row), `payments[]` (`{sheet, row, choice, student_id?}`), `create_batches[]` (names of `not_found` batches to create; any other name is a 422 on `create_batches`). Rows not mentioned do what their status says; rows that aren't in the file are ignored |
+| `ImportResult` | `students_added`, `fee_changes_added`, `payments_added`, `unassigned_added`, `skipped` (rows sent but not added), `backup_file` (the `records-pre-import-…` file, or `null` when nothing was added), `batches_added` |
+| `ImportBatchPreview` | `name`, `status` (`ImportBatchStatus`: `new` (on the file's Batches sheet, not here: added with its details), `exists` (same name here, ignoring case, accents and spaces: its students go into it; it isn't changed), `not_found` (only in the students' Batch column: "Batch not found, will be left without a batch"; the name is kept in their `batch_label`, joined with " · " to any old label the row has, unless `create_batches` names it), `problem`), `reason`, `row` (on the Batches sheet), `student_count` (rows naming it that will be added; a `not_found` batch is only created if one of the rows actually added names it), `batch_id`. Names match by `imports.batch_key`: ignoring case, accents, spaces and punctuation |
+| `BatchRead` | `id`, `name`, `location`, `days[]` (`Weekday`, Monday first), `start_time`, `end_time` (`"HH:MM"` or `null`), `default_fee_paise`, `notes`, `student_count` (everyone in it, those who left included), `active_student_count` (those not left yet), `created_at`, `updated_at` |
+| `BatchCreate` / `BatchUpdate` (requests) | The fields above that can be typed, plus on `BatchUpdate` `apply_fee` (`ApplyBatchFee`: `from_month`, `student_ids[]`, `confirm_planned[]`) |
+| `BatchSummary` | `batch_id` (`null` for no batch), `student_count` (in it and active in M), `active_student_count` (of those, with a fee above 0 in M, as the Dashboard counts), `expected_paise`, `collected_paise`, `still_due_paise`, `paid_ahead_paise`, `not_fully_paid_count`, `paid_percent` (0–100, rounded down; `null` when nothing is expected) |
+| `BatchOverview` | `month`, `current_month`, `batches[]` (`BatchSummary`), `no_batch` (`BatchSummary`) |
+| `LabelPreview` | `groups[]` (`LabelGroup`: `name`, `labels[]` (the spellings, most used first), `student_count`, `student_names[]`, `left_student_names[]` (those who have left), `active_student_count`, `existing_batch_id`), `student_count`, `new_batch_count` |
+| `LabelConversion` | `batches_created`, `students_placed`, `backup_file` (the backup's file name, or `null`) |
+| `FeePlan` | `batch_id`, `fee_paise`, `from_month`, `current_month`, `usual_fee_paise` (the batch's usual fee, or the most common one if it has none; `null` on a tie), `students[]` (`FeePlanStudent`: `student_id`, `student_name`, `current_fee_paise`, `start_month` (null if they leave before it), `status` (`FeePlanStatus`: `usual`, `own_fee`, `planned`, `already`, `not_affected`), `selected` (ticked at first: `usual`), `due_months` and `due_change_paise` (months already due whose fee would change, and how much more they'd owe; negative for less), `fee_history[]`) |
 | `HealthResponse` | `app`, `version`, `status` |
 | `UpdateInfo` | `current`, `latest` (or null), `update_available`, `notes` (the release's notes as plain text, at most 4,000 characters; empty unless an update is available), `checked_at` (the last answer, UTC), `can_update`, `reason` (`UpdateReason`, why not: `checks_off`, `not_checked_yet`, `check_failed`, `up_to_date`, `updating`, `not_installed`, `unsupported`, `no_download`), `check_error` (`offline`, `rate_limited`, `bad_answer`, or null), `last_attempt` (`UpdateAttemptRead`: `from_version`, `to_version`, `started_at`, `finished_at`, `outcome` `running`/`failed`/`succeeded`, `detail` in plain words, `technical`: the installer's own line). A running attempt older than 30 minutes is answered as failed, `page_waiting`, `log_file` |
 | `AboutResponse` | `version`, `build_id` (the git commit the app was built from, or `unknown`), `data_dir`, `backup_dir` (the fallback `data/backups` if Documents couldn't be used), `log_dir`, `feedback_sending` (a relay URL is set), `feedback_waiting` (pending count) |
@@ -242,6 +282,10 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 - `ImportPaymentChoice`: `auto` (what the status says), `student` (with `student_id`),
   `unassigned`, `skip`, `add` (add anyway, though it looks like a duplicate).
 - `ExportTemplateKind`: `students`, `payments`.
+- `Weekday`: `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`.
+- `FeePlanStatus`: `usual`, `own_fee`, `planned`, `already`, `not_affected`.
+- `ImportBatchStatus`: `new`, `exists`, `not_found`, `problem`.
+- `ReportGroup`: `none`, `batch`.
 - `FeedbackCategory`: `problem`, `idea`, `question`. `FeedbackStatus`: `pending`, `sent`,
   `failed`.
 
@@ -327,6 +371,45 @@ start with `app.db.lock_for_writing` (`BEGIN IMMEDIATE`), so a second copy of th
 refuses a write (`IntegrityError`, e.g. a payment for a student deleted at that moment) is a
 **409** with a plain `{"detail": "That change clashed with another one saved at the same
 moment. Reload the page and check."}`, never a 500.
+
+### Batch rules
+
+`services/batches.py`, PRD [Batches](product/prd.md#batches).
+
+- **Month numbers.** `overview` loads every student once (as the Dashboard does), splits them
+  by `batch_id`, and runs `ledger.build_dashboard` over each group, so a `BatchSummary` is the
+  Dashboard's summary over that batch's students. `student_count` is the students active in M
+  (`StudentRecord.is_active`), whatever their fee. `paid_percent =
+  (expected − still_due) × 100 // expected`. Because the groups split the students, every
+  summed field over `batches[]` plus `no_batch` equals the Dashboard's
+  (`tests/test_api_batches.py::test_batches_add_up_to_the_dashboard`). The batch is the one each
+  student is in now: batch history isn't stored.
+- **Applying a new usual fee.** One rule, `_plans`, behind both `fee_plan` (the preview,
+  `GET /batches/{id}/fee-plan`) and `update_batch` → `_apply_fee`. For each student of the batch
+  who hasn't left: the start month is `max(from_month, joined_month)`, none if their
+  `left_month` is before it (`not_affected`), and if the fee in effect then is an `'away'` row,
+  the next `'fee'` row's month (the month they came back). Status: `planned` if a fee change
+  of theirs after the first is on or after the start month, or after the current month
+  (`_own_changes`: a discount or month off set earlier, the fee they came back on, a planned
+  change); else, their fee is the same in every month from the start month on, and it's
+  `already` if that is the new fee, `usual` if it is the usual one (the batch's old
+  `default_fee_paise`, or the most common such fee among them, none on a tie), else
+  `own_fee`. `_apply_fee` checks every id is in the batch (else a 422 on `apply_fee`, nothing
+  saved), refuses a `planned` student not also in `confirm_planned` (422, nothing saved), skips
+  `already` and `not_affected`, and calls `students.set_fee_from` from the start month, exactly
+  as a fee change in `PATCH /students/{id}`. `from_month` is at most 24 months ahead (422 on
+  `["body", "apply_fee", "from_month"]`). The mock API (`mocks/db.ts` `feePlan`) mirrors it.
+- **Moving many** (`move_students`): holds the write lock, checks the batch and every student,
+  sets `batch_id` on all of them, one commit.
+- **Labels to batches** (`label_preview`, `convert_labels`). Students with `batch_id IS NULL`
+  and a non-blank `batch_label`, grouped by `same_text_key(batch_label)` (folded case and
+  accents, no whitespace). A group's name is its most used spelling (whitespace collapsed; ties
+  alphabetically), or the name of the existing batch with the same key, which it then joins.
+  `convert_labels` holds the write lock, works the groups out again, takes a `pre-batches`
+  backup (`app.backup`), creates the batches and sets `batch_id`, and commits once.
+  `batch_label` is never written.
+- **Names** are compared with `same_text_key` too, so "Tue/Thu 5pm" and "tue/thu  5PM" can't
+  both exist.
 
 ### Coming back after leaving
 

@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.routers import (
     about,
+    batches,
     dashboard,
     excel,
     feedback,
@@ -21,6 +22,7 @@ api_router.include_router(dashboard.router)
 api_router.include_router(report.router)
 api_router.include_router(excel.router)
 api_router.include_router(unassigned.router)
+api_router.include_router(batches.router)
 api_router.include_router(about.router)
 api_router.include_router(feedback.router)
 api_router.include_router(update.router)

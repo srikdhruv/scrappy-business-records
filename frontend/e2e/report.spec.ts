@@ -254,3 +254,45 @@ test('the answers are in view at 800 px without scrolling: status and total owed
     expect(edge.x + edge.width, heading).toBeLessThanOrEqual(box.x + box.width + 1)
   }
 })
+
+test('filter the report by batch, and group it by batch', async ({ page, request }) => {
+  const now = await serverMonth(request)
+  const batches: { name: string; id: number; student: string }[] = []
+  for (const first of ['Early', 'Late']) {
+    const name = uniqueName(`${first} batch`)
+    const made = await request.post('/api/batches', { data: { name } })
+    expect(made.status(), await made.text()).toBe(201)
+    const id = ((await made.json()) as { id: number }).id
+    const student = uniqueName(first === 'Early' ? 'Asha' : 'Bela')
+    const response = await request.post('/api/students', {
+      data: { name: student, monthly_fee_paise: 100000, joined_month: now, batch_id: id },
+    })
+    expect(response.status(), await response.text()).toBe(201)
+    batches.push({ name, id, student })
+  }
+  const [early, late] = batches as [(typeof batches)[0], (typeof batches)[0]]
+
+  await page.goto(`/report?month=${now}`)
+  await page.getByRole('combobox', { name: 'Batch' }).click()
+  await page.getByRole('option', { name: `${early.name} (1)` }).click()
+  await expect(page).toHaveURL(new RegExp(`batch=${early.id}`))
+  await expect(reportRow(page, early.student)).toBeVisible()
+  await expect(reportRow(page, late.student)).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Clear filters' }).click()
+  await page.getByRole('combobox', { name: 'Group by' }).click()
+  await page.getByRole('option', { name: 'Grouped by batch' }).click()
+  await expect(page).toHaveURL(/group=batch/)
+  for (const b of [early, late]) {
+    await expect(page.getByRole('rowheader', { name: `${b.name} · 1 student` })).toBeVisible()
+  }
+  // Each heading is right above its student.
+  const headingRow = page.getByRole('row').filter({
+    has: page.getByRole('rowheader', { name: `${late.name} · 1 student` }),
+  })
+  await expect(headingRow.locator('xpath=following-sibling::tr[1]')).toContainText(late.student)
+  await expect(page.getByRole('link', { name: 'Download Excel' })).toHaveAttribute(
+    'href',
+    /group=batch/,
+  )
+})

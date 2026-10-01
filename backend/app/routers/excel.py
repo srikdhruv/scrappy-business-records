@@ -11,6 +11,7 @@ from app.clock import CurrentMonthDep, TodayDep
 from app.db import SessionDep
 from app.errors import unprocessable
 from app.models import PaymentMethod
+from app.routers import students as students_router
 from app.schemas import (
     ExportTemplateKind,
     ImportCommit,
@@ -58,9 +59,15 @@ def export_students(
     today: TodayDep,
     status_filter: StudentListFilter = Query(StudentListFilter.active, alias="status"),
     q: str | None = Query(None, max_length=200, description="The Students page's search."),
+    batch: str | None = Query(
+        None, max_length=30, description="The batch tab: a batch's id, or `none` for no batch."
+    ),
 ) -> Response:
-    """The students on the Students page for this tab and search, as an Excel file."""
-    rows = exports.students_shown(session, status_filter, q, current)
+    """The students on the Students page for this batch tab, Show choice and search, as an
+    Excel file."""
+    rows = exports.students_shown(
+        session, status_filter, q, current, batch=students_router.batch_filter(batch)
+    )
     return _xlsx(exports.students_workbook(rows), exports.filename("students", today))
 
 

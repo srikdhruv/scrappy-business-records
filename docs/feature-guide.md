@@ -28,17 +28,18 @@ looks for new versions of itself, and updates when you click **Update now** (see
 4. [Log payment and Edit payment](#log-payment-and-edit-payment)
 5. [Payments page](#payments-page)
 6. [Students page](#students-page)
-7. [New student and Edit student](#new-student-and-edit-student)
-8. [Student profile](#student-profile)
-9. [Downloading and uploading Excel](#downloading-and-uploading-excel)
-10. [Unassigned payments](#unassigned-payments)
-11. [Settings and feedback](#settings-and-feedback)
-12. [Updating the app](#updating-the-app)
-13. [What the words and colours mean](#what-the-words-and-colours-mean)
-14. [Everyday situations](#everyday-situations)
-15. [Your data and safety](#your-data-and-safety)
-16. [For developers: feature map](#for-developers-feature-map)
-17. [Keeping this guide up to date](#keeping-this-guide-up-to-date)
+7. [Batches](#batches)
+8. [New student and Edit student](#new-student-and-edit-student)
+9. [Student profile](#student-profile)
+10. [Downloading and uploading Excel](#downloading-and-uploading-excel)
+11. [Unassigned payments](#unassigned-payments)
+12. [Settings and feedback](#settings-and-feedback)
+13. [Updating the app](#updating-the-app)
+14. [What the words and colours mean](#what-the-words-and-colours-mean)
+15. [Everyday situations](#everyday-situations)
+16. [Your data and safety](#your-data-and-safety)
+17. [For developers: feature map](#for-developers-feature-map)
+18. [Keeping this guide up to date](#keeping-this-guide-up-to-date)
 
 ---
 
@@ -106,7 +107,7 @@ banner goes away.
 1. Click **Dashboard**, **Payments** or **Students** in the side menu.
 2. Your browser's **Back** button works too. The Dashboard remembers which month you were
    looking at, the Payments page remembers its student, month and method filters, and the
-   Students page remembers its tab.
+   Students page remembers which batch's tab was open.
 
 **Fix "Can't reach Scrappy Records"**
 1. Close the browser tab.
@@ -126,7 +127,8 @@ banner goes away.
 <details><summary>For developers</summary>
 
 - **Routes:** every page sits inside `AppShell`. `/` Dashboard, `/report` (the monthly
-  report, opened from the Dashboard), `/payments`, `/students`, `/students/:id`, and `*` for
+  report, opened from the Dashboard), `/payments`, `/students`, `/students/batch/:batchId` (a
+  batch's tab, `none` for No batch), `/students/:id`, and `*` for
   Page not found (`frontend/src/routes.tsx`). The backend serves
   `index.html` for every non-`/api` path (`backend/app/main.py`).
 - **Components:** `frontend/src/components/layout/app-shell.tsx` (side menu, `AppVersion`,
@@ -139,7 +141,7 @@ banner goes away.
   shows the banner. The wording is `UNREACHABLE_MESSAGE` in `src/lib/errors.ts`, which also
   turns 502–504 and network errors into it.
 - **Freshness:** every create, edit or delete calls `invalidateRecords()`
-  (`src/api/queries.ts`), which refetches students, payments, the dashboard and the report.
+  (`src/api/queries.ts`), which refetches students, payments, the dashboard, the report and batches.
 - **Printing:** the side menu, the banner and each page's buttons carry `print:hidden`, so
   only the page itself prints (see [Monthly report](#monthly-report)).
 - **Launcher:** `backend/app/launcher.py`, see [architecture](architecture.md#the-launcher).
@@ -193,12 +195,13 @@ or print.
 number next to the heading is how many there are, and the line under it says how much is still
 to come.
 
-<img src="images/feature-guide/dashboard-yet-to-pay.png" alt="The Yet to pay list: six students, each with their initials in a circle, their name, a red Unpaid or amber Partial label, their class, the amount left (for example ₹1,200 left, Fee ₹1,200, or ₹750 left, ₹750 of ₹1,500 paid) and a Log payment button." width="480">
+<img src="images/feature-guide/dashboard-yet-to-pay.png" alt="The Yet to pay list: six students, each with their initials in a circle, their name, a red Unpaid or amber Partial label, their batch, the amount left (for example ₹1,200 left, Fee ₹1,200, or ₹750 left, ₹750 of ₹1,500 paid) and a Log payment button." width="480">
 
 Each row shows:
 - their name (click it to open their profile; hover to see a long name in full);
 - **Unpaid** (red: nothing paid for that month) or **Partial** (amber: some paid);
-- their class or batch, if you entered one;
+- their batch (or, for someone not in a batch yet, the class label typed for them before
+  batches);
 - **₹X left**, and under it either their fee (*Fee ₹1,200*) or what's paid so far
   (*₹750 of ₹1,500 paid*, counting any extra money from another month's payment);
 - a **Log payment** button.
@@ -388,7 +391,7 @@ It starts with whom to follow up: **Unpaid** first, then **Partial**, **Not due 
 | **Extra sent elsewhere** | The part of this month's money above its fee that paid other months, with where it went: *"→ Aug 2026"*, or a run of months at once: *"→ Oct 2026–Jun 2027 (9 months)"*. Money no month needed says *"₹500 kept as credit"* under it |
 | **Owed from earlier months** | What they still owe for months *before* this one, with those months under it. A run of months is kept short: *"Jan–Jun 2026 (6 months)"* |
 | **Kept as credit / paid ahead** | Money no month needs (*"₹500 kept as credit"*), and money that pays months after this one (*"₹1,500 paid ahead"*), as on their profile |
-| **Class/batch**, **Phone** | As entered for the student |
+| **Class/batch**, **Phone** | Their batch (or, if they aren't in one, the class label typed for them before batches), and their phone, as entered |
 
 A **—** always means nothing (₹0).
 
@@ -444,10 +447,23 @@ the page.
    - **Short this month**: only those with something left to pay for *this* month (Unpaid,
      Partial and Not due yet).
    - **Everyone**, or one status. The number next to each is how many students have it.
-2. Or type in **Search by name**: a name, a class or a phone number, as in the Students page.
-3. The line under them says *"Showing 8 of 24 students"*, and the totals row and Collected add
+2. Or type in **Search by name**: a name, a batch or a phone number, as in the Students page.
+3. Or choose a batch in the **Batch** list (each with how many students it has in the report,
+   and **No batch**): only that batch's students.
+4. The line under them says *"Showing 8 of 24 students"*, and the totals row and Collected add
    up only those (*"Total of the 8 shown"*). Print and Download Excel then have just those
    too. Click **Clear filters** to see everyone again.
+
+**See it batch by batch**
+1. Choose **Group by: Batch**. Each batch's students come under a heading with its name and
+   how many (A to Z, numbers in number order, **No batch** last), and end with a **Subtotal**
+   row for that batch; inside each, the usual order or the column you sorted by. The total at
+   the bottom stays the total of everyone shown.
+2. Print and Download Excel are grouped the same way (in Excel, a shaded heading row before
+   each batch and a subtotal row of `SUBTOTAL` formulas after it, which the total leaves out),
+   and their title says *"grouped by batch"*.
+
+![The September 2026 report grouped by batch: a heading row for each batch, such as 'Friday Beginners · 3 students', with its students under it.](images/feature-guide/report-grouped.png)
 
 ![The report filtered to 'Owes anything': everyone who owes this month or an earlier one, including Dev Malhotra and Kavya Pillai, who paid September but still owe earlier months. 'Total of the 8 shown' at the bottom, then 'Collected for September 2026 (the students shown)'.](images/feature-guide/report-filtered.png)
 
@@ -556,10 +572,12 @@ when fixing one, **Edit payment** (*"Fix any detail and save."*).
 **Student.** Click the box, or just start typing a name. A list opens with a search box
 (*Type a name…*):
 
-<img src="images/feature-guide/log-payment-search.png" alt="The student list open with 'ka' typed: Aditi Kamath, Anika Kulkarni, Kabir Mehta and Kavya Pillai, each with their class underneath." width="420">
+<img src="images/feature-guide/log-payment-search.png" alt="The student list open with 'ka' typed: Aditi Kamath (Sunday Seniors), Anika Kulkarni (Tue/Thu Juniors), Kabir Mehta (Mon/Wed Evening) and Kavya Pillai (Saturday Morning), each with their batch underneath." width="420">
 
-- It finds students whose name, parent's name, class or phone number contains every word you
-  type, in any order, ignoring capitals and accents: *menon arjun* finds *Arjun Menon*, and
+- Each student shows their **batch** under their name (and, once chosen, next to it in the
+  box), so two students with the same name can be told apart.
+- It finds students whose name, parent's name, batch (or old class label) or phone number
+  contains every word you type, in any order, ignoring capitals and accents: *menon arjun* finds *Arjun Menon*, and
   *emile* finds *Émile*. Apostrophes and hyphens in names don't matter (*obrien* finds
   *O'Brien*, *dsouza* finds *D'Souza*). A phone number can be typed with or without its
   spaces, and with or without *+91* in front (*9000000006* finds *90000 00006*). It's the same
@@ -882,34 +900,72 @@ total (as logged; ₹1,500 of it paid other months)"*.
 
 ### What it's for
 
-Seeing everyone in your classes, whether each of them is up to date, and how long they've been
-with you.
+Seeing everyone in your classes, batch by batch: whether each of them is up to date, how long
+they've been with you, and how much of each batch's fees has come in this month. And finding
+any student in a moment.
 
 ### What you'll see
 
-![The Students page: tabs Active 24, Left 1 and All 25, a search box 'Search name, phone or parent', and a table with Name (and Parent), Class or batch, Monthly fee, Status (green Up to date or red Owes ₹4,800, one with a teal 'Paid ahead ₹1,500') and Member for (for example '8 mo, Since Jan 2026' or 'New this month').](images/feature-guide/students.png)
+![The Students page on the All batches tab: Download Excel, Upload Excel and Download everything under the title; tabs across the top (All batches 24, Friday Beginners 3, Mon/Wed Evening 7, Saturday Morning 6, Sunday Seniors 4, Tue/Thu Juniors 4, and an arrow for more), the search box 'Search name, phone, parent or batch', the Batches heading with the month September 2026 between arrows and a New batch button, and a card for each batch, for example Mon/Wed Evening, Koramangala, Mon, Wed · 5:00–6:00 pm, 7 students · ₹10,800 this month, ₹8,550 of ₹10,800 paid, 79%.](images/feature-guide/students.png)
 
-**Download Excel** and **Upload Excel**, under the title: the students shown (this tab and
-this search) as an Excel file, and adding students from one. See
-[Downloading and uploading Excel](#downloading-and-uploading-excel).
+**Download Excel** and **Upload Excel**, under the title: the students shown (the batch tab
+you're on, the **Show** choice and the search) as an Excel file, with each student's batch, and
+adding students from one. See [Downloading and uploading Excel](#downloading-and-uploading-excel).
 
-**The tabs**, each with how many students are in it:
-- **Active**: everyone still coming, including someone whose last month is this month or later.
-- **Left**: everyone whose last month has passed.
-- **All**: both.
+**The batch tabs** run across the top of the page, under the title. (The main menu is down the
+left side, so the two never look alike.)
 
-**The search box** (*Search name, phone or parent*) narrows the list as you type. It also finds
-a class or batch, and ignores capitals.
+<img src="images/feature-guide/students-tabs.png" alt="The batch tabs: All batches 24 (chosen, with a marigold line under it), then one tab per batch with how many students are in it, and an arrow on the right for the tabs that don't fit." width="640">
 
-**The table**, sorted A to Z:
+- **All batches** comes first: every batch at a glance, and every student.
+- Then **one tab per batch**, A to Z (with numbers in order: *Batch 2* before *Batch 10*), each
+  with how many students are in it now (not counting those who have left). A long name is cut
+  short with *…*; hover to see it all.
+- **No batch** comes last: the students who aren't in a batch yet.
+- The tab you're on is white, with a marigold line under it. If there are more tabs than fit, a
+  soft fade and an arrow at the edge show there are more: click the arrow, scroll sideways, or
+  use the keyboard (see below).
+
+On a narrow window (where the main menu moves to the top), the tabs become **one dropdown**
+instead, so there's never a second row of tabs:
+
+<img src="images/feature-guide/students-narrow.png" alt="A narrow window: the menu across the top, and under the Students title a dropdown showing Mon/Wed Evening (7), open to list All batches (24), the batches with their counts, and No batch (0)." width="420">
+
+**The batch cards** (on *All batches*), one per batch, A to Z:
+
+<img src="images/feature-guide/batch-card.png" alt="The Mon/Wed Evening card: a pencil and a bin at the top right; Koramangala; Mon, Wed · 5:00–6:00 pm; 7 students · ₹10,800 this month; and '₹8,550 of ₹10,800 paid' with a marigold bar and 79%." width="360">
+
+| Line | What it means |
+|---|---|
+| The name | The batch. Click anywhere on the card to open its tab |
+| 📍 **Koramangala** | Where it happens, if you gave a location |
+| 📅 **Mon, Wed · 5:00–6:00 pm** | The days and times, if you set them |
+| 👥 **7 students · ₹10,800 this month** | How many students are in it now (not counting those who have left), and their fees for the month shown above the cards, added up. If not all of them have a fee that month (someone joining later, a month off), it says how many do: *"5 students (4 due this month)"* |
+| **₹8,550 of ₹10,800 paid**, **79%** and the bar | How much of that month's fees is paid. The bar fills up as money comes in, and turns **green at 100%**, which only happens when every fee in the batch is paid in full. Below 100% it's marigold |
+
+The numbers are for the month next to **Batches** (this month at first). Use its arrows to look
+at another month, the same way as on the Dashboard; **Back to …** returns to this month. An
+earlier month says *"counted by who is in each batch today"*: a student who moved batch counts
+in the batch they're in now, past months included.
+
+After the cards, a dashed **No batch** card counts the students not in any batch, if there are
+any. With more than nine batches, only the first nine cards show, with **Show all 30 batches**
+under them; the tabs always list every batch.
+
+**All students** is the table under the cards: every student, to find anyone fast.
+
+![The All students table: a search box 'Search name, phone, parent or batch' with a / key hint, dropdowns Show: Active (24), Sort by: Name, Group by: No groups, Batch: All batches, Location: All locations, Day: Any day, Status: Any status, and rows with Name (and Parent), Batch (with its days and times), Monthly fee, Status and Member for.](images/feature-guide/students-table.png)
 
 | Column | What it shows |
 |---|---|
 | **Name** | Their name, and *Parent: …* if you entered one. Click anywhere on the row to open their profile |
-| **Class or batch** | What you typed for their class, or — |
+| **Batch** | Their batch (click it to open the batch's tab), with its days and times, or *No batch* |
 | **Monthly fee** | Their fee this month (for someone who hasn't started yet, the fee they'll start on), or **No fee**. If a different fee is already set for a later month, a second line says so, e.g. *₹1,000 from Dec 2026* under *No fee* for someone coming back in December |
 | **Status** | How they stand overall (see below) |
 | **Member for** | How long they've been coming (see below) |
+
+Click a column's name to sort by it; click again to reverse. An arrow shows which column and
+which way.
 
 **Status** is one coloured label, sometimes with a small note under it:
 - **Owes ₹4,800** (red): some month up to this one isn't fully paid, even after any money paid
@@ -928,67 +984,317 @@ a class or batch, and ignores capitals.
 - **Starts November 2026**: they join in a later month.
 - **Leaving after Sep 2026** (under the time): they've been marked as leaving, and that month
   hasn't passed yet.
-- **Left May 2026** (on the Left tab): their last month, the last one they owed for.
+- **Left May 2026** (when showing who has left): their last month, the last one they owed for.
 
-![The Left tab: Rohan Desai, Tue/Thu 6pm – HSR Layout, ₹2,500, Up to date, Left May 2026.](images/feature-guide/students-left-tab.png)
+The dropdowns above the table (a dropdown you've changed is outlined in marigold):
+
+| Dropdown | Choices |
+|---|---|
+| **Show** | **Active** (everyone still coming, including someone whose last month is this month or later), **Left** (everyone whose last month has passed) or **Everyone**, each with how many |
+| **Sort by** | Name, Batch, Monthly fee, Status (who owes first), Owes most, or Member for |
+| **Group by** | No groups, or under a heading per **Batch**, **Location**, **Day** or **Status**. Grouped by day, a student is under each day their batch meets (Monday *and* Wednesday). *No batch*, *No location* and *No day set* come last |
+| **Batch** | All batches, one batch, or No batch |
+| **Location** | All locations, one place (however it's spelled in each batch), or No location. Shown once any batch has a location |
+| **Day** | Any day, or the students whose batch meets on that day |
+| **Status** | Any status, Owes, Up to date or Has credit |
+
+**Clear filters** appears when you've changed any of them, and puts them all back.
+
+![The table grouped by batch: a heading row per batch, for example 'Friday Beginners · 3 students · Fri · 4:00–5:00 pm · Whitefield', with its students under it.](images/feature-guide/students-grouped.png)
+
+![Show: Left, with one student: Rohan Desai, Tue/Thu Juniors, ₹2,500, Up to date, Left May 2026.](images/feature-guide/students-left-tab.png)
+
+**A batch's tab** has the batch at the top and its students under it. See [Batches](#batches).
 
 ### What you can do
 
-**Open a student's profile**
-1. Click their name, or anywhere on their row.
+**Find a student fast**
+1. On the Students page, just start typing: on a laptop-sized window the search box is ready as
+   soon as the page opens. Anywhere else on the page, press **/** to jump to it.
+2. Type part of their name, phone number, parent's name or batch. The list narrows with every
+   letter. The words can be in any order (*menon arjun*), capitals, accents, apostrophes and
+   hyphens don't matter (*emile* finds *Émile*, *obrien* finds *O'Brien*), and a phone number
+   can be typed with or without its spaces or *+91*.
+3. The first student in the list is highlighted, with **Enter opens** next to their name:
+   press **Enter** to open them, or click any row. **Esc** empties the search.
 
-**Find a student**
-1. Type part of their name, phone number, parent's name or class into the search box. The
-   words can be in any order (*menon arjun*), capitals, accents, apostrophes and hyphens don't
-   matter (*emile* finds *Émile*, *obrien* finds *O'Brien*), and a phone number can be typed
-   with or without its spaces or *+91*.
-2. Choose **All** if you're not sure whether they've left.
+On **All batches** the search box is at the top, above the batch cards. As soon as you type,
+the cards fold away (*"5 batches folded away while you search"*), so the matches are right
+under the search box; empty the box and they come back.
+
+![Searching for 'ka' on All batches: the search box at the top, the batch cards folded away, and the matching students, the first of them (Aditi Kamath) highlighted with an 'Enter opens' tag.](images/feature-guide/students-searching.png)
+
+If the dropdowns hide someone who matches (someone who has left, while **Show** is
+*Active*), a marigold line says so (*"1 more student matches "dev" but is hidden by the
+filters."*), with **Show them** to see everyone. Enter only ever opens the highlighted row:
+never someone the dropdowns hide.
+
+**Move several students to a batch at once** (on **All batches** and **No batch**)
+1. Tick the box at the start of each row. To tick a run of rows, tick the first, then hold
+   **Shift** and tick the last. The box in the heading ticks everyone shown.
+2. A marigold bar says how many are ticked. Click **Move to batch…**.
+3. Choose the batch (or **No batch**) and click **Move to …**. They all move at once. Their
+   fees don't change: to charge them the batch's usual fee, use **Edit batch** → **Also
+   charge…**.
+
+<img src="images/feature-guide/students-move.png" alt="Move 2 students to a batch: the two names, 'Their fees don't change.', a Batch box and the buttons Cancel and Choose a batch." width="440">
+
+**Open a batch**
+1. Click its tab at the top, or its card. On a narrow window, choose it in the dropdown.
+2. With the keyboard: press **Tab** until a batch tab is highlighted, then **←** and **→** move
+   between tabs, **Home** and **End** go to the first and last, and **Enter** opens one.
+3. Your browser's **Back** button returns to the tab you were on. A batch's tab can be
+   bookmarked.
 
 **See who has left**
-1. Click the **Left** tab.
+1. In the table, choose **Show: Left**.
+
+**See who owes, batch by batch**
+1. Choose **Group by: Batch** and **Status: Owes**. Or open a batch's tab and sort by
+   **Status**.
 
 **Add a student**
-1. Click **New student** at the top. See [New student](#new-student-and-edit-student).
+1. Click **New student** at the top, or **Add student** on a batch's tab (which puts them in
+   that batch). See [New student](#new-student-and-edit-student).
+
+**Add, change or delete a batch**
+1. See [Batches](#batches).
 
 ### Good to know
 
 - The **Status** is about all months up to this one, not just this month. To see only this
-  month, use the Dashboard.
+  month, use the Dashboard, or a batch's % paid.
 - Money paid above a fee pays the oldest month still owed first, so a month paid twice
   instead of the next one shows **Up to date**, not **Owes**. A payment logged for a later month
   pays that month only, so paying ahead never hides a month that's still owed.
-- A student marked as leaving stays on the **Active** tab until their last month has passed,
-  then moves to **Left** by themselves.
+- A student marked as leaving stays under **Active** until their last month has passed, then
+  moves to **Left** by themselves. They stay in their batch either way.
 - The search is the same as the student list in [Log payment](#log-payment-and-edit-payment):
   whoever one finds, the other finds too.
-- *"No students match …"*, *"No one has left."* and *"No active students."* mean the tab or the
-  search has nothing in it. *"No students yet."* means nobody has been added.
+- *"No students match …"* and *"No students match these filters."* mean the search or the
+  dropdowns have nothing in them (**Clear search and filters** puts everything back). *"No
+  students yet."* means nobody has been added.
+- The batch cards and the Dashboard agree: every batch's *this month* and the No batch card add
+  up to the Dashboard's *Expected*, *Collected* and *Still due* for the same month.
 
 <details><summary>For developers</summary>
 
-- **Route:** `/students`, with `?tab=left|all` (Active is the default).
-- **Components:** `frontend/src/pages/students-page.tsx`; `components/status.tsx`
-  (`BalanceChip`, `PaidAheadNote`); `lib/status.ts` (`standingLabel`, `balanceTone`);
-  `lib/labels.ts` (`tenureLabel`, `formatMonthCount`).
-- **API:** `GET /api/students?status=all` (`listStudents`) once; the tabs (`is_active`) and the
-  search are filtered in the browser. The search is `studentMatches` in `lib/search.ts`, the
-  same one the Log payment student list uses: every word must appear in the name, guardian,
-  batch or phone, ignoring case and accents, and digits-only words also match the phone's
-  digits without spaces or punctuation. The server's own `status` and `q` filters aren't used
-  by this page. **Download Excel** uses `GET /api/export/students.xlsx?status=&q=`, whose
-  search is `services/text.student_matches`, the same rules in Python.
-- **Backend:** `services/students.list_students` → `ledger.student_ledger` (`standing_status`,
-  `owed`, `credit`, `paid_ahead`, all after `allocate`; `tenure_months`, `has_left`,
-  `current_fee`).
-- **PRD:** scope item 6; ledger rules 6, 8 and 10; `tenure_months` in
+- **Routes:** `/students` (All batches), `/students/batch/:batchId` (a batch) and
+  `/students/batch/none` (No batch), with `?month=YYYY-MM` for a month other than the server's
+  current one; the month is kept when switching tabs. All three render `StudentsPage`.
+- **Components:** `frontend/src/pages/students-page.tsx` (`AllBatches`, `OneBatch`,
+  `BatchView`); `components/batches/batch-nav.tsx` (tabs at `lg` and up, a `Select` below;
+  links with `aria-current="page"`, arrow keys, `scrollIntoView` of the open tab),
+  `batch-card.tsx`, `paid-bar.tsx`, `month-nav.tsx`, `students-table.tsx` (search, sort,
+  filters, groups; "/" and Enter); `lib/batches.ts` (`formatSchedule`, `matchesFilters`,
+  `sortStudents`, `groupStudents`); `components/status.tsx`; `lib/labels.ts`.
+- **API:** `GET /api/students?status=all` (`listStudents`) and `GET /api/batches`
+  (`listBatches`) once; the table's search, filters, sorting and grouping happen in the browser.
+  `GET /api/batches/summary?month=` (`getBatchOverview`) for the cards and % paid. The search is
+  `studentMatches` in `lib/search.ts` (name, guardian, batch name, old label, phone). The
+  server's `batch`, `location`, `status` and `q` filters aren't used by this page.
+- **Backend:** `services/students.list_students`; `services/batches.overview` (each batch's
+  students through `ledger.build_dashboard`, so the numbers are the Dashboard's own).
+- **PRD:** scope items 6 and 8; ledger rules 6, 8 and 10; `tenure_months` in
   [data model](data-model.md#ledger-computation).
-- **Tests:** `frontend/src/pages/students-page.test.tsx` ("searches like Log payment…"),
-  `lib/search.test.ts`; `frontend/e2e/fixes.spec.ts` → "Students search: phone without spaces,
-  accents, and words in any order"; `backend/tests/test_api_students.py`
-  (`test_list_filters_search_and_sorting`, `test_active_until_the_left_month_has_passed`,
-  `test_leaving_after_december_moves_to_left_in_january`); `test_ledger.py`
-  (`test_tenure_months`, `test_balance_and_status`); `frontend/e2e/records.spec.ts` → "mark as
-  left moves the student to the Left tab".
+- **Download Excel:** `GET /api/export/students.xlsx?status=&q=&batch=` (the tab's batch, the
+  table's *Show* and the search), whose search is `services/text.student_matches`, the same
+  rules in Python.
+- **Search and ticks:** on All batches the table's search box is rendered into a place above
+  the cards (`searchHost`, a portal), and `onShownChange` tells the page what's typed (the
+  cards fold away, and Download Excel follows it). Enter opens `data-next`, the first row on
+  screen, and is ignored while `isComposing`. Tick boxes and `MoveDialog` are in
+  `students-table.tsx`; `POST /api/batches/move` (`moveStudents`).
+- **Tests:** `frontend/src/pages/students-page.test.tsx`, `pages/batches.test.tsx`,
+  `lib/batches.test.ts`, `lib/search.test.ts`; `frontend/e2e/batches.spec.ts` → "filter and
+  group every student on the All batches tab"; `frontend/e2e/fixes.spec.ts` → "Students search:
+  phone without spaces, accents, and words in any order"; `frontend/e2e/records.spec.ts` →
+  "mark as left shows the student under Left"; `backend/tests/test_api_students.py`,
+  `test_api_batches.py` (`test_batches_add_up_to_the_dashboard`, `test_a_batch_summary`).
+
+</details>
+
+---
+
+## Batches
+
+### What it's for
+
+Grouping students by the class they come to (a batch, like *Mon/Wed Evening* at one place), to
+see each batch's fees at a glance, and to add a student to a batch with its usual fee filled in.
+Each student is in **one batch, or none**.
+
+### What you'll see
+
+**A batch's tab** (click its tab or card on the Students page):
+
+![The Mon/Wed Evening tab: the name, 'Koramangala · Mon, Wed · 5:00–6:00 pm · Usual fee ₹1,500', buttons Edit batch, a bin, and Add student; the month September 2026 with arrows; Students 7, Fees for September 2026 ₹10,800, Collected ₹8,550, Still to pay ₹2,250 (2 students); a bar with '₹8,550 of ₹10,800 paid' and 79%; then 'Students in this batch' with its own search, dropdowns and table.](images/feature-guide/batch-tab.png)
+
+- At the top: the batch's **name**, then its **location**, **days and times** and **usual fee**,
+  and its notes, if any.
+- **Edit batch**, a **bin** (delete) and **Add student**.
+- The **month**, with arrows, as on the Dashboard.
+- **Students in September 2026**: how many in the batch are coming that month (with *"4 with
+  a fee due"* under it if some of them have no fee that month).
+- **Fees for September 2026**: their fees for that month, added up.
+- **Collected** (**Paid ahead** for a month still to come): what pays that month so far.
+- **Still to pay**: what's left, and how many students haven't paid in full (red while
+  anything is left, green at ₹0).
+- The **% paid** bar: *₹8,550 of ₹10,800 paid*, and the percentage, which is **100% only when
+  everyone has paid** that month in full (it's rounded down, so 99.9% shows 99%).
+- **Students in this batch**: the same table as on *All batches*, with its search, sorting and
+  grouping, without the batch columns and dropdowns.
+
+The **No batch** tab looks the same, for the students who aren't in a batch.
+
+**New batch** and **Edit batch** use the same form:
+
+<img src="images/feature-guide/batch-new.png" alt="The New batch form: Name (e.g. Mon/Wed Evening), Location (optional), Days (optional) with a button for each day Mon to Sun, Starts at and Ends at (optional), Usual monthly fee (optional) with the note 'Filled in for a new student in this batch. Each student keeps their own fee.', Notes (optional), Cancel and Add batch." width="480">
+
+| Box | Needed? | Notes |
+|---|---|---|
+| **Name** | Yes | Each batch needs its own name. Two names that differ only in capitals or spaces count as the same: *"There's already a batch called Tue/Thu 5pm."* |
+| **Location** | No | Free text. It suggests the places you've already typed, so the same place is spelled the same way |
+| **Days** | No | Click each day it meets; a chosen day turns marigold |
+| **Starts at**, **Ends at** | No | The end has to be after the start |
+| **Usual monthly fee** | No | Filled in for a **new** student added to the batch. Up to ₹10,00,000 |
+| **Notes** | No | |
+
+**Changing the usual fee never changes what anyone pays by itself.** When you type a new usual
+fee in **Edit batch**, a marigold box says so, and offers to charge it to its students too:
+
+<img src="images/feature-guide/batch-edit-fee.png" alt="Edit Mon/Wed Evening with the usual fee changed to 1800 and a marigold box: 'Changing the usual fee doesn't change what anyone in this batch pays.', a ticked 'Also charge ₹1,800 to students in this batch', From September 2026, then 'On the usual fee' with a ticked box for each student on ₹1,500 now: Aarav Bhat, Advait Srinivasan and more." width="480">
+
+- **Also charge ₹1,800 to students in this batch**: only if you tick it. Then **From** (this
+  month at first) and every student in the batch, each with a tick box and their fee now:
+  - **On the usual fee**: every month that would change has the batch's old usual fee (or,
+    for a batch that had none, the fee most of them pay). **Ticked** at first.
+  - **Their own fee**: a discount, a sibling, a free place. **Not ticked**: tick them only if
+    they should pay the new fee too.
+  - **Has its own fee change — not changed unless you tick them**: someone with a fee change
+    of their own from that month on: one set earlier (a discount for July and August, a ₹0
+    month off, the fee they came back on) or one planned for later. A new fee from an earlier
+    month would cut it short or replace it, so it's never changed unless you tick them.
+  - Under every name: what ticking would do to *them*, in the same words as Edit student:
+    *"From July 2026 they'll owe ₹1,800 a month, until September 2026, when ₹1,000 (already
+    set) starts."*, and what it would replace (*"It replaces the no-fee month set for July
+    2026."*).
+  - Below them: who already pays the new fee, and who leaves before that month (neither
+    changes).
+- Only the ticked students change, each exactly like changing their fee from that month in
+  **Edit student**, as the line under their name says: earlier months keep their fee. The line
+  at the bottom, and the message after saving, say how many and who.
+- Someone who joins after the chosen month gets the new fee from the month they join. If the
+  month falls in their months away (after leaving and coming back), it starts from the month
+  they came back, so no month away becomes owed.
+- **A month already due** (before this month) warns in amber how many months already due
+  change, and how much more (or less) the ticked students will owe for them in total: *"August
+  2026 is before this month: 3 months already due (August–October 2026) change. The ticked
+  students will owe ₹5,400 more for them in total."*
+
+**Create batches from existing labels.** Before batches, each student had a free-text **Class
+or batch** label (like *Tue/Thu 5pm – Indiranagar*). While some students have a label but no
+batch, a **Create batches from existing labels** button sits next to **New batch**:
+
+<img src="images/feature-guide/students-no-batches.png" alt="The Batches heading with 0, the buttons Create batches from existing labels and New batch, and a dashed card: 'No batches yet. A batch is a class your students come to, like Mon/Wed Evening at one place. Add one, then put students in it, to see each batch's fees at a glance.' with a New batch button." width="640">
+
+It shows exactly what it will do, and **does nothing until you click the button**:
+
+<img src="images/feature-guide/convert-labels.png" alt="Create batches from existing labels: '2 new batches from 5 students. Labels that differ only in capitals or spaces go together. Nothing changes until you click the button.' Mon/Wed 5pm – Koramangala, 3 students, also written as mon/wed 5PM – Koramangala: Ananya Rao, Kabir Mehta, Meera Iyer. Sat 10am – Jayanagar Studio, 2 students: Arjun Menon, Diya Nair. 'A backup is saved first. Each student's label is kept as it was, and no fee or payment changes. Add days, times and the usual fee to each batch afterwards, with Edit.' Cancel and Create 2 batches." width="520">
+
+- Labels that differ only in **capitals or spaces** make one batch (*Mon/Wed 5pm* and
+  *mon/wed  5PM*). It's named after the spelling most students have.
+- If you already have a batch with that name, the students go into it instead of a new one.
+- When you click **Create … batches**, a backup of your records is saved first, then all the
+  batches are made and every student is placed, all at once. The labels themselves stay exactly
+  as they were typed, and no fee or payment changes.
+- Students who have left are marked *(left)*. A batch where everyone has left says so: *"this
+  batch would have nobody coming now"*.
+- Clicking it again does nothing: those students are in a batch now. The button goes away.
+
+**Deleting a batch** asks first, and says what happens to its students:
+
+<img src="images/feature-guide/batch-delete-confirm.png" alt="Delete Saturday Morning? Its 6 students aren't deleted: they all move to No batch. No fee or payment changes. Cancel and Delete batch." width="420">
+
+It counts everyone in the batch, those who have left included: *"Its 6 students, including 2
+who have left, aren't deleted: they all move to No batch."*
+
+### What you can do
+
+**Set up your batches the first time**
+1. Go to **Students**.
+2. If your students have labels, click **Create batches from existing labels**, check the
+   list, and click **Create … batches**. Otherwise click **New batch** for each batch.
+3. Open each batch (its tab or card), click **Edit batch**, and add its **location**, **days**,
+   **times** and **usual fee**.
+4. Anyone left under **No batch**: on the **No batch** tab, tick them (Shift-click ticks a run),
+   click **Move to batch…**, choose the batch, and click **Move to …**. One batch at a time,
+   as many students as you like.
+
+**Add a batch**
+1. On the Students page, click **New batch**.
+2. Type its **Name**, and anything else you know.
+3. Click **Add batch**. Its tab opens, ready for students.
+
+**Add a student to a batch**
+1. Open the batch's tab and click **Add student**. The form has the batch chosen and its usual
+   fee filled in (you can change the fee: a discount, say).
+2. Type their name and click **Add student**.
+
+**Move a student to another batch** (several at once: tick them on **All batches** and use
+**Move to batch…**, see [Students page](#students-page))
+1. Open their profile and click **Edit**.
+2. In **Batch**, choose the new batch (or **No batch**). Their fee stays as it is; the form
+   says if the new batch usually charges something else.
+3. Click **Save changes**.
+
+**Change a batch's details or usual fee**
+1. Open the batch and click **Edit batch** (or the pencil on its card).
+2. Change what you need. For a new usual fee, tick **Also charge…** only if its students should
+   pay it too; check who is ticked, and choose from which month.
+3. Click **Save changes**.
+
+**Delete a batch**
+1. Click the **bin** on its card, or on its tab.
+2. Read what will happen, and click **Delete batch**. Its students move to **No batch**; none
+   of them, and none of their payments, are deleted.
+
+### Good to know
+
+- A batch's numbers follow the same rules as the Dashboard: extra money pays the oldest month
+  owed, a month off or a free place isn't counted, and a student who left isn't counted after
+  their last month. All batches and **No batch** together add up to the Dashboard.
+- Moving a student to another batch moves all their numbers with them, past months included:
+  the batch is where they are now.
+- The usual fee is only a starting point: each student has their own fee, changed in
+  **Edit student** (or for many at once with **Also charge…**).
+- A student is in one batch at a time. Being in two batches (and owing both fees) isn't possible
+  yet.
+- Names with numbers sort in number order: *Batch 2* comes before *Batch 10*.
+- *"This batch doesn't exist any more."* means it was deleted (maybe in another window). Its
+  students are under **No batch**.
+
+<details><summary>For developers</summary>
+
+- **Components:** `frontend/src/components/batches/batch-form.tsx` (`BatchFormDialog`; the
+  "Also charge…" box shows `GET /api/batches/{id}/fee-plan` (`getFeePlan`), the server's own
+  rule, and sends the ticked ids as `apply_fee.student_ids`, the ticked planned ones also as
+  `confirm_planned`),
+  `convert-labels.tsx` (`ConvertLabelsButton`, `ConvertLabelsDialog`), `batch-picker.tsx`
+  (the student form's Batch), `paid-bar.tsx`; `pages/students-page.tsx` (`OneBatch`,
+  `BatchView`, the delete `ConfirmDialog`).
+- **API:** `GET/POST /api/batches` (`listBatches`, `createBatch`),
+  `GET/PATCH/DELETE /api/batches/{id}` (`getBatch`, `updateBatch`, `deleteBatch`),
+  `GET /api/batches/summary?month=` (`getBatchOverview`),
+  `GET/POST /api/batches/from-labels` (`previewLabelConversion`, `convertLabels`). See
+  [data model](data-model.md#batch-rules).
+- **Backend:** `routers/batches.py`, `services/batches.py` (`fee_plan` and `_apply_fee` share
+  `_plans`, which uses `services/students.set_fee_from`; `move_students`; `delete_batch`; `label_preview` and
+  `convert_labels`, with a `pre-batches` backup); table `batches` and `students.batch_id`
+  (migration `0005`).
+- **PRD:** scope item 8; stories B1–B7; ledger rule 7 (a fee change from a month).
+- **Tests:** `backend/tests/test_api_batches.py`; `frontend/src/pages/batches.test.tsx`,
+  `lib/batches.test.ts`; `frontend/e2e/batches.spec.ts`.
 
 </details>
 
@@ -1003,7 +1309,7 @@ a new fee from a chosen month, or the month they leave.
 
 ### What you'll see
 
-![The New student form: Name (placeholder 'e.g. Ananya Rao'), Monthly fee (placeholder 1500), Joined in (September 2026), and optional Phone, Parent or guardian, Class or batch and Notes, with Cancel and Add student.](images/feature-guide/student-new.png)
+![The New student form: Name (placeholder 'e.g. Ananya Rao'), Batch (optional, showing No batch), Monthly fee (placeholder 1500), Joined in (September 2026), and optional Phone, Parent or guardian and Notes, with Cancel and Add student.](images/feature-guide/student-new.png)
 
 **New student** (*"Only the name, fee and joining month are needed. You can add the rest
 later."*):
@@ -1011,15 +1317,36 @@ later."*):
 | Box | Needed? | Notes |
 |---|---|---|
 | **Name** | Yes | |
-| **Monthly fee** | Yes | ₹0 is allowed (for a free place). Same typing rules as a payment amount, up to ₹10,00,000 |
+| **Batch** | No | The batch they're in, or **No batch** (see below) |
+| **Monthly fee** | Yes | ₹0 is allowed (for a free place). Same typing rules as a payment amount, up to ₹10,00,000. Choosing a batch fills in its usual fee |
 | **Joined in** | Yes | The first month they owe. Starts as this month; can be up to two years ahead |
 | **Phone** | No | |
 | **Parent or guardian** | No | |
-| **Class or batch** | No | Free text, e.g. *Tue/Thu 5pm – Indiranagar* |
 | **Notes** | No | |
+
+**Batch.** Click the box, or start typing: a list opens with **No batch** first, then every
+batch with its days, times, place and usual fee (*Mon, Wed · 5:00–6:00 pm · Koramangala ·
+₹1,500 a month*). Type part of a batch's name, place or day (*kora*, *sat*) to narrow it.
+
+<img src="images/feature-guide/student-batch-picker.png" alt="The Batch list open over the New student form: No batch, then Batches: Friday Beginners (Fri · 4:00–5:00 pm · Whitefield · ₹2,500 a month), Mon/Wed Evening, Saturday Morning and more, each with its days, times, place and fee." width="440">
+
+- For a **new** student, choosing a batch fills in the **Monthly fee** with the batch's usual
+  fee, while the fee box is empty or still holds the fee the last batch filled in. A fee you
+  typed is never replaced; the form says what the batch usually charges instead (*"Saturday
+  Morning usually charges ₹1,200."*).
+- **Add student** on a batch's tab opens this form with that batch chosen and its fee filled
+  in:
+
+<img src="images/feature-guide/student-new-in-batch.png" alt="The New student form opened from the Mon/Wed Evening tab: Batch Mon/Wed Evening (Mon, Wed · 5:00–6:00 pm · Koramangala · ₹1,500 a month) and Monthly fee 1500 already filled in." width="440">
 
 **Edit student** (*"Change any detail and save."*) has the same boxes, filled in, plus:
 
+- **Batch** can be changed to move them to another batch (or **No batch**). Their fee stays as
+  it is: if the new batch usually charges something else, the line under it says so (*"… usually
+  charges ₹1,800. Their own fee stays as it is unless you change it."*).
+- **Old class label** (only for someone who has one): the *Class or batch* text typed for them
+  before batches, kept exactly as it was. The batch above is what counts; you can change or
+  empty the label if you like.
 - **Left in month** (optional): *"The last month they should pay for. Leave empty while they're
   still coming."* It shows **Still coming** when empty, and its calendar has a **Still coming**
   button to empty it again. Once their last month has passed, it can only be moved
@@ -1056,8 +1383,12 @@ history:
    Dashboard).
 2. Type their **Name** and **Monthly fee**.
 3. Check **Joined in**. Change it if they started in another month.
-4. Fill in anything else you like.
+4. Choose their **Batch** (the fee fills in), and anything else you like.
 5. Click **Add student**. You'll see *"Ananya Rao added — ₹1,500 a month from September 2026"*.
+
+**Put a student in a batch, or move them to another**
+1. Open their profile and click **Edit**.
+2. Choose the **Batch** (or **No batch**), and click **Save changes**. Their fee doesn't change.
 
 **Change their details**
 1. Open their profile and click **Edit**.
@@ -1112,20 +1443,22 @@ history:
 
 <details><summary>For developers</summary>
 
-- **Components:** `frontend/src/components/student-form.tsx` (`StudentFormDialog`,
-  `StudentForm`; `showFeeFrom` decides when "applies from" shows, `feeChanged` whether a fee
-  change is sent), `lib/fees.ts` (`feeAt`, `newFeeSentence`: the sentence, from
+- **Components:** `frontend/src/components/student-form.tsx` (`StudentFormDialog` (with
+  `batchId` for Add student on a batch's tab), `StudentForm`; `showFeeFrom` decides when
+  "applies from" shows, `feeChanged` whether a fee change is sent; `prefill` fills in a batch's
+  fee), `components/batches/batch-picker.tsx`, `lib/fees.ts` (`feeAt`, `newFeeSentence`: the sentence, from
   `fee_history`), `components/month-picker.tsx`, `lib/amount.ts`. Opened from
   `pages/students-page.tsx`, `pages/dashboard-page.tsx` (first run) and
   `pages/student-profile-page.tsx` (Edit).
 - **API:** `POST /api/students` (`createStudent`); `PATCH /api/students/{id}`
-  (`updateStudent`), sending only changed fields; a fee change is `monthly_fee_paise` +
+  (`updateStudent`), sending only changed fields (`batch_id` to move them; a batch that no
+  longer exists is a 422 on `batch_id`); `GET /api/batches` (`listBatches`) for the list; a fee change is `monthly_fee_paise` +
   `fee_effective_month`, sent only when the fee differs from the one in effect in that
   month; "Still coming" is `left_month: null` (not offered once `left_month` has passed). The
   current month comes from the student (`current_month`) or `useServerMonth()`
   (`getDashboard`).
 - **Backend:** `services/students.create_student` (inserts the first fee change at
-  `joined_month`), `update_student` and `_set_fee_from` (upsert; nothing recorded if that fee is
+  `joined_month`), `update_student` and `set_fee_from` (upsert; nothing recorded if that fee is
   already in effect); limits in `services/bounds.py`. The edit rules are in
   [data model](data-model.md#api-all-under-api) ("Editing a student").
 - **PRD:** stories S1, S2, S3; ledger rules 1, 2, 7 and 8.
@@ -1152,9 +1485,11 @@ what came in, every payment, and the buttons to edit, mark as left or delete the
 
 ### What you'll see
 
-![Arjun Menon's profile: a link 'All students', his name and class, the buttons Edit, Mark as left, Delete and + Log payment; a red Balance card 'Owes ₹4,800 (Jun–Sep)', '4 months not fully paid', an Oldest unpaid box 'June 2026 · ₹1,200 left' with Log payment, and '₹8,400 paid in total, across 7 payments'; a Details card; and the start of the Month by month table.](images/feature-guide/profile-owes.png)
+![Arjun Menon's profile: a link 'All students', his name and batch ('Saturday Morning · Sat · 10:00–11:30 am · Jayanagar Studio'), the buttons Edit, Mark as left, Delete and + Log payment; a red Balance card 'Owes ₹4,800 (Jun–Sep)', '4 months not fully paid', an Oldest unpaid box 'June 2026 · ₹1,200 left' with Log payment, and '₹8,400 paid in total, across 7 payments'; a Details card; and the start of the Month by month table.](images/feature-guide/profile-owes.png)
 
-**At the top:** **All students** (back to the list), their name, their class, and a grey label
+**At the top:** **All students** (back to the list), their name, their **batch** (a link to the
+batch's tab) with its days, times and place (or, for someone not in a batch, their old class
+label), and a grey label
 if they're leaving (**Leaving after September 2026**) or have left (**Left after May 2026**).
 
 **The Balance card** is coloured by how they stand. The big headline is one of:
@@ -1190,10 +1525,12 @@ Under the headline:
 *₹1,800, then ₹2,000 from November 2026*, or *No fee until December 2026, then ₹1,000*),
 **Joined** (*October 2025 · member for 11 mo*, or *new this month*, *starts …*, or *left after
 May 2026 (8 mo)*, counting both the first and the last month), **Fee history** (when their
-fee has ever changed), **Class or batch**, **Phone**, **Parent or guardian** and **Notes**
+fee has ever changed), **Batch** (a link to its tab, or *No batch*), **Old class label** (only
+if one was typed before batches and it differs from the batch's name), **Phone**, **Parent or
+guardian** and **Notes**
 (*Not set* or *None* when empty).
 
-![The Details card for Kabir Mehta: Monthly fee ₹1,800, then ₹2,000 from November 2026, Joined October 2025 · member for 11 mo, then Fee history: ₹1,500 from Oct 2025, ₹1,800 from Apr 2026, and ₹2,000 from Nov 2026 (not started yet) with a red Remove button; then class, phone, parent and a note.](images/feature-guide/profile-details-fee-history.png)
+![The Details card for Kabir Mehta: Monthly fee ₹1,800, then ₹2,000 from November 2026, Joined October 2025 · member for 11 mo, then Fee history: ₹1,500 from Oct 2025, ₹1,800 from Apr 2026, and ₹2,000 from Nov 2026 (not started yet) with a red Remove button; then batch, phone, parent and a note.](images/feature-guide/profile-details-fee-history.png)
 
 **Fee history** lists every fee and the month it starts, oldest first. *No fee* is a ₹0 you
 set (a month off, or a free place). **Away (no fee)** is the months away before they came back,
@@ -1292,7 +1629,7 @@ really meant for someone else, edit the payment's **Student**.)
 4. Click **Mark as left**. You'll see *"Ananya Rao marked as left — Last month they pay for:
    September 2026"*.
 
-<img src="images/feature-guide/mark-left.png" alt="The box 'Mark Ananya Rao as left?': 'Ananya won't owe anything after this month, and will then move to the Left tab. Their payments and history are kept.', 'Last month they should pay for: September 2026', Cancel and Mark as left." width="420">
+<img src="images/feature-guide/mark-left.png" alt="The box 'Mark Ananya Rao as left?': 'Ananya won't owe anything after this month, and will then show as Left on the Students page. Their payments and history are kept.', 'Last month they should pay for: September 2026', Cancel and Mark as left." width="420">
 
 **Change your mind before they leave**
 1. Click **Mark as staying** (their last month hasn't passed yet). They're a regular student
@@ -1508,6 +1845,21 @@ row. **Nothing is saved yet.**
 *Unassigned* payments wait at the top of the Payments page until you say whose they are: see
 [Unassigned payments](#unassigned-payments).
 
+**Batches in an upload.** A **Batch** column (or *Class/batch*, *Class*, *Group*) on a students
+sheet puts each new student in the batch of that name, ignoring capitals and spaces. The
+preview lists every batch the file names, under **Batches**:
+
+| Label | What happens |
+|---|---|
+| **Will be added** | From the file's **Batches** sheet (a Download everything file), and not in the app yet: added, with its details |
+| **Already here** | Its students go into it. The batch itself isn't changed |
+| **Batch not found, will be left without a batch** | Only named in the Batch column, and not in the app: those students are added without a batch, and the name is kept in their *old class label* (next to any old label the row has: *"Wednesday Club · Wed 5pm"*). Tick **Create it** to add the batch (just its name) and put them in it. It's never created unless you tick it, and only offered when a student being added goes in it |
+| **Problem** | A Batches sheet row that can't be used (*"Days “Someday” isn't a list of days"*, or a batch listed twice) |
+
+Names match ignoring capitals, spaces, hyphens and punctuation: *SUNDAY-SENIORS* finds
+*Sunday Seniors*. Students who are already in the app are never moved to another batch by an
+upload.
+
 **Afterwards**, a message says what was added:
 
 <img src="images/feature-guide/excel-upload-added.png" alt="A message with a tick: 'Added 2 students, 2 payments and 2 unassigned payments. Unassigned payments wait at the top of the Payments page. A backup was saved first.'" width="420">
@@ -1521,24 +1873,27 @@ row. **Nothing is saved yet.**
    `scrappy-records-students-2026-09-15.xlsx`.
 
 It has exactly the students or payments the page shows, in the same order:
-- Students: *Name, Phone, Parent/guardian, Class/batch, Monthly fee ₹ (current), Joined
-  (month), Left (month), Status, Owes ₹, Notes*.
+- Students: *Name, Phone, Parent/guardian, Batch, Old class label, Monthly fee ₹ (current),
+  Joined (month), Left (month), Status, Owes ₹, Notes*. On a batch's tab it has just that
+  batch's students (on **No batch**, those in none).
 - Payments: *Student, Phone, Amount ₹, Paid on, For month, Method, Note*.
 
 **Download everything**
 1. Click **Download everything**: under the title of the **Students** page, or at the bottom
    of the side menu.
-2. One file, `scrappy-records-everything-2026-09-15.xlsx`, with four sheets: **Students**,
-   **Fee history** (every fee each student has had, months away included), **Payments** and
-   **Unassigned payments**.
+2. One file, `scrappy-records-everything-2026-09-15.xlsx`, with five sheets: **Students** (with
+   each student's **Batch**), **Batches** (each batch's name, location, days, start and end
+   times, usual fee and notes), **Fee history** (every fee each student has had, months away
+   included), **Payments** and **Unassigned payments**.
 
 The grey **Student ID (for restoring)** column links the sheets together, and stays with each
 student for good. Leave it as it is: uploading this file into an empty app brings back every
 record exactly, every Dashboard number included. Two students with the same name (or brothers
 and sisters sharing a phone) stay two students, because their IDs are different, and two
-identical payments on one day both come back. Uploading it again later (into this app, or the
-one it was restored into) finds every student by that ID, even if their phone has changed
-since, and adds nothing twice.
+identical payments on one day both come back. The batches come back too, with every detail,
+and each student in theirs. Uploading it again later (into this app, or the one it was restored
+into) finds every student by that ID, even if their phone has changed since, and adds nothing
+twice.
 
 **Upload a file**
 1. On **Students** or **Payments**, click **Upload Excel**. (Either page takes both students
@@ -1554,7 +1909,7 @@ since, and adds nothing twice.
 1. In the Upload Excel box, click **Download a blank template**. (On Students it's a students
    list; on Payments, a payments list.)
 2. Fill in one student (or payment) per row, under the headings. The second sheet, *How to fill
-   this in*, explains each column.
+   this in*, explains each column. For **Batch**, write the name of one of your batches.
 3. Save it, and upload it as above.
 
 ### Good to know
@@ -2006,12 +2361,18 @@ The same word always has the same colour, everywhere in the app.
 | **Up to date** | Green, with a tick | Students page; profile Balance headline | Nothing owed and nothing extra |
 | **Not due yet** | Grey | Profile *Month by month*; Dashboard for a later month (labels and the third box); Monthly report for a later month | A month that hasn't started, not paid yet (on the Monthly report: not fully paid ahead yet). Nothing is owed until it comes |
 | **No fee** | Grey | Profile *Month by month* and *Fee history*; Monthly report | A month whose fee is ₹0, with nothing paid: a free place, a month off, or the months away before they came back. Never owed. On the Monthly report, the line under it can say **Away** or **Not joined yet** |
-| **Active** | — (a tab) | Students page | Still coming: no leaving month, or it's this month or later |
-| **Left** | Grey | Students page tab; "Left May 2026" under *Member for*; "Left after May 2026" on the profile; the **Left** group when choosing a student; Monthly report *Status* | Their last month has passed. They owe nothing after it, and their history is kept. On the Monthly report ("Left", with "after May 2026" under it): they had left by that month, and are listed because they still owe, have credit, or money was paid for that month |
+| **Active** | — (a *Show* choice) | Students page | Still coming: no leaving month, or it's this month or later |
+| **Left** | Grey | Students page (*Show: Left*); "Left May 2026" under *Member for*; "Left after May 2026" on the profile; the **Left** group when choosing a student; Monthly report *Status* | Their last month has passed. They owe nothing after it, and their history is kept. On the Monthly report ("Left", with "after May 2026" under it): they had left by that month, and are listed because they still owe, have credit, or money was paid for that month |
 | **—** | Grey | Monthly report, and the Dashboard's last box for a month with nobody in it | Nothing: ₹0, or no number to show |
 | **Leaving after …** | Grey | Profile label; under *Member for* | They've been marked as leaving, and that last month hasn't passed yet. They still show as Active |
 | **New this month** | — (plain text) | Students page *Member for*; profile *Joined* ("new this month") | They joined this month |
 | **Starts …** | — (plain text) | Students page *Member for*; profile *Joined* | They join in a later month |
+| **Batch** | — | Students page tabs, cards and table; profile; student form; Log payment | A class students come to (a name, and optionally a place, days, times and a usual fee). Each student is in one batch or none |
+| **No batch** | — (a tab) | Students page | Students who aren't in a batch yet |
+| **Usual fee** | — | Batch tab and form; the student form's batch list | A batch's usual monthly fee: it fills in the fee of a new student in the batch. It never changes anyone's own fee by itself |
+| **% paid** | Marigold bar; **green at 100%** | Batch cards and a batch's tab | How much of that month's fees in the batch is paid: *₹8,550 of ₹10,800 paid*, 79%. 100% only when every fee in it is paid in full |
+| **Old class label** | — | Profile; Edit student; Excel | The *Class or batch* text typed for a student before batches existed, kept as it was (also a batch name an upload didn't find) |
+| **Batch not found** | Amber | The Upload Excel preview | A batch named in the file that isn't in the app: those students come in without a batch unless you tick **Create it** |
 | **Unassigned** | Amber (the section and the Dashboard line) | Top of the Payments page; the Dashboard; the upload preview | A payment from an uploaded file whose student wasn't clear. Counted for no one until you give it to a student |
 | **New**, **Already exists**, **Looks similar**, **Problem**, **Will be added**, **Needs a student** | Green, grey, amber, red | The Upload Excel preview | What adding that row would do: see [the tables](#downloading-and-uploading-excel) |
 | **Sent ✓** | Green tick | The Send feedback window | Your feedback reached the developer's private feedback inbox |
@@ -2041,8 +2402,12 @@ in [Log payment](#log-payment-and-edit-payment).
 1. Go to **Students** and click **New student**.
 2. Type their **Name** and **Monthly fee**. **Joined in** is this month; change it if they
    started earlier.
-3. Add their phone, parent's name and class if you like.
+3. Choose their **Batch** (its usual fee fills in; change it for a discount). Add their phone
+   and parent's name if you like.
 4. Click **Add student**. They now appear in the Dashboard's *Yet to pay* for their first month.
+
+Quicker, if you know their batch: open the batch's tab on the Students page and click **Add
+student**: the batch and its fee are already filled in.
 
 ### A parent pays by UPI or cash
 
@@ -2136,15 +2501,15 @@ button yet.
 **They're stopping:**
 1. Open their profile and click **Mark as left**.
 2. Choose the **last month they should pay for**, and click **Mark as left**.
-3. Until that month has passed, their profile says *Leaving after …* and they stay on the
-   **Active** tab. After it, they move to **Left**. They still appear in *Earlier months still
+3. Until that month has passed, their profile says *Leaving after …* and they still show as
+   **Active**. After it, they show as **Left**. They still appear in *Earlier months still
    owed* if they left owing something.
 
 **They changed their mind before leaving:** open their profile and click **Mark as staying**.
 
 **They came back after leaving:**
-1. Open their profile (Students → **Left** tab → their name) and click **Mark as coming
-   again**.
+1. Open their profile (on Students, type their name and press **Enter**) and click **Mark as
+   coming again**.
 2. Choose the month they're back from (this month is filled in), and click **Mark as coming
    again**.
 3. The months they were away show **No fee** and are never owed. They owe their fee again from
@@ -2184,9 +2549,49 @@ The total at the bottom matches the Dashboard: *Fee* is **Expected**, *Short* is
 due**, and the **Collected** line under it is **Collected**. See
 [Monthly report](#monthly-report).
 
+### Set up my batches the first time
+
+1. Go to **Students**.
+2. If you typed a class for your students before (*Tue/Thu 5pm – Indiranagar*), click **Create
+   batches from existing labels**. Check the list: each batch, and who goes in it. Click
+   **Create … batches**. A backup is saved first, and nothing else changes.
+3. Otherwise, click **New batch** for each batch, and give it a name.
+4. For each batch, click the pencil on its card (or **Edit batch** on its tab) and add its
+   **location**, **days**, **times** and **usual fee**.
+5. Open the **No batch** tab. Tick everyone who goes in the same batch (Shift-click ticks a run
+   of rows), click **Move to batch…**, choose it, and click **Move to …**. Repeat for the next
+   batch.
+
+From then on, **Add student** on a batch's tab puts a new student straight in it, with its fee.
+
+### A student moves to another batch
+
+1. Open their profile (type their name on the Students page and press **Enter**).
+2. Click **Edit**, choose the new **Batch**, and click **Save changes**.
+3. Their fee stays the same. If the new batch charges a different fee, the form says so: type
+   the new **Monthly fee** and choose the month it **applies from** (see
+   [The fee goes up from next month](#the-fee-goes-up-from-next-month)).
+
+Their payments and history go with them; nothing is lost.
+
+### Which batch hasn't paid this month
+
+1. Go to **Students**. Each batch card shows *₹X of ₹Y paid* and a percentage for this month:
+   green at **100%** means everyone in it has paid; marigold means someone hasn't.
+2. Click a batch that isn't at 100%. Its **Still to pay** says how much is left for this month,
+   and from how many students.
+3. To see who: on the **Dashboard**, *Yet to pay* lists everyone who hasn't paid this month,
+   with their batch under each name. Or open the **Monthly report**, choose the batch in its
+   **Batch** list and **Short this month**: just that batch's students with something left for
+   this month.
+
+To see last month instead, click the left arrow next to the month above the cards (or on the
+batch's tab).
+
 ### Seeing a student's full history
 
-1. Go to **Students** and click their name (choose the **All** tab if they've left).
+1. Go to **Students**, type their name and press **Enter** (it finds them even if they've
+   left).
 2. **Month by month** shows every month since they joined: the fee, what was paid and the
    status.
 3. **Payments** at the bottom lists every payment, with the day paid, amount, month, method and
@@ -2385,9 +2790,16 @@ Open their profile and look at **Month by month** to see which month shows as ow
 | Save, edit, undo a payment | `components/log-payment.tsx` | `POST /api/payments` (`createPayment`), `PATCH /api/payments/{id}` (`updatePayment`), `DELETE /api/payments/{id}` (`deletePayment`) | `services/payments.create_payment`, `update_payment`, `delete_payment`; `services/bounds.py` | `components/log-payment.test.tsx`, `test_api_payments.py`, `test_api_bounds.py`, `e2e/records.spec.ts` |
 | Amount rules and ₹10,00,000 cap | `lib/format.ts` (`rupeesToPaise`, `parseRupees`), `lib/amount.ts` | (all amount fields) | `app/schemas.py` (`MAX_AMOUNT_PAISE`) | `lib/format.test.ts`, `lib/amount.test.ts`, `test_api_payments.py::test_amount_cap` |
 | Payments list, filters, sort, total | `pages/payments-page.tsx`, `components/payments-table.tsx` | `GET /api/payments` (`listPayments`) | `services/payments.list_payments` | `pages/payments-page.test.tsx`, `test_api_payments.py` |
-| Students list, tabs, status, tenure | `pages/students-page.tsx`, `components/status.tsx`, `lib/status.ts`, `lib/labels.ts` | `GET /api/students` (`listStudents`) | `services/students.list_students` → `ledger.student_ledger` | `pages/students-page.test.tsx`, `test_api_students.py` |
+| Students page: batch tabs, cards, the table (search, sort, filter, group), status, tenure | `pages/students-page.tsx`, `components/batches/` (`batch-nav.tsx`, `batch-card.tsx`, `students-table.tsx`, `paid-bar.tsx`, `month-nav.tsx`), `lib/batches.ts`, `components/status.tsx`, `lib/status.ts`, `lib/labels.ts` | `GET /api/students` (`listStudents`), `GET /api/batches` (`listBatches`), `GET /api/batches/summary` (`getBatchOverview`) | `services/students.list_students` → `ledger.student_ledger`; `services/batches.overview` → `ledger.build_dashboard` | `pages/students-page.test.tsx`, `pages/batches.test.tsx`, `lib/batches.test.ts`, `test_api_students.py`, `test_api_batches.py`, `e2e/batches.spec.ts` |
+| Batches: new, edit (and charge the usual fee), delete | `components/batches/batch-form.tsx`, `pages/students-page.tsx` | `POST /api/batches` (`createBatch`), `PATCH /api/batches/{id}` (`updateBatch`), `DELETE /api/batches/{id}` (`deleteBatch`), `GET /api/batches/{id}` (`getBatch`) | `services/batches.create_batch`, `update_batch` (`_apply_fee` → `students.set_fee_from`), `delete_batch` | `pages/batches.test.tsx`, `test_api_batches.py`, `e2e/batches.spec.ts` |
+| Move students to a batch at once | `components/batches/students-table.tsx` (tick boxes, `MoveDialog`) | `POST /api/batches/move` (`moveStudents`) | `services/batches.move_students` | `pages/students-page.test.tsx`, `test_api_batches.py`, `e2e/batches.spec.ts` |
+| A new usual fee for chosen students | `components/batches/batch-form.tsx` (`ApplyFeeBox`) | `GET /api/batches/{id}/fee-plan` (`getFeePlan`), `PATCH /api/batches/{id}` with `apply_fee` | `services/batches.fee_plan`, `_apply_fee` (one rule: `_plans`) | `pages/batches.test.tsx`, `test_api_batches.py` |
+| Batches in Excel (download, upload, Download everything) | `components/excel-upload-dialog.tsx`, `lib/downloads.ts`, `lib/upload.ts` | `GET /api/export/students.xlsx?batch=`, `GET /api/export/everything.xlsx`, `POST /api/import/preview`, `POST /api/import/commit` (`create_batches`) | `services/exports.py`, `services/imports.py` (`_plan_batches`), `services/spreadsheet.py` (`days`, `clock_time`) | `test_excel_batches.py`, `test_excel_export.py`, `components/excel-upload-dialog.test.tsx` |
+| The monthly report by batch | `pages/report-page.tsx`, `lib/report.ts` (`groupRows`) | `GET /api/report`, `GET /api/report.xlsx?batch=&group=batch` | `services/report.shown`, `services/report_xlsx.workbook` | `pages/report-page.test.tsx`, `lib/report.test.ts`, `test_excel_batches.py`, `e2e/report.spec.ts` |
+| Create batches from existing labels | `components/batches/convert-labels.tsx` | `GET /api/batches/from-labels` (`previewLabelConversion`), `POST /api/batches/from-labels` (`convertLabels`) | `services/batches.label_preview`, `convert_labels` (`pre-batches` backup) | `pages/batches.test.tsx`, `test_api_batches.py`, `e2e/batches.spec.ts` |
+| A student's batch (form, profile, Log payment) | `components/batches/batch-picker.tsx`, `components/student-form.tsx`, `pages/student-profile-page.tsx` (`BatchLine`), `components/student-combobox.tsx` | `batch_id` on `POST`/`PATCH /api/students`; `batch_id`, `batch_name` on `StudentRead` | `services/students.check_batch` | `pages/students-page.test.tsx`, `pages/batches.test.tsx`, `test_api_batches.py` |
 | Student search (Students page and Log payment) | `lib/search.ts` (`studentMatches`), `pages/students-page.tsx`, `components/student-combobox.tsx` | — (in the browser) | — | `lib/search.test.ts`, `pages/students-page.test.tsx`, `components/log-payment.test.tsx`, `e2e/fixes.spec.ts` |
-| New / edit student, fee change | `components/student-form.tsx`, `lib/fees.ts` | `POST /api/students` (`createStudent`), `PATCH /api/students/{id}` (`updateStudent`) | `services/students.create_student`, `update_student`, `_set_fee_from` | `pages/students-page.test.tsx`, `pages/student-profile-page.test.tsx`, `lib/fees.test.ts`, `test_api_students.py`, `e2e/fixes.spec.ts` |
+| New / edit student, fee change | `components/student-form.tsx`, `lib/fees.ts` | `POST /api/students` (`createStudent`), `PATCH /api/students/{id}` (`updateStudent`) | `services/students.create_student`, `update_student`, `set_fee_from` | `pages/students-page.test.tsx`, `pages/student-profile-page.test.tsx`, `lib/fees.test.ts`, `test_api_students.py`, `e2e/fixes.spec.ts` |
 | Fee history, remove a fee change that hasn't started | `pages/student-profile-page.tsx` (`FeeHistory`), `components/confirm-dialog.tsx` | `DELETE /api/students/{id}/fee-changes/{fee_change_id}` (`deleteFeeChange`) | `services/students.delete_fee_change` | `pages/student-profile-page.test.tsx`, `test_api_fee_schedule.py`, `e2e/fixes.spec.ts` |
 | Profile balance, month by month | `pages/student-profile-page.tsx` | `GET /api/students/{id}` (`getStudent`), `GET /api/payments?student_id=` (`listPayments`) | `services/students.get_student` → `ledger.student_ledger` | `pages/student-profile-page.test.tsx`, `test_api_students.py`, `test_ledger.py` |
 | Mark as left / staying | `components/mark-left-dialog.tsx`, `pages/student-profile-page.tsx` | `PATCH /api/students/{id}` (`updateStudent`) | `services/students.update_student`; `ledger.has_left` | `pages/student-profile-page.test.tsx`, `test_api_students.py`, `e2e/records.spec.ts` |
@@ -2401,7 +2813,7 @@ Open their profile and look at **Month by month** to see which month shows as ow
 
 Test paths without a folder are in `frontend/src/` (`*.tsx`, `*.ts`) or `backend/tests/`
 (`test_*.py`); end-to-end tests are in `frontend/e2e/` (`records.spec.ts`, `fixes.spec.ts`,
-`credit.spec.ts`, `report.spec.ts`, `excel.spec.ts` and `feedback.spec.ts`).
+`credit.spec.ts`, `report.spec.ts`, `excel.spec.ts`, `batches.spec.ts` and `feedback.spec.ts`).
 
 ### How a number is calculated: "Still due"
 

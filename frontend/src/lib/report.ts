@@ -104,17 +104,44 @@ export function matchesStatus(row: ReportRow, filter: StatusFilter, when?: Repor
   return row.status === filter
 }
 
-/** The rows with this status that match the search (name, class, phone), in the same order. */
+/** The batch list: everyone, one batch (its id), or the students in no batch. */
+export type BatchFilter = 'all' | 'none' | number
+
+/** `?batch=` -> a batch filter: an id, `none`, or everyone for anything else. */
+export function parseBatchFilter(value: string | null): BatchFilter {
+  if (value === 'none') return 'none'
+  if (value && /^\d+$/.test(value)) return Number(value)
+  return 'all'
+}
+
+export function matchesBatch(row: Pick<ReportRow, 'batch_id'>, batch: BatchFilter): boolean {
+  if (batch === 'all') return true
+  if (batch === 'none') return (row.batch_id ?? null) === null
+  return row.batch_id === batch
+}
+
+/** The rows with this status and batch that match the search (name, class, phone), in the same
+ * order. */
 export function filterRows(
   rows: ReportRow[],
   filter: StatusFilter,
   search: string,
   when?: ReportMonth,
+  batch: BatchFilter = 'all',
 ): ReportRow[] {
   return rows.filter(
     (r) =>
       matchesStatus(r, filter, when) &&
-      studentMatches({ name: r.student_name, phone: r.phone, batch_label: r.batch_label }, search),
+      matchesBatch(r, batch) &&
+      studentMatches(
+        {
+          name: r.student_name,
+          phone: r.phone,
+          batch_label: r.batch_label,
+          batch_name: r.batch_name,
+        },
+        search,
+      ),
   )
 }
 
@@ -129,7 +156,7 @@ const statusRank = (r: ReportRow) => REPORT_STATUSES.indexOf(r.status)
 
 const SORT_VALUE: Record<ReportSortKey, (r: ReportRow) => string | number> = {
   student: (r) => fold(r.student_name),
-  batch: (r) => fold(r.batch_label ?? ''),
+  batch: (r) => fold(r.batch_name ?? r.batch_label ?? ''),
   fee: (r) => r.fee_paise,
   paid: (r) => r.paid_paise,
   covered: (r) => r.covered_by_credit_paise,
@@ -161,6 +188,37 @@ export function sortRows(rows: ReportRow[], sort: ReportSort | null): ReportRow[
   return [...rows].sort((a, b) => sign * compare(value(a), value(b)) || defaultOrder(a, b))
 }
 
+/** Rows under a heading per batch (backend `report.shown` with `group=batch`). */
+export interface ReportGroup {
+  /** The batch's id, or null for "No batch". */
+  batchId: number | null
+  label: string
+  rows: ReportRow[]
+}
+
+/**
+ * The rows grouped by batch: batches A to Z (numbers in number order, "Batch 2" before
+ * "Batch 10"), "No batch" last. Each group keeps the rows' order (the sort, or the usual one).
+ */
+export function groupRows(rows: ReportRow[]): ReportGroup[] {
+  const groups = new Map<string, ReportGroup>()
+  for (const r of rows) {
+    const key = r.batch_name === null ? '' : `b:${r.batch_name}`
+    let group = groups.get(key)
+    if (!group) {
+      group = { batchId: r.batch_id ?? null, label: r.batch_name ?? 'No batch', rows: [] }
+      groups.set(key, group)
+    }
+    group.rows.push(r)
+  }
+  return [...groups.entries()]
+    .sort(([a, ga], [b, gb]) => {
+      if (a === '' || b === '') return a === b ? 0 : a === '' ? 1 : -1
+      return ga.label.localeCompare(gb.label, 'en', { numeric: true, sensitivity: 'base' })
+    })
+    .map(([, group]) => group)
+}
+
 /** The totals row: the same sums as the server's `totals` (and the dashboard), for these rows. */
 export function sumRows(rows: ReportRow[]): ReportTotals {
   const total = (pick: (r: ReportRow) => number) => rows.reduce((sum, r) => sum + pick(r), 0)
@@ -183,10 +241,17 @@ export function sumRows(rows: ReportRow[]): ReportTotals {
   }
 }
 
-/** The Excel download: the rows on screen (the status list, the search and the sort). */
+/** The Excel download: the rows on screen (the status and batch lists, the search, the sort and
+ * the grouping). */
 export function reportDownloadUrl(
   month: string,
-  shown: { filter?: StatusFilter; search?: string; sort?: ReportSort | null } = {},
+  shown: {
+    filter?: StatusFilter
+    search?: string
+    sort?: ReportSort | null
+    batch?: BatchFilter
+    groupByBatch?: boolean
+  } = {},
 ): string {
   const query = new URLSearchParams({ month })
   if (shown.filter && shown.filter !== 'all') query.set('status', shown.filter)
@@ -195,6 +260,8 @@ export function reportDownloadUrl(
     query.set('sort', shown.sort.key)
     query.set('order', shown.sort.desc ? 'desc' : 'asc')
   }
+  if (shown.batch !== undefined && shown.batch !== 'all') query.set('batch', String(shown.batch))
+  if (shown.groupByBatch) query.set('group', 'batch')
   return `/api/report.xlsx?${query.toString()}`
 }
 

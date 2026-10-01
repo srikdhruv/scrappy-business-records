@@ -25,6 +25,16 @@ EXPECTED_OPERATIONS = {
     ("patch", "/api/payments/{payment_id}"): "updatePayment",
     ("delete", "/api/payments/{payment_id}"): "deletePayment",
     ("get", "/api/dashboard"): "getDashboard",
+    ("get", "/api/batches"): "listBatches",
+    ("post", "/api/batches"): "createBatch",
+    ("get", "/api/batches/summary"): "getBatchOverview",
+    ("get", "/api/batches/from-labels"): "previewLabelConversion",
+    ("post", "/api/batches/from-labels"): "convertLabels",
+    ("get", "/api/batches/{batch_id}"): "getBatch",
+    ("patch", "/api/batches/{batch_id}"): "updateBatch",
+    ("delete", "/api/batches/{batch_id}"): "deleteBatch",
+    ("get", "/api/batches/{batch_id}/fee-plan"): "getFeePlan",
+    ("post", "/api/batches/move"): "moveStudents",
     ("get", "/api/report"): "getReport",
     ("get", "/api/report.xlsx"): "downloadReport",
     ("get", "/api/about"): "getAbout",
@@ -69,6 +79,9 @@ def test_status_codes(client: TestClient) -> None:
     assert "202" in paths["/api/update/start"]["post"]["responses"]
     assert {"403", "409", "415", "424"} <= set(paths["/api/update/start"]["post"]["responses"])
     assert "404" in paths["/api/students/{student_id}"]["get"]["responses"]
+    assert "201" in paths["/api/batches"]["post"]["responses"]
+    assert "204" in paths["/api/batches/{batch_id}"]["delete"]["responses"]
+    assert "404" in paths["/api/batches/{batch_id}"]["patch"]["responses"]
 
 
 def test_422_uses_validation_shape_and_404_uses_error_response(client: TestClient) -> None:
@@ -76,7 +89,7 @@ def test_422_uses_validation_shape_and_404_uses_error_response(client: TestClien
     for path, ops in schema["paths"].items():
         for method, op in ops.items():
             if not op.get("parameters") and "requestBody" not in op:
-                continue  # takes no input, so it can't fail validation
+                continue  # takes no input (health, the batch list), so it can't fail validation
             ref = op["responses"]["422"]["content"]["application/json"]["schema"]["$ref"]
             assert ref.endswith("/HTTPValidationError"), (method, path)
             if "404" in op["responses"]:

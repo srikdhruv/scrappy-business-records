@@ -7,10 +7,13 @@ from fastapi.responses import Response
 
 from app.clock import CurrentMonthDep, TodayDep
 from app.db import SessionDep
+from app.models import Batch
 from app.months import parse_month
-from app.schemas import Month, ReportFilter, ReportResponse, ReportSort, SortOrder
+from app.routers.students import batch_filter
+from app.schemas import Month, ReportFilter, ReportGroup, ReportResponse, ReportSort, SortOrder
 from app.services import report as service
 from app.services import report_xlsx
+from app.services.bounds import valid_id
 
 router = APIRouter(tags=["report"])
 
@@ -48,14 +51,27 @@ def download_report(
     q: str | None = Query(None, max_length=200, description="The page's search."),
     sort: ReportSort | None = Query(None, description="The column the page is sorted by."),
     order: SortOrder = Query(SortOrder.asc),
+    batch: str | None = Query(
+        None, max_length=30, description="The page's batch filter: an id, or `none`."
+    ),
+    group: ReportGroup = Query(ReportGroup.none, description="Grouped by batch, or not."),
 ) -> Response:
-    """The report as the page shows it (filter, search and sort), as an Excel file named like
-    `scrappy-records-report-2026-10.xlsx`."""
+    """The report as the page shows it (filters, search, sort and grouping), as an Excel file
+    named like `scrappy-records-report-2026-10.xlsx`."""
     report = service.get_report(session, parse_month(month) if month else current, current, today)
-    rows = service.shown(report, status, q, sort, order)
+    chosen = batch_filter(batch)
+    rows = service.shown(report, status, q, sort, order, batch=chosen, group=group)
+    batch_words = None
+    if chosen == "none":
+        batch_words = "in no batch"
+    elif chosen is not None:
+        found = session.get(Batch, chosen) if valid_id(chosen) else None
+        batch_words = f"in {found.name}" if found else "in a batch that no longer exists"
     name = report_xlsx.filename(report.month)
     return Response(
-        content=report_xlsx.workbook(rows, status, q, sort, order),
+        content=report_xlsx.workbook(
+            rows, status, q, sort, order, group=group, batch_words=batch_words
+        ),
         media_type=report_xlsx.XLSX,
         headers={
             "Content-Disposition": f'attachment; filename="{name}"; '

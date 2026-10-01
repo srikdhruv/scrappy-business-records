@@ -372,8 +372,10 @@ function YetToPayRow({
             </StatusPill>
           )}
         </div>
-        {item.batch_label && (
-          <p className="truncate text-sm text-muted-foreground">{item.batch_label}</p>
+        {(item.batch_name ?? item.batch_label) && (
+          <p className="truncate text-sm text-muted-foreground">
+            {item.batch_name ?? item.batch_label}
+          </p>
         )}
       </div>
       <div className="min-w-36 shrink-0 text-right">

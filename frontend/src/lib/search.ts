@@ -37,10 +37,12 @@ export interface Searchable {
   phone?: string | null
   guardian_name?: string | null
   batch_label?: string | null
+  batch_name?: string | null
 }
 
 /**
- * True when every word typed appears in the student's name, parent's name, class or phone. A
+ * True when every word typed appears in the student's name, parent's name, batch (or old class
+ * label) or phone. A
  * word that is only digits (and phone punctuation) also matches the phone number's digits,
  * ignoring its spaces and punctuation. So does everything typed, taken together, if it's only a
  * phone number.
@@ -49,7 +51,7 @@ export function studentMatches(student: Searchable, query: string): boolean {
   const words = fold(query).split(/\s+/).filter(Boolean)
   if (words.length === 0) return true
   const text = fold(
-    [student.name, student.guardian_name, student.batch_label, student.phone]
+    [student.name, student.guardian_name, student.batch_name, student.batch_label, student.phone]
       .filter(Boolean)
       .join(' '),
   )

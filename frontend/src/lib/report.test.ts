@@ -7,7 +7,10 @@ import {
   extraRuns,
   filterRows,
   formatMonthRuns,
+  groupRows,
   isStatusFilter,
+  matchesBatch,
+  parseBatchFilter,
   reportDownloadUrl,
   statusDetail,
   statusLabel,
@@ -20,6 +23,7 @@ import {
 function row(fields: Partial<ReportRow> & Pick<ReportRow, 'student_id' | 'student_name'>) {
   return {
     batch_label: null,
+    batch_name: null,
     phone: null,
     joined_month: '2026-01',
     left_month: null,
@@ -275,5 +279,53 @@ describe('second review', () => {
       desc: true,
     })
     expect(sorted.map((r) => r.student_name)).toEqual(['Émile Roy', 'Oliver Das', "O'Neil Das"])
+  })
+})
+
+describe('batches on the report', () => {
+  const inSat = row({ student_id: 11, student_name: 'Asha', batch_id: 3, batch_name: 'Saturday' })
+  const in10 = row({ student_id: 12, student_name: 'Bela', batch_id: 10, batch_name: 'Batch 10' })
+  const in2 = row({ student_id: 13, student_name: 'Chitra', batch_id: 2, batch_name: 'Batch 2' })
+  const none = row({ student_id: 14, student_name: 'Dev', batch_id: null })
+  const also2 = row({ student_id: 15, student_name: 'Esha', batch_id: 2, batch_name: 'Batch 2' })
+  const all = [none, inSat, in10, in2, also2]
+
+  it('reads the batch filter from the address', () => {
+    expect(parseBatchFilter('3')).toBe(3)
+    expect(parseBatchFilter('none')).toBe('none')
+    expect(parseBatchFilter(null)).toBe('all')
+    expect(parseBatchFilter('Saturday')).toBe('all')
+  })
+
+  it('filters by batch, or no batch', () => {
+    const names = (batch: Parameters<typeof filterRows>[4]) =>
+      filterRows(all, 'all', '', undefined, batch).map((r) => r.student_name)
+    expect(names('all')).toEqual(['Dev', 'Asha', 'Bela', 'Chitra', 'Esha'])
+    expect(names(2)).toEqual(['Chitra', 'Esha'])
+    expect(names('none')).toEqual(['Dev'])
+    expect(matchesBatch({ batch_id: undefined }, 'none')).toBe(true)
+  })
+
+  it('groups by batch: numbers in number order, "No batch" last, each group in its order', () => {
+    const groups = groupRows(all)
+    expect(groups.map((g) => [g.label, g.rows.map((r) => r.student_name)])).toEqual([
+      ['Batch 2', ['Chitra', 'Esha']],
+      ['Batch 10', ['Bela']],
+      ['Saturday', ['Asha']],
+      ['No batch', ['Dev']],
+    ])
+    expect(groups.at(-1)!.batchId).toBeNull()
+  })
+
+  it('downloads the batch shown, grouped as shown', () => {
+    expect(reportDownloadUrl('2026-10', { batch: 3, groupByBatch: true })).toBe(
+      '/api/report.xlsx?month=2026-10&batch=3&group=batch',
+    )
+    expect(reportDownloadUrl('2026-10', { batch: 'none' })).toBe(
+      '/api/report.xlsx?month=2026-10&batch=none',
+    )
+    expect(reportDownloadUrl('2026-10', { batch: 'all', groupByBatch: false })).toBe(
+      '/api/report.xlsx?month=2026-10',
+    )
   })
 })

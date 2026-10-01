@@ -152,3 +152,9 @@ export function addedSentence(students: number, payments: number, unassigned: nu
   ].filter(Boolean)
   return parts.length ? `Added ${joinAnd(parts)}` : 'Nothing was added'
 }
+
+/** Batches that adding would create: the file's new ones (its Batches sheet), and the
+ * not-found ones she ticked "Create it" for. */
+export function batchesToCreate(preview: ImportPreview, create: ReadonlySet<string>): number {
+  return (preview.batches ?? []).filter((b) => b.status === 'new').length + create.size
+}

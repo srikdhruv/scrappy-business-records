@@ -75,11 +75,35 @@ message that appears.
 
 ## Adding a new student
 
-1. Go to **Students** and click **New student**.
-2. Fill in their **Name**, **Monthly fee**, and the month they **Joined in** (this month is
-   already filled in).
-3. Phone, parent or guardian, class or batch, and notes are optional.
+1. Go to **Students**, open their batch's tab at the top, and click **Add student**. The batch
+   and its usual fee are already filled in. (Or click **New student** and choose their
+   **Batch**.)
+2. Fill in their **Name**, check the **Monthly fee** (change it for a discount) and the month
+   they **Joined in** (this month is already filled in).
+3. Phone, parent or guardian, and notes are optional.
 4. Click **Add student**.
+
+## Finding a student
+
+On **Students**, just start typing their name, phone or parent's name (press **/** first if the
+search box isn't highlighted). Press **Enter** to open the first match.
+
+## Batches
+
+- **The first time:** on **Students**, click **Create batches from existing labels** if it's
+  there (it turns the class you typed for each student into batches, after showing you exactly
+  what it will do; a backup is saved first). Or click **New batch** for each one. Then, for each
+  batch, click the pencil on its card and add its place, days, times and usual fee.
+- **Which batch hasn't paid?** Each batch's card shows how much of this month is paid: green at
+  100%, marigold below. Click a batch to see who still owes.
+- **A student moves batch:** open them, click **Edit**, choose the new **Batch**, and save.
+  Their fee doesn't change unless you change it. Several at once: tick them in the list on
+  **Students** and click **Move to batch…**.
+- **A batch's fee goes up:** click **Edit batch**, type the new usual fee, and tick **Also
+  charge …** if its students should pay it too; check who is ticked (those on the old fee are;
+  anyone on their own fee or with a planned fee change isn't) and choose from which month.
+  Nobody's fee changes unless they're ticked.
+- **Deleting a batch** never deletes its students: they move to **No batch**.
 
 ## When a student stops coming
 

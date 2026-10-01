@@ -22,6 +22,7 @@ function book(overrides: Partial<StudentBook['student']> = {}, payments: [string
     phone: null,
     guardian_name: null,
     batch_label: null,
+    batch_id: null,
     joined_month: '2026-07',
     left_month: null,
     notes: null,

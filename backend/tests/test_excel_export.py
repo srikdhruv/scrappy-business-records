@@ -34,7 +34,7 @@ def values(ws: Worksheet) -> list[list[Any]]:
 # --------------------------------------------------------------------------- the round trip
 
 
-_IDS = ("id", "student_id", "payment_id", "created_at", "updated_at")
+_IDS = ("id", "student_id", "payment_id", "batch_id", "created_at", "updated_at")
 
 
 def _strip(item: Any) -> Any:
@@ -89,19 +89,38 @@ def _records(api: TestClient) -> Json:
         }
         year, mon = int(month[:4]), int(month[5:])
         month = f"{year + mon // 12}-{mon % 12 + 1:02d}"
+    batches = [_strip(b) for b in api.get("/api/batches").json()]
     return {
         "students": sorted(json.dumps(d, sort_keys=True) for d in details.values()),
         "payments": payments,
         "unassigned": unassigned,
         "dashboards": dashboards,
+        "batches": batches,
     }
 
 
 def _rich_records(api: TestClient) -> None:
-    """The demo data, plus a return after leaving (months away), a month off, a planned fee,
-    notes with odd characters and an unassigned payment."""
+    """The demo data (five batches, everyone in one), plus a return after leaving (months
+    away), a month off, a planned fee, notes with odd characters, an unassigned payment, a
+    batch with every detail and odd characters, an empty batch, a student in no batch, and an
+    old class label."""
     with session_factory()() as session:
         seed(session, FROZEN_TODAY)
+    odd = api.post(
+        "/api/batches",
+        json={
+            "name": "Café Seniors \N{EN DASH} रविवार",
+            "location": '=Studio "B"',
+            "days": ["sat", "sun"],
+            "start_time": "09:30",
+            "end_time": "11:00",
+            "default_fee_paise": 149950,
+            "notes": "Two lines\nhere",
+        },
+    ).json()
+    api.post("/api/batches", json={"name": "Nobody yet"})
+    make_student(api, name="Tara", batch_id=odd["id"], batch_label="Old: Sat 9am")
+    make_student(api, name="Kiran Bose", batch_label="Thu 7pm")  # no batch, a label
     back = make_student(
         api,
         name="Émile O'Brien",
@@ -134,12 +153,15 @@ def _wipe(api: TestClient) -> None:
         assert api.delete(f"/api/students/{s['id']}").status_code == 204
     for u in api.get("/api/unassigned-payments").json():
         assert api.delete(f"/api/unassigned-payments/{u['id']}").status_code == 204
+    for b in api.get("/api/batches").json():
+        assert api.delete(f"/api/batches/{b['id']}").status_code == 204
 
 
 def test_download_everything_restores_everything_into_an_empty_app(api: TestClient) -> None:
     _rich_records(api)
     before = _records(api)
-    assert len(before["students"]) == 26 and sum(before["unassigned"].values()) == 1
+    assert len(before["students"]) == 28 and sum(before["unassigned"].values()) == 1
+    assert len(before["batches"]) == 7
     response = api.get("/api/export/everything.xlsx")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith(
@@ -150,7 +172,13 @@ def test_download_everything_restores_everything_into_an_empty_app(api: TestClie
         in (response.headers["content-disposition"])
     )
     book = load_workbook(io.BytesIO(response.content))
-    assert book.sheetnames == ["Students", "Fee history", "Payments", "Unassigned payments"]
+    assert book.sheetnames == [
+        "Students",
+        "Batches",
+        "Fee history",
+        "Payments",
+        "Unassigned payments",
+    ]
 
     _wipe(api)
     assert api.get("/api/students", params={"status": "all"}).json() == []
@@ -159,14 +187,18 @@ def test_download_everything_restores_everything_into_an_empty_app(api: TestClie
     assert shown["ignored_sheets"] == []
     assert {s["status"] for s in shown["students"]} == {"new"}
     assert {p["status"] for p in shown["payments"]} == {"ready", "unassigned"}
+    assert {b["status"] for b in shown["batches"]} == {"new"}
+    assert len(shown["batches"]) == 7
     result = commit(api, shown)
-    assert result["students_added"] == 26
+    assert result["students_added"] == 28
+    assert result["batches_added"] == 7
     assert _records(api) == before
 
     # Uploading it again adds nothing: everything is already here.
     again = preview(api, response.content)
     assert {s["status"] for s in again["students"]} == {"exists"}
     assert {p["status"] for p in again["payments"]} == {"duplicate"}
+    assert {b["status"] for b in again["batches"]} == {"exists"}
     assert commit(api, again)["backup_file"] is None
     assert _records(api) == before
 
@@ -258,15 +290,16 @@ def test_students_download_matches_the_tab_and_search(api: TestClient) -> None:
     ws = sheet(api.get("/api/export/students.xlsx", params={"q": "ananya"}).content)
     assert ws.title == "Students"
     assert values(ws) == [
-        ["Name", "Phone", "Parent/guardian", "Class/batch", "Monthly fee ₹ (current)",
-         "Joined (month)", "Left (month)", "Status", "Owes ₹", "Notes"],
-        ["Ananya Rao", None, "Lakshmi Rao", None, 1500, dt.datetime(2026, 1, 1), None, "Owes",
-         8000, None],
+        ["Name", "Phone", "Parent/guardian", "Batch", "Old class label",
+         "Monthly fee ₹ (current)", "Joined (month)", "Left (month)", "Status", "Owes ₹",
+         "Notes"],
+        ["Ananya Rao", None, "Lakshmi Rao", None, None, 1500, dt.datetime(2026, 1, 1), None,
+         "Owes", 8000, None],
     ]  # fmt: skip
     assert ws.freeze_panes == "A2"
     assert ws["A1"].font.bold
-    assert ws["E2"].number_format == '"₹"#,##0'
-    assert ws["F2"].number_format == "mmm yyyy"
+    assert ws["F2"].number_format == '"₹"#,##0'
+    assert ws["G2"].number_format == "mmm yyyy"
     assert ws.column_dimensions["A"].width >= 20
 
 

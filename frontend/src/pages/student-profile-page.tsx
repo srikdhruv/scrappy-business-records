@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 
 import { ApiError } from '@/api/client'
 import {
+  useBatches,
   useDeleteFeeChange,
   useDeleteStudent,
   usePayments,
@@ -53,6 +54,7 @@ import { feeAt, newFeeSentence } from '@/lib/fees'
 import { addMonths, formatMonth, formatMonthShort, formatRupees } from '@/lib/format'
 import { firstName, formatMonthCount, plural, tenurePhrase } from '@/lib/labels'
 import { cn } from '@/lib/utils'
+import { batchPath, formatSchedule, sameText } from '@/lib/batches'
 
 function BackLink() {
   return (
@@ -187,11 +189,7 @@ function Profile({ student }: { student: StudentDetail }) {
                   </StatusPill>
                 )}
               </div>
-              {student.batch_label && (
-                <p className="text-base wrap-break-word text-muted-foreground">
-                  {student.batch_label}
-                </p>
-              )}
+              <BatchLine student={student} />
             </div>
           </div>
         }
@@ -538,7 +536,22 @@ function DetailsCard({ student }: { student: StudentDetail }) {
           </span>
         </Detail>
         {student.fee_history.length > 1 && <FeeHistory student={student} />}
-        <Detail label="Class or batch">{student.batch_label ?? <Muted>Not set</Muted>}</Detail>
+        <Detail label="Batch">
+          {student.batch_id !== null && student.batch_name ? (
+            <Link
+              to={batchPath(student.batch_id)}
+              className="rounded font-semibold text-primary-strong underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              {student.batch_name}
+            </Link>
+          ) : (
+            <Muted>No batch</Muted>
+          )}
+        </Detail>
+        {student.batch_label &&
+          !(student.batch_name && sameText(student.batch_label, student.batch_name)) && (
+            <Detail label="Old class label">{student.batch_label}</Detail>
+          )}
         <Detail label="Phone">
           {student.phone ? (
             <span className="tabular-nums">{student.phone}</span>
@@ -658,6 +671,30 @@ function afterRemoving(rest: FeeChangeRead[], month: string, now: string): strin
 
 function Muted({ children }: { children: ReactNode }) {
   return <span className="text-muted-foreground">{children}</span>
+}
+
+/** Under their name: their batch, as a link to its tab, with its days and times. Before batches,
+ * the label typed for their class. */
+function BatchLine({ student }: { student: StudentDetail }) {
+  const { data: batches } = useBatches()
+  const batch = batches?.find((b) => b.id === student.batch_id)
+  if (student.batch_id !== null && student.batch_name) {
+    const detail = batch ? [formatSchedule(batch), batch.location].filter(Boolean).join(' · ') : ''
+    return (
+      <p className="text-base wrap-break-word text-muted-foreground">
+        <Link
+          to={batchPath(student.batch_id)}
+          className="rounded font-bold text-primary-strong underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
+          {student.batch_name}
+        </Link>
+        {detail && ` · ${detail}`}
+      </p>
+    )
+  }
+  return student.batch_label ? (
+    <p className="text-base wrap-break-word text-muted-foreground">{student.batch_label}</p>
+  ) : null
 }
 
 function MonthHistory({

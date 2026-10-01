@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from typing import Literal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -20,6 +21,7 @@ from app.schemas import (
     NoFeeReason,
     ReportCheck,
     ReportFilter,
+    ReportGroup,
     ReportResponse,
     ReportRow,
     ReportSort,
@@ -67,6 +69,8 @@ def _row(student: Student, r: ledger.ReportRow, current_month: dt.date) -> Repor
         student_id=s.id,
         student_name=s.name,
         batch_label=s.batch_label,
+        batch_name=r.student.batch_name,
+        batch_id=student.batch_id,
         phone=s.phone,
         joined_month=format_month(s.joined_month),
         left_month=format_month(s.left_month) if s.left_month else None,
@@ -190,11 +194,12 @@ def _digits(text: str) -> str:
 
 
 def matches_search(row: ReportRow, query: str) -> bool:
-    """`lib/search.ts` `studentMatches`, over the name, class and phone."""
+    """`lib/search.ts` `studentMatches`, over the name, batch (or old class label) and phone."""
     words = search_fold(query).split()
     if not words:
         return True
-    text = search_fold(" ".join(t for t in (row.student_name, row.batch_label, row.phone) if t))
+    parts = (row.student_name, row.batch_name, row.batch_label, row.phone)
+    text = search_fold(" ".join(t for t in parts if t))
     phone = _digits(row.phone or "")
 
     def in_phone(typed: str) -> bool:
@@ -206,12 +211,17 @@ def matches_search(row: ReportRow, query: str) -> bool:
     return all(w in text or (_PHONE_LIKE.match(w) and in_phone(w)) for w in words)
 
 
+def class_of(row: ReportRow) -> str:
+    """What the report's Class/batch column shows: their batch, else the old class label."""
+    return row.batch_name or row.batch_label or ""
+
+
 def _sort_value(row: ReportRow, key: ReportSort) -> str | int:
     match key:
         case ReportSort.student:
             return search_fold(row.student_name)
         case ReportSort.batch:
-            return search_fold(row.batch_label or "")
+            return search_fold(class_of(row))
         case ReportSort.status:
             return ledger.REPORT_STATUS_ORDER.index(row.status)
         case ReportSort.fee:
@@ -238,16 +248,30 @@ def shown(
     q: str | None = None,
     sort: ReportSort | None = None,
     order: SortOrder = SortOrder.asc,
+    batch: int | Literal["none"] | None = None,
+    group: ReportGroup = ReportGroup.none,
 ) -> ReportResponse:
-    """The report as the page shows it: filtered, searched and sorted, with totals for the rows
-    shown. Ties keep the usual order (the server's), as on the page."""
+    """The report as the page shows it: filtered (status, batch), searched and sorted, and
+    grouped by batch if asked, with totals for the rows shown. Ties keep the usual order (the
+    server's), as on the page."""
     rows = [
         r
         for r in report.rows
         if matches_filter(r, status, report.month, report.current_month)
         and matches_search(r, q or "")
+        and (batch is None or r.batch_id == (None if batch == "none" else batch))
     ]
     if sort is not None:
         # Python's sort is stable, with reverse=True too: ties keep the usual order.
         rows.sort(key=lambda r: _sort_value(r, sort), reverse=order is SortOrder.desc)
+    if group is ReportGroup.batch:
+        rows.sort(key=group_key)  # stable: each group keeps the order above
     return report.model_copy(update={"rows": rows, "totals": totals(rows)})
+
+
+def group_key(row: ReportRow) -> tuple[int, tuple[tuple[int, int | str], ...]]:
+    """Batches A to Z (numbers in number order, as the batch tabs), "No batch" last."""
+    if row.batch_name is None:
+        return (1, ())
+    parts = re.split(r"(\d+)", search_fold(row.batch_name))
+    return (0, tuple((0, int(p)) if p.isdigit() else (1, p) for p in parts if p))
