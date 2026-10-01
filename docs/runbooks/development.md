@@ -298,16 +298,21 @@ letters. It checks, in order:
 
 Then **the in-app update** (`scripts/ci/smoke_in_app_update.py`, run with uv's Python, the same
 script on both OSes): it installs a copy of the bundle whose `VERSION` says 0.0.1, opens it with
-the launcher (no developer tools on PATH), adds a student and a payment, and serves a fake
-"latest release" (this bundle's version) and this commit's installer from 127.0.0.1
-(`SCRAPPY_UPDATE_FEED_URL`, `SCRAPPY_UPDATE_INSTALLER_URL`, and `SCRAPPY_UPDATE_ZIP` = the real
-bundle). It checks that the app offers the update and refuses other websites' requests; that a
-missing installer gives a plain 424 and changes nothing; that an installer failing after its
-backup (`SCRAPPY_TEST_FAIL_AFTER_BACKUP`, a test-only hook) closes the app, reopens the old
-version and reports "didn't finish"; and then the real update through `/api/update/start`
-(installer detached, from the app): a second start is refused, the new version answers, the
-data and a pre-update backup are there, `update-attempt.json` says it succeeded, nothing is
-left behind, and the launcher saw the waiting page (no second tab). Run it locally after
+the launcher (no developer tools on PATH), adds a student and a payment, and serves a stand-in
+for GitHub from 127.0.0.1: the "latest release" feed and each release's files (zip, this
+commit's installer, `SHA256SUMS`) under `/download/<tag>/` (`SCRAPPY_TEST_MODE=1`,
+`SCRAPPY_UPDATE_FEED_URL`, `SCRAPPY_UPDATE_DOWNLOAD_URL`; no local zip is handed to anything).
+It checks: the app offers the update and refuses other websites' requests (including a foreign
+`Host`); a missing installer gives a plain 424 and changes nothing; a tampered installer is
+refused (424); a tampered zip stops the installer before it closes the app; an installer
+failing after its backup (`SCRAPPY_TEST_FAIL_AFTER_BACKUP`, a test-only hook) reopens the old
+version; Update now to a broken "9.9.9" (its `app` package raises at import) puts the old
+version back and opens it; then the real update through `/api/update/start`: a second start
+is refused, the new version answers, the data and a pre-update backup are there, the zip was
+checked, `update-attempt.json` says it succeeded, nothing is left behind, and the launcher saw
+the waiting page (no second tab). Finally the pasted line's path: installing the broken bundle
+over the new version puts the new version back, data intact; and a zip that doesn't match its
+`SHA256SUMS` changes nothing. Run it locally after
 `make package`:
 
 ```bash

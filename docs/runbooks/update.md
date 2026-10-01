@@ -53,8 +53,10 @@ Run the install line from [install-mac.md](install-mac.md) again.
 line, taken from the new release itself (so the installer and the version it installs always
 match), in the background with no window. Its messages go to `logs\update.log`. Either way:
 
-1. The newest release is downloaded from GitHub to the temporary folder, and unpacked next to
-   the current version (`app.new`).
+1. The newest release is downloaded from GitHub to the temporary folder, **checked against the
+   release's list of checksums** (`SHA256SUMS`: if it isn't exactly the file that was
+   published, it stops, with nothing changed), and unpacked next to the current version
+   (`app.new`). (Update now also checks the installer itself the same way before running it.)
 2. The running app, if any, is asked to stop, and finishes what it's doing. Anything still
    running after 10 seconds is stopped by force. Only programs started from the app's own
    folders are stopped.
@@ -63,15 +65,18 @@ match), in the background with no window. Its messages go to `logs\update.log`. 
    version's `python -m app.backup --reason pre-update`, else the new version's. If neither
    works, the installer copies the file itself, together with any `records.db-journal`, into
    the backups folder or `data\backups`. If nothing works, it stops without changing anything.
-4. The new version is swapped in: `app` becomes `app.old`, `app.new` becomes `app`, and
-   `app.old` is deleted. If the swap fails, the old version is put back. The `data` folder is
-   never touched.
-5. The Desktop shortcut is recreated and the downloaded zip is deleted. (If the shortcut can't be
-   made, the installer says so in yellow, but the update itself has worked.)
-6. The new version opens. If its database layout changed, it takes another backup
-   (`records-pre-migration-…`) before upgrading the database. After **Update now**, the page
-   that started it reloads itself, so no second browser tab opens. If the update failed after
-   the app was closed, the old version is opened again instead.
+4. The new version is swapped in: `app` becomes `app.old`, `app.new` becomes `app`. If the swap
+   fails, the old version is put back. The `data` folder is never touched.
+5. The new version opens, and the installer waits (up to 3 minutes) for it to answer as the
+   new version. If its database layout changed, it takes another backup
+   (`records-pre-migration-…`) before upgrading the database. **If it doesn't start**, the
+   installer puts the old version back (from `app.old`), opens it, and says so (*"The new
+   version didn't start, so the previous version was put back"*); the line is also written to
+   `logs\update.log`. Otherwise `app.old` is deleted.
+6. The Desktop shortcut is recreated and the downloaded zip is deleted. (If the shortcut can't be
+   made, the installer says so in yellow, but the update itself has worked.) After **Update
+   now**, the page that started it reloads itself, so no second browser tab opens. If the
+   update failed after the app was closed, the old version is opened again instead.
 
 ## Which version do I have?
 

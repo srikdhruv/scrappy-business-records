@@ -111,8 +111,8 @@ environment variable, which tests and dev mode use:
 | `SCRAPPY_PORT` | `8765` | Server port |
 | `SCRAPPY_FEEDBACK_URL` | `FEEDBACK_URL` in `config.py` | Where feedback is sent; empty turns sending off (tests, dev) |
 | `SCRAPPY_UPDATE_FEED_URL` | `UPDATE_FEED_URL` in `config.py` (GitHub's latest release) | Where the update check looks; empty turns it off (tests, dev) |
-| `SCRAPPY_UPDATE_INSTALLER_URL` | `INSTALLER_URL` in `config.py` | Tests: the installer Update now runs (`{tag}`, `{script}` filled in) |
-| `SCRAPPY_UPDATE_ZIP` | — | Tests: the zip Update now installs (the installer's `-ZipPath`) |
+| `SCRAPPY_TEST_MODE` | — | `1` (CI, tests): allow the test hooks below; ignored otherwise |
+| `SCRAPPY_UPDATE_DOWNLOAD_URL` | `RELEASE_DOWNLOAD_URL` in `config.py` | Test mode only: where a release's files are (`{tag}` filled in); plain http to this laptop allowed |
 
 The paths are looked up each time they're needed, not once at import, so tests can change them.
 `SCRAPPY_BACKUP_DIR` does **not** follow `SCRAPPY_HOME`: dev mode (`make dev`, `make run`) and the
@@ -353,21 +353,28 @@ is only allowed to `127.0.0.1` (the tests' fake relay).
    `localStorage`), and the ⚙ button gets a dot.
 3. **Update now** (`POST /api/update/start`, only from the app's own page: JSON, the
    `X-Scrappy-Request: 1` header, `Host`/`Origin`/`Sec-Fetch-Site` of the app itself): the
-   server downloads `scripts/install.ps1` (or `install.sh`) **at the new release's tag**, writes
-   `logs/update-attempt.json`, and starts it on its own, so it outlives the server (Windows:
+   server asks GitHub again (a pulled release is never installed), downloads `install.ps1` (or
+   `install.sh`) and `SHA256SUMS` **from the new release's own files**
+   (`releases/download/<tag>/`) and checks the one against the other (else 424, nothing
+   changed), writes `logs/update-attempt.json`, and starts it on its own, so it outlives the server (Windows:
    `CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`, out of any job object if allowed, working
    folder `%TEMP%`, never `app\`; not `DETACHED_PROCESS`, with which Windows PowerShell exits at
    once; macOS: `start_new_session`), with `-Version <tag>`, `SCRAPPY_UPDATE_FROM_APP=1`,
    `SCRAPPY_INSTALL_ROOT` (the running copy's folder, as its Python was started) and its output
    in `logs/update.log`. One at a time: a second start answers 409.
-4. **The installer** does what it always does (stop politely, back up, swap, shortcut, open).
-   Started from the app, it also opens the version still installed if it fails after closing
-   the app, and runs the launcher with `SCRAPPY_AFTER_UPDATE=1`.
+4. **The installer** does what it always does: check the zip against `SHA256SUMS`, stop
+   politely, back up, swap, open the new version and wait up to 3 minutes for it to answer as
+   itself (else put `app.old` back and open that), shortcut. Started from the app, it also
+   opens the version still installed if it fails after closing the app, and runs the launcher
+   with `SCRAPPY_AFTER_UPDATE=1`.
 5. **The page** shows "Updating… the app will reopen in a minute" and polls
    `/api/health?waiting_for_update=true` every 2 s (`lib/update.ts`): another version → reload;
    the same version and a failed attempt in `/api/update` → "The update didn't finish", with the
-   log's location; 10 minutes → "taking too long". Other open windows of the app see the running
-   attempt and show the same screen. Before starting, it warns if something typed in any window
+   log's location (the installer's own line folded under "Technical details"); 10 minutes →
+   "taking too long", and that window doesn't show the screen for that attempt again. Other
+   open windows of the app see the running attempt and show the same screen. A running attempt
+   older than 30 minutes is failed by the server. After a failed or cut-short update, the page
+   says once "The last update didn't finish — your records are safe", with Try again. Before starting, it warns if something typed in any window
    of the app isn't saved (`lib/unsaved.ts`, a `BroadcastChannel`).
 6. **The launcher** (after an update) waits up to 8 s for `page_waiting` in `/api/update`: if the
    old page is polling, it reloads itself, so no second browser tab is opened.
@@ -379,15 +386,23 @@ is only allowed to `127.0.0.1` (the tests' fake relay).
 - The server listens on `127.0.0.1` only, so it isn't reachable from the network and triggers no
   firewall prompt.
 - There is no authentication, by design: only the logged-in Windows user can reach loopback.
-  The two actions that reach outside (Check for updates, Update now) only accept requests from
-  the app's own page, so another website open in the browser can't trigger them.
+- **Only the app's own pages** (`app/local_only.py`, middleware on every request): a request
+  whose `Host` isn't `127.0.0.1:<port>` or `localhost:<port>` (the port the server listens on)
+  gets a plain 403, API and UI files alike, so a website whose name is pointed at 127.0.0.1
+  (DNS rebinding) can't read anything. A request that changes something (not GET/HEAD, under
+  `/api/`) is refused if its `Origin` or `Sec-Fetch-Site` says another site sent it. The
+  launcher, installers and tests send neither header and use `127.0.0.1`. The Vite dev proxy
+  presents requests as the server's own (`vite.config.ts`).
+- The two actions that reach outside (Check for updates, Update now) also need JSON and the
+  `X-Scrappy-Request: 1` header, so another website open in the browser can't trigger them.
 - There is no telemetry. The app makes exactly two kinds of outbound call at runtime:
   - **feedback the owner chooses to send**, to the feedback relay, over HTTPS
     ([ADR 0005](adr/0005-feedback-is-the-only-outbound-call.md)). Only rows of the `feedback`
     table go out: never the database, backups or exports;
   - **the update check and Update now**, to GitHub, over HTTPS ([ADR 0006](adr/0006-in-app-update.md)):
     reading the public latest release, and, when the owner clicks Update now, downloading the
-    new release's installer, which downloads its zip. Nothing about the owner or her records is
+    new release's installer and `SHA256SUMS` (checked against each other), and the installer
+    then downloads and checks its zip. Nothing about the owner or her records is
     sent, and nothing is sent when checks are off (`SCRAPPY_UPDATE_FEED_URL=`).
 - The GitHub token that files issues lives only in the relay, as a Worker secret, limited to the
   private feedback repo. The app holds no secret.

@@ -1887,10 +1887,17 @@ no new browser tab opens. (If you had closed the window, the app opens the brows
 
 If it takes more than 3 minutes, it adds *This is taking longer than usual, but it's still
 working* (a slow internet connection can do that). If it can't finish, the card says **The update
-didn't finish**, why, and that **your records are safe** and the old version is still there,
-with **Back to the app**. After 10 minutes with no answer it says **The update is taking too
-long**, what to do (open it from the Desktop, then **Check again**), and the name of the log file
-to send to whoever set up the app.
+didn't finish**, why in plain words, and that **your records are safe** and the old version
+is still there, with **Back to the app**. A small folded **Technical details** line under it has
+the installer's own words, for whoever helps you. After 10 minutes with no answer it says **The
+update is taking too long**, what to do (open it from the Desktop, then **Check again**), and
+the name of the log file to send to whoever set up the app. That window won't show the
+Updating card for that update again.
+
+**If an update was cut short** (the laptop restarted in the middle, say) or failed while the
+window was closed, the next time you open the app an amber note says once: **The last update
+didn't finish — your records are safe.** *You still have version 0.1.0, just as it was.* With
+**Try again** (when the new version can be installed) and **OK**.
 
 ### What you can do
 
@@ -1920,13 +1927,21 @@ to send to whoever set up the app.
   version).
 - **What it sends:** nothing about you or your records. It asks GitHub, where the app is
   published, which version is the newest, like opening that web page; and when you click
-  **Update now**, it downloads the new version from there.
+  **Update now**, it asks once more, then downloads the new version from there.
+- **Only the real thing is installed.** Each version is published with a list of fingerprints
+  of its files (checksums). The app and the installer check every download against it, and
+  stop, with nothing changed, if anything doesn't match. A published version can never be
+  changed afterwards.
 - **It needs the internet** for the download (about 25 MB, 30 MB on a Mac). Offline, the note
   just doesn't appear.
 - **Clicking twice starts it once.** If you have the app open in two browser windows, both show
   *Updating…* and both reload on the new version.
-- **If it fails**, the old version is put back and opened again, exactly as it was. Try again
-  later; if it keeps failing, see [troubleshooting](runbooks/troubleshooting.md#the-update-didnt-finish).
+- **If it fails**, the old version is put back and opened again, exactly as it was. That
+  includes a new version that won't start on this laptop: the installer waits for it to open,
+  and if it doesn't within 3 minutes it puts the old one back. Try again later; if it keeps
+  failing, see [troubleshooting](runbooks/troubleshooting.md#the-update-didnt-finish).
+- **Only this laptop's own pages can use the app.** Another website open in the browser can't
+  read your records or start an update.
 - **Version 0.2.0 is the first with this button**, so getting *to* 0.2.0 needs the pasted line
   once more ([Updating](runbooks/update.md)); every later update is **Update now**.
 - A copy of the app run by a developer (not installed) looks, but never updates itself: it
@@ -1955,7 +1970,8 @@ to send to whoever set up the app.
   [ADR 0006](adr/0006-in-app-update.md); the [release runbook](runbooks/release.md#updating-from-inside-the-app-what-must-keep-working)
   lists what future installers must keep doing.
 - **Tests:** `components/update.test.tsx`, `lib/update.test.ts`, `lib/unsaved.test.ts`,
-  `backend/tests/test_update.py`, `e2e/update.spec.ts` (a fake feed in `e2e/fake-relay.mjs`),
+  `backend/tests/test_update.py`, `test_local_only.py`, `test_release_contract.py`,
+  `e2e/update.spec.ts` (a fake feed in `e2e/fake-relay.mjs`),
   and a real update of a real install in CI's install jobs (`scripts/ci/smoke_in_app_update.py`).
 
 </details>
@@ -2006,6 +2022,8 @@ The same word always has the same colour, everywhere in the app.
 | **Updating…** | Marigold, turning | Over the whole page, after **Update now** | The new version is being installed; the page reloads by itself |
 | **Updated to version …** | Green | A message after the update | The update worked; everything you entered is still there |
 | **The update didn't finish** | Muted red | Over the page, after **Update now** | The new version couldn't go in; the old one is still there and your records are safe |
+| **The last update didn't finish** | Amber | A note at the top, once, after an update that failed or was cut short | Nothing was lost; **Try again** when it suits you |
+| **Technical details** | — (small, folded) | Under "The update didn't finish" | The installer's own words, for whoever helps you |
 
 **The colours themselves:** green for paid, amber for partly paid, a soft muted red for owed,
 teal for extra or ahead, and grey for anything not due. Marigold is the app's own colour, used
@@ -2378,7 +2396,7 @@ Open their profile and look at **Month by month** to see which month shows as ow
 | Download Excel, Download everything | `components/excel-buttons.tsx`, `lib/downloads.ts`, `components/layout/app-shell.tsx` | `GET /api/export/students.xlsx` (`exportStudents`), `GET /api/export/payments.xlsx` (`exportPayments`), `GET /api/export/everything.xlsx` (`exportEverything`) | `services/exports.py` | `lib/downloads.test.ts`, `test_excel_export.py`, `e2e/excel.spec.ts` |
 | Upload Excel (preview, choices, Add), blank templates | `components/excel-upload-dialog.tsx`, `lib/upload.ts` | `POST /api/import/preview` (`previewImport`), `POST /api/import/commit` (`commitImport`), `GET /api/import/template.xlsx` (`importTemplate`) | `services/spreadsheet.py`, `services/imports.py`, `services/matching.py`, `services/text.py`; `backup.py` (`pre-import`) | `components/excel-upload-dialog.test.tsx`, `test_excel_import.py`, `test_excel_review.py`, `test_spreadsheet_cells.py`, `test_fuzz_excel.py`, `e2e/excel.spec.ts` |
 | Unassigned payments, the Dashboard line | `components/unassigned-payments.tsx`, `components/unassigned-banner.tsx`, `components/student-combobox.tsx` | `GET /api/unassigned-payments` (`listUnassignedPayments`), `POST /api/unassigned-payments/{id}/assign` (`assignUnassignedPayment`), `DELETE /api/unassigned-payments/{id}` (`deleteUnassignedPayment`) | `services/unassigned.py` | `components/unassigned-payments.test.tsx`, `test_unassigned.py`, `test_migration_unassigned.py`, `e2e/excel.spec.ts` |
-| Updating the app: the check, the banner, Update now | `components/update.tsx`, `lib/update.ts`, `lib/unsaved.ts`, `components/track-unsaved.tsx`, `components/about-dialog.tsx`, `components/settings-menu.tsx` | `GET /api/update` (`getUpdate`), `POST /api/update/check` (`checkForUpdate`), `POST /api/update/start` (`startUpdate`), `GET /api/health?waiting_for_update=` (`getHealth`) | `updater.py`, `versions.py`, `routers/update.py`, `launcher.py`; `scripts/install.ps1`, `install.sh` | `components/update.test.tsx`, `lib/update.test.ts`, `lib/unsaved.test.ts`, `test_update.py`, `e2e/update.spec.ts`, `scripts/ci/smoke_in_app_update.py` |
+| Updating the app: the check, the banner, Update now | `components/update.tsx`, `lib/update.ts`, `lib/unsaved.ts`, `components/track-unsaved.tsx`, `components/about-dialog.tsx`, `components/settings-menu.tsx` | `GET /api/update` (`getUpdate`), `POST /api/update/check` (`checkForUpdate`), `POST /api/update/start` (`startUpdate`), `GET /api/health?waiting_for_update=` (`getHealth`) | `updater.py`, `versions.py`, `routers/update.py`, `local_only.py`, `launcher.py`; `scripts/install.ps1`, `install.sh` (checksums, rollback) | `components/update.test.tsx`, `lib/update.test.ts`, `lib/unsaved.test.ts`, `test_update.py`, `e2e/update.spec.ts`, `scripts/ci/smoke_in_app_update.py` |
 | Settings menu, Send feedback, About | `components/settings-menu.tsx`, `components/feedback-dialog.tsx`, `components/about-dialog.tsx`, `lib/diagnostics.ts`, `lib/screenshot.ts`, `lib/feedback.ts` | `POST /api/feedback` (`createFeedback`), `GET /api/feedback/{feedback_id}` (`getFeedback`), `GET /api/about` (`getAbout`) | `services/feedback.py`, `diagnostics.py`, `feedback_sender.py`; relay in `relay/` | `components/feedback-dialog.test.tsx`, `lib/diagnostics.test.ts`, `lib/feedback.test.ts`, `test_feedback.py`, `e2e/feedback.spec.ts`, `relay/test/relay.test.ts` |
 
 Test paths without a folder are in `frontend/src/` (`*.tsx`, `*.ts`) or `backend/tests/`

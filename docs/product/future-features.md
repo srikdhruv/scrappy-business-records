@@ -151,6 +151,13 @@ The owner hires instructors to take some batches and pays them.
   check from their phone.
 - **Business name setting:** the owner types in their school's name, and the app shows it in the
   header and window title. It is stored in the local database, so it never goes in the repo.
+- **Test updates from the real v0.2.0** (once it's released): the in-app update smoke test
+  (`scripts/ci/smoke_in_app_update.py`) should start from the real v0.2.0 zip, not this
+  commit's bundle relabelled 0.0.1, so every PR proves the oldest app with the button can
+  still update ([release runbook](../runbooks/release.md#updating-from-inside-the-app-what-must-keep-working)).
+- **Signed releases**: today the checksums prove a file is the one published, not who
+  published it (ADR 0006, Trust model). Signing (Sigstore / GitHub artifact attestations, or a
+  code-signing certificate) would add that.
 - A **signed `.exe` installer** (MSIX or Inno Setup), replacing the PowerShell one-liner for
   the first install. (Updating from inside the app is **done**: "A new version is ready" →
   Update now, [ADR 0006](../adr/0006-in-app-update.md).)

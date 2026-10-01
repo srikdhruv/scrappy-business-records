@@ -3,6 +3,22 @@
 Users install whatever the **latest GitHub Release** is. A release is created by pushing a
 version tag.
 
+> **Releases are immutable, and version tags are protected.** Once a release is published, its
+> files can't be replaced, added or removed, and its tag can't be moved, deleted or used again
+> (repository settings: *immutable releases*, and the *Protect release tags* ruleset on
+> `refs/tags/v*`). So a release that fails, or turns out to be bad, is **never fixed in place**:
+> fix `main`, **bump the patch version** (`0.2.0` → `0.2.1`) and release again. See
+> [ADR 0006, Trust model](../adr/0006-in-app-update.md#trust-model).
+
+## Before the first release: GitHub account safety
+
+Whoever can publish a release can put code on the owner's laptop (the app updates itself to the
+latest release). The account that publishes (the repository owner's) must have **two-factor
+authentication** turned on: GitHub → Settings → Password and authentication → Two-factor
+authentication (an authenticator app or a passkey; keep the recovery codes somewhere safe, not
+on the same laptop). Don't add other people with write access to the repository; review what
+goes into `main` before tagging.
+
 ## Steps
 
 1. Make sure `main` is green in CI. In particular the `windows-install` and `macos-install` jobs,
@@ -35,18 +51,29 @@ version tag.
      self-tests each bundle (unzips it and starts the server from it with no developer tools);
    - runs the same install smoke tests as CI on each (`scripts/ci/smoke_install_windows.ps1`,
      `scripts/ci/smoke_install_mac.sh`);
-   - only if all of that passed, creates the GitHub Release with auto-generated notes and both
-     zips, **as a prerelease**. The install line downloads `releases/latest/download/...`, which
-     skips prereleases, so users still get the previous version at this point;
+   - only if all of that passed, creates the GitHub Release **as a draft** with auto-generated
+     notes and every file: both zips, `install.ps1`, `install.sh` (Update now runs the new
+     release's own installer) and `SHA256SUMS` covering all four. Files can only be added
+     before publishing (immutable releases);
+   - **publishes it as a prerelease**. Its files can't change from now on. The install line
+     downloads `releases/latest/download/...` and the app's update check reads
+     `releases/latest`, which both skip prereleases, so users still get the previous version;
    - **checks the prerelease** on a fresh Windows machine with the `-Version <tag>` form
      (`post-release-verify.yml`, mode `tagged`): install, restart, update, data kept;
+   - **checks Update now with the real files** on Windows and macOS (`verify-in-app`): an
+     installed older copy is offered this tag, downloads `install.ps1` / `install.sh` and
+     `SHA256SUMS` from `releases/download/<tag>/`, checks them, and its installer downloads
+     and checks the real zip (`scripts/ci/smoke_in_app_update.py --release-tag <tag>`);
    - only then **promotes** it (`gh release edit <tag> --prerelease=false --latest`);
    - **checks the plain install line** (mode `latest`): the literal line from the docs must now
      install this version; then restart, update and `-Version`;
    - if that last check fails, **rolls back**: the release becomes a prerelease again, so
      `latest` points at the previous version. A failed check never leaves a bad "latest".
+     (Checked on a test repository: on an immutable release, `--prerelease=false --latest` and
+     `--prerelease` still work, and the notes can still be edited; only the files and the tag
+     are locked.)
 5. Watch the whole workflow go green in the Actions tab. The release page must show the new
-   version as **Latest**, with both assets. (The check can be re-run by hand: Actions →
+   version as **Latest**, with its five files. (The check can be re-run by hand: Actions →
    Post-release check → Run workflow, with `mode` `latest` or `tagged`.)
 6. **Check it on a real Windows laptop.** This is required before the owner's first install,
    and after any release that changes the installer, launcher or backups; otherwise it's
@@ -74,11 +101,13 @@ version tag.
    data, first add it to `scripts/release_fixture_populate.py` (guarded, so older tags still
    work), so the sample covers it.
 
-If the tests, a bundle or a smoke test fail, nothing is published. If a check fails, the
-release stays (or goes back to being) a prerelease that users never get. Either way: fix the
-problem on `main`, delete the release and the tag
-(`gh release delete v0.2.0 --yes; git push --delete origin v0.2.0 && git tag -d v0.2.0`), and
-tag again.
+If the tests, a bundle or a smoke test fail before publishing, nothing is published (at
+most a draft is left: delete the draft; the tag stays, so the next attempt still needs a new
+version). If a check fails after publishing, the release stays (or goes back to being) a
+prerelease that users never get. **Either way: fix the problem on `main`, bump the patch
+version and tag the new version.** A published release can't be changed, and its tag can't be
+deleted, moved or reused, even after deleting the release. Leave the failed prerelease as it
+is (it's never offered), or edit its notes to say it was replaced.
 
 ## Checking a bundle before tagging
 
@@ -102,8 +131,9 @@ jobs prove it works. Stay on 3.12, matching `requires-python`.
 
 ## Compatibility with older installs
 
-The pasted line fetches `install.ps1` and `install.sh` from `main`; **Update now** fetches them
-from the new release's tag. Either way, before an update they run the *installed* (possibly
+The pasted line fetches `install.ps1` and `install.sh` from `main`; **Update now** uses the
+ones published with the new release. Either way the zip is checked against the release's
+`SHA256SUMS` (only v0.1.0, from before checksums, has none). Either way, before an update they run the *installed* (possibly
 older) version's `python -m app.backup --reason pre-update`. Keep that command, and its meaning
 (exit code 0 = backed up, or nothing to back up), working in every release. The installer falls
 back to the new version's backup, then to a file copy, if it fails.
@@ -115,35 +145,50 @@ installer**, and an **older page waits on a newer server**. Every future release
 supporting the oldest app still in use (v0.2.0 onwards), so these are a contract:
 
 1. **The installer's command line.** Windows: the app downloads
-   `https://raw.githubusercontent.com/srikdhruv/scrappy-business-records/<tag>/scripts/install.ps1`
-   (at the **new** release's tag) and runs
+   `https://github.com/srikdhruv/scrappy-business-records/releases/download/<tag>/install.ps1`
+   (the **new** release's own file) and `SHA256SUMS` next to it, checks the one against the
+   other, and runs
    `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <tmp>\install.ps1 -Version <tag>`.
-   macOS: `.../<tag>/scripts/install.sh`, run as `/bin/sh <tmp>/install.sh --version <tag>`.
-   Keep `-Version` / `--version`, and don't add a *required* parameter. Keep both files at those
-   paths.
-2. **Its environment.** `SCRAPPY_UPDATE_FROM_APP=1` (started from the app),
-   `SCRAPPY_INSTALL_ROOT` (the folder holding the running `app`), and, in tests only,
-   `SCRAPPY_INSTALL_ZIP`. Keep honouring them. The rest of the app's environment is passed on.
+   macOS: `.../releases/download/<tag>/install.sh`, run as `/bin/sh <tmp>/install.sh --version <tag>`.
+   Keep `-Version` / `--version`, and don't add a *required* parameter. Every release must
+   publish `install.ps1`, `install.sh` and a `SHA256SUMS` covering them (`release.yml` does;
+   `backend/tests/test_release_contract.py` fails if the scripts move or stop being published).
+2. **Its environment.** `SCRAPPY_UPDATE_FROM_APP=1` (started from the app) and
+   `SCRAPPY_INSTALL_ROOT` (the folder holding the running `app`); in CI only (with
+   `SCRAPPY_TEST_MODE=1`), `SCRAPPY_INSTALL_DOWNLOAD_URL`. Keep honouring them. The rest of the
+   app's environment is passed on.
 3. **No questions, no window.** It runs detached, with no console, no one to answer, and its
    output in `logs/update.log`. Nothing may prompt or wait for a key. `exit` is fine here (it only
    ends that PowerShell), but the pasted line still needs `throw`, so keep using `throw`.
 4. **It ends with the app open.** On success, open the new version, with `SCRAPPY_AFTER_UPDATE=1`
-   for the launcher. If it fails after closing the app, open the version still installed.
+   for the launcher, and keep the old one until the new one answers as itself (else put the
+   old one back). If it fails after closing the app, open the version still installed. Print
+   the reason on a `Details: ...` line: the app shows it as the technical detail.
 5. **The server's side.** The new server must keep answering `GET /api/health` with
    `{"app": "scrappy-records", "version": ...}` and accepting `?waiting_for_update=true`, which the
-   old page polls; and keep reading `logs/update-attempt.json` (`from_version`, `to_version`,
-   `tag`, `started_at`, `outcome`, `finished_at`, `detail`), written by the old server, to say
-   whether it worked.
-6. **The release itself.** Keep the asset names (`scrappy-records-windows-x64.zip`,
-   `scrappy-records-macos-arm64.zip`): the app only offers a release that has this computer's
-   asset. Tags stay `vMAJOR.MINOR.PATCH`; anything else is never offered.
+   old page polls (from `127.0.0.1:<port>`, which every request must be addressed to); and keep
+   reading `logs/update-attempt.json` (`from_version`, `to_version`, `tag`, `started_at`,
+   `outcome`, `finished_at`, `detail`, and the newer `technical`), written by the old server,
+   to say whether it worked.
+6. **The release itself.** Keep the file names (`scrappy-records-windows-x64.zip`,
+   `scrappy-records-macos-arm64.zip`, `install.ps1`, `install.sh`, `SHA256SUMS`): the app only
+   offers a release that has this computer's zip, its installer and `SHA256SUMS`. Tags stay
+   `vMAJOR.MINOR.PATCH` (ASCII digits); anything else is never offered.
 
 CI checks this on every PR (`scripts/ci/smoke_in_app_update.py`, in the install jobs): an install
 of this commit's bundle, labelled 0.0.1, updates itself to the same bundle through
-`/api/update/start` with this commit's installer, including a failure and a rollback. It tests
-*this* installer being started by *this* app's server; an installer change that would break an
-older app's call (a new required parameter, say) must be caught in review against the list
-above.
+`/api/update/start` with this commit's installer, served with a `SHA256SUMS` from a local
+stand-in for GitHub, including tampered files, a failure after the backup and a new version
+that won't start. `release.yml` repeats the update with the real release files before
+promoting. Both test *this* installer being started by *this* app's server; an installer change
+that would break an older app's call (a new required parameter, say) must be caught in review
+against the list above.
+
+> **Follow-up once v0.2.0 is released:** make the "old" copy in `smoke_in_app_update.py` the
+> real v0.2.0 zip (downloaded from its release, checked against its `SHA256SUMS`) instead of
+> this commit's bundle relabelled 0.0.1, in both the PR jobs and `release.yml`'s
+> `verify-in-app`. Then every PR proves the *oldest* app with the button can still update to
+> the new installer (future-features §9).
 
 ## How the app finds out about a release
 
