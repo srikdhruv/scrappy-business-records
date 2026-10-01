@@ -15,5 +15,5 @@ CODE_REPO = "srikdhruv/scrappy-business-records"
 [[d1_databases]]
 binding = "DB"
 database_name = "scrappy-feedback"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "fda27989-f7b2-4b25-8b02-36ee55d8ddda"
 migrations_dir = "migrations"
