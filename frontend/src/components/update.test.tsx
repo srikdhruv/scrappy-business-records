@@ -31,6 +31,7 @@ const STARTED = {
   finished_at: null,
   outcome: 'running' as const,
   detail: '',
+  technical: '',
 }
 
 /** The server: `info` from GET /api/update, and what health says (changeable). */
@@ -208,6 +209,7 @@ describe('Update now', () => {
         finished_at: '2026-10-15T04:31:00Z',
         detail:
           'The update to version 0.3.0 didn’t finish, so you still have version 0.2.0. Your records are as they were.',
+        technical: 'Details: The remote name could not be resolved',
       },
     })
     const alert = await screen.findByRole('alert', {}, { timeout: POLL_MS * 3 })
@@ -215,6 +217,10 @@ describe('Update now', () => {
     expect(alert).toHaveTextContent('so you still have version 0.2.0')
     expect(alert).toHaveTextContent('Your records are safe.')
     expect(alert).toHaveTextContent(READY.log_file)
+    // The installer's own words only in a small folded line, not in the message.
+    const technical = within(alert).getByText('Details: The remote name could not be resolved')
+    expect(technical.closest('details')).not.toHaveAttribute('open')
+    expect(within(alert).getByText('Technical details')).toBeInTheDocument()
     await user.click(within(alert).getByRole('button', { name: 'Back to the app' }))
     expect(reload).toHaveBeenCalled()
   })
@@ -234,6 +240,14 @@ describe('Update now', () => {
     expect(await dialog.findByRole('alert')).toHaveTextContent(
       'Couldn’t download the update. Nothing was changed.',
     )
+    expect(screen.queryByTestId('updating-screen')).not.toBeInTheDocument()
+  })
+
+  it('never comes back for an update this window gave up on', async () => {
+    localStorage.setItem('scrappy-update-settled', JSON.stringify([STARTED.started_at]))
+    serve({ ...READY, can_update: false, reason: 'updating', last_attempt: STARTED })
+    renderApp('/')
+    await settle()
     expect(screen.queryByTestId('updating-screen')).not.toBeInTheDocument()
   })
 
@@ -327,6 +341,52 @@ describe('About', () => {
       'This copy of the app doesn’t look for new versions.',
     )
     expect(dialog.queryByRole('button', { name: 'Check for updates' })).not.toBeInTheDocument()
+  })
+})
+
+describe('an update that was cut short', () => {
+  const FAILED = {
+    ...STARTED,
+    outcome: 'failed' as const,
+    finished_at: '2026-10-15T04:40:00Z',
+    detail:
+      'The update to version 0.3.0 didn’t finish, so you still have version 0.2.0. Your records are as they were.',
+    technical: 'No word from the installer for 30 minutes.',
+  }
+
+  it('says so once, with Try again', async () => {
+    serve({ ...READY, last_attempt: FAILED })
+    const user = userEvent.setup()
+    const { unmount } = renderApp('/')
+    const notice = await screen.findByRole('region', { name: 'The last update' })
+    expect(notice).toHaveTextContent('The last update didn’t finish — your records are safe.')
+    expect(notice).toHaveTextContent('You still have version 0.2.0')
+    expect(notice).not.toHaveTextContent('installer')
+    await user.click(within(notice).getByRole('button', { name: 'Try again' }))
+    await findDialog('Update to version 0.3.0?')
+    unmount()
+    renderApp('/')
+    await settle()
+    expect(screen.queryByRole('region', { name: 'The last update' })).not.toBeInTheDocument()
+    expect(await banner()).toHaveTextContent('A new version (0.3.0) is ready.')
+  })
+
+  it('OK closes it, and the new-version banner comes back', async () => {
+    serve({ ...READY, last_attempt: FAILED })
+    const user = userEvent.setup()
+    renderApp('/')
+    const notice = await screen.findByRole('region', { name: 'The last update' })
+    await user.click(within(notice).getByRole('button', { name: 'OK' }))
+    expect(screen.queryByRole('region', { name: 'The last update' })).not.toBeInTheDocument()
+    expect(await banner()).toBeInTheDocument()
+  })
+
+  it('isn’t said again after the Updating screen already said it', async () => {
+    localStorage.setItem('scrappy-update-settled', JSON.stringify([FAILED.started_at]))
+    serve({ ...READY, last_attempt: FAILED })
+    renderApp('/')
+    await settle()
+    expect(screen.queryByRole('region', { name: 'The last update' })).not.toBeInTheDocument()
   })
 })
 

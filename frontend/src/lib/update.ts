@@ -27,13 +27,14 @@ const REQUEST_TIMEOUT_MS = 5_000
 export type UpdatePhase =
   | { kind: 'waiting'; slow: boolean }
   | { kind: 'done'; version: string }
-  | { kind: 'failed'; detail: string | null; appRunning: boolean }
+  | { kind: 'failed'; detail: string | null; technical: string; appRunning: boolean }
   | { kind: 'timeout'; appRunning: boolean }
 
 export interface AttemptSeen {
   outcome: string
   started_at: string
   detail: string
+  technical?: string
 }
 
 export interface Observation {
@@ -57,7 +58,12 @@ export function nextPhase(
     seen.attempt?.outcome === 'failed' &&
     (update.startedAt === null || seen.attempt.started_at === update.startedAt)
   ) {
-    return { kind: 'failed', detail: seen.attempt.detail || null, appRunning: true }
+    return {
+      kind: 'failed',
+      detail: seen.attempt.detail || null,
+      technical: seen.attempt.technical ?? '',
+      appRunning: true,
+    }
   }
   if (seen.elapsedMs >= GIVE_UP_MS) return { kind: 'timeout', appRunning: seen.version !== null }
   return { kind: 'waiting', slow: seen.elapsedMs >= SLOW_MS }
@@ -147,6 +153,7 @@ export const page = {
 // ---- "Not now" on the banner: hidden until a newer version comes out ----------------------------
 
 const DISMISSED_KEY = 'scrappy-update-dismissed'
+const SETTLED_KEY = 'scrappy-update-settled'
 const TOLD_KEY = 'scrappy-update-told'
 
 export function isDismissed(version: string): boolean {
@@ -179,5 +186,31 @@ export function markTold(startedAt: string) {
     localStorage.setItem(TOLD_KEY, startedAt)
   } catch {
     // nothing to do
+  }
+}
+
+// ---- Attempts this window has already finished with ---------------------------------------------
+
+/**
+ * An update (by its start time) this window gave up waiting for, or has already told the owner
+ * didn't finish. The Updating screen never comes back for it, and "The last update didn't
+ * finish" is said once.
+ */
+export function isSettled(startedAt: string): boolean {
+  try {
+    return (JSON.parse(localStorage.getItem(SETTLED_KEY) ?? '[]') as string[]).includes(startedAt)
+  } catch {
+    return false
+  }
+}
+
+export function markSettled(startedAt: string) {
+  try {
+    const list = JSON.parse(localStorage.getItem(SETTLED_KEY) ?? '[]') as string[]
+    if (!list.includes(startedAt)) {
+      localStorage.setItem(SETTLED_KEY, JSON.stringify([...list, startedAt].slice(-10)))
+    }
+  } catch {
+    // private window: at worst it's said again
   }
 }

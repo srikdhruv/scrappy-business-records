@@ -41,6 +41,8 @@ import {
   alreadyTold,
   dismiss,
   isDismissed,
+  isSettled,
+  markSettled,
   markTold,
   page,
   watchUpdate,
@@ -87,7 +89,10 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
   // An update started in another window of the app shows the same screen here, so this one
   // reloads onto the new version too.
-  const running = info?.last_attempt?.outcome === 'running' ? info.last_attempt : null
+  // Never for an update this window already gave up on (it may still say "running" for a
+  // while: the server gives up on it after 30 minutes).
+  const last = info?.last_attempt
+  const running = last?.outcome === 'running' && !isSettled(last.started_at) ? last : null
   const shown: Updating | null =
     updating ??
     (running && info
@@ -115,6 +120,9 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
           phase,
         }))
         if (phase.kind === 'done') page.reload()
+        if ((phase.kind === 'failed' || phase.kind === 'timeout') && startedAt) {
+          markSettled(startedAt) // said here: not again, and not "The last update didn't finish"
+        }
       },
     })
   }, [watching, fromVersion, toVersion, startedAt])
@@ -188,6 +196,46 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 export function UpdateBanner() {
   const { info, ready, askToUpdate, showWhatsNew } = useUpdate()
   const [hidden, setHidden] = useState(false)
+  // The last update failed or was cut short (a restart, say), and this window hasn't said so
+  // yet: say it once.
+  const failedAt = info?.last_attempt?.outcome === 'failed' ? info.last_attempt.started_at : null
+  const [notice, setNotice] = useState<{ id: string; show: boolean } | null>(null)
+  if (failedAt && notice?.id !== failedAt) setNotice({ id: failedAt, show: !isSettled(failedAt) })
+  useEffect(() => {
+    if (notice?.show) markSettled(notice.id) // said once
+  }, [notice])
+  const close = () => setNotice((n) => (n ? { ...n, show: false } : n))
+  if (notice?.show) {
+    return (
+      <section
+        aria-label="The last update"
+        className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-xl border border-partial/30 bg-partial-soft px-4 py-3 print:hidden"
+      >
+        <TriangleAlertIcon className="size-5 shrink-0 text-partial" aria-hidden />
+        <p className="min-w-0 flex-1 text-base">
+          <strong>The last update didn’t finish — your records are safe.</strong>{' '}
+          <span className="text-foreground/80">
+            You still have version {info?.current}, just as it was.
+          </span>
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {ready && (
+            <Button
+              onClick={() => {
+                close()
+                askToUpdate()
+              }}
+            >
+              Try again
+            </Button>
+          )}
+          <Button variant="ghost" onClick={close}>
+            OK
+          </Button>
+        </div>
+      </section>
+    )
+  }
   if (!ready || !info?.latest || hidden || isDismissed(info.latest)) return null
   const latest = info.latest
   return (
@@ -455,6 +503,12 @@ function UpdatingScreen({
                   If it keeps happening, send this file to whoever set up the app:{' '}
                   <span className="font-mono break-all">{logFile}</span>
                 </p>
+              )}
+              {phase.kind === 'failed' && phase.technical && (
+                <details className="text-sm text-muted-foreground">
+                  <summary className="cursor-pointer">Technical details</summary>
+                  <p className="mt-1 font-mono break-words">{phase.technical}</p>
+                </details>
               )}
             </>
           )}

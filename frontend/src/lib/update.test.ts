@@ -1,6 +1,8 @@
 import {
   alreadyTold,
   dismiss,
+  isSettled,
+  markSettled,
   GIVE_UP_MS,
   isDismissed,
   markTold,
@@ -44,6 +46,7 @@ describe('nextPhase', () => {
     expect(nextPhase(UPDATE, { elapsedMs: 60_000, version: '0.2.0', attempt: failed() })).toEqual({
       kind: 'failed',
       detail: failed().detail,
+      technical: '',
       appRunning: true,
     })
   })
@@ -140,5 +143,25 @@ describe('Not now, and saying "Updated" once', () => {
     markTold('a')
     expect(alreadyTold('a')).toBe(true)
     expect(alreadyTold('b')).toBe(false)
+  })
+})
+
+describe('settled attempts', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('remembers the attempts this window finished with (the last 10)', () => {
+    expect(isSettled('a')).toBe(false)
+    markSettled('a')
+    markSettled('a')
+    expect(isSettled('a')).toBe(true)
+    for (let i = 0; i < 12; i++) markSettled(`x${i}`)
+    expect(isSettled('a')).toBe(false)
+    expect(isSettled('x11')).toBe(true)
+  })
+
+  it('a broken value is ignored', () => {
+    localStorage.setItem('scrappy-update-settled', '{nope')
+    expect(isSettled('a')).toBe(false)
+    markSettled('a')
   })
 })
