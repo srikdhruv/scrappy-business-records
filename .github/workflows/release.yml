@@ -108,33 +108,56 @@ jobs:
           if-no-files-found: error
 
   publish:
-    # Published as a *prerelease* first: `releases/latest/download/...` (what the install line
-    # uses) ignores prereleases, so users keep getting the previous version until the checks
-    # below have installed this one on a real Windows machine.
-    name: Publish the GitHub Release (as a prerelease)
+    # Releases are immutable (repo setting): once published, files can't be added or changed,
+    # and the tag can't be moved or used again. So every file goes into a *draft* first:
+    # both zips, install.ps1 and install.sh (Update now runs the new release's own installer
+    # from here), and SHA256SUMS covering all four. Then it's published as a *prerelease*:
+    # `releases/latest` (the install line, and the app's update check) ignores prereleases, so
+    # users keep getting the previous version until the checks below have installed this one.
+    name: Publish the GitHub Release (a draft with every file, then a prerelease)
     needs: bundle
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7 # this tag's install.ps1 and install.sh
       - uses: actions/download-artifact@v8
         with:
           pattern: bundle-*
           path: dist
           merge-multiple: true
-      - name: Create the release with both zips
+      - name: The installers, and SHA256SUMS of every file
+        run: |
+          cp scripts/install.ps1 scripts/install.sh dist/
+          cd dist
+          sha256sum scrappy-records-windows-x64.zip scrappy-records-macos-arm64.zip \
+            install.ps1 install.sh > SHA256SUMS
+          cat SHA256SUMS
+          ls -l
+      - name: Create a draft with every file
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ls -l dist
           gh release create "$GITHUB_REF_NAME" \
             dist/scrappy-records-windows-x64.zip \
             dist/scrappy-records-macos-arm64.zip \
+            dist/install.ps1 \
+            dist/install.sh \
+            dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --title "Scrappy Records $GITHUB_REF_NAME" \
             --generate-notes \
             --verify-tag \
+            --draft \
             --prerelease
+      - name: Publish it as a prerelease (its files can't change from here on)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,isPrerelease,isImmutable,assets \
+            --jq '{isDraft, isPrerelease, isImmutable, assets: [.assets[].name]}'
 
   verify-candidate:
     name: Install the new release by its tag (-Version), like a user
@@ -144,9 +167,44 @@ jobs:
       tag: ${{ github.ref_name }}
       mode: tagged
 
+  verify-in-app:
+    # Update now, with the release's real files: an installed copy (this release's zip
+    # relabelled 0.0.1; the real v0.2.0 zip once it exists, see docs/runbooks/release.md) is
+    # offered this tag by a local feed (a prerelease isn't "latest" yet), downloads install.ps1
+    # / install.sh and SHA256SUMS from releases/download/<tag>/, checks them, and the installer
+    # downloads and checks the real zip. No local zip anywhere.
+    name: Update from inside the app to the new release (${{ matrix.platform }})
+    needs: publish
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+          - os: macos-latest
+            platform: macos-arm64
+    steps:
+      - uses: actions/checkout@v7
+      # setup-uv publishes no floating major tag (e.g. v10), so pin the exact release.
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/download-artifact@v8
+        with:
+          name: bundle-${{ matrix.platform }}
+          path: dist
+      - name: Update now, from an installed older copy to ${{ github.ref_name }}
+        run: >-
+          uv run --project backend python scripts/ci/smoke_in_app_update.py
+          dist/scrappy-records-${{ matrix.platform }}.zip
+          --release-tag ${{ github.ref_name }}
+
   promote:
     name: Make it the latest release
-    needs: verify-candidate
+    needs: [verify-candidate, verify-in-app]
     runs-on: ubuntu-latest
     permissions:
       contents: write
