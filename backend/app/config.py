@@ -29,7 +29,7 @@ DB_FILENAME = "records.db"
 HOST = "127.0.0.1"  # Never bind anything else: the app must not be reachable from the network.
 DEFAULT_PORT = 8765
 
-FEEDBACK_URL = ""
+FEEDBACK_URL = "https://scrappy-feedback.srikdhruv.workers.dev/feedback"
 """The feedback relay (a Cloudflare Worker, `relay/`), e.g.
 `https://scrappy-feedback.<account>.workers.dev/feedback`. Sending feedback is the app's only
 outbound call at runtime, and only feedback the owner chose to send goes there (ADR 0005).
