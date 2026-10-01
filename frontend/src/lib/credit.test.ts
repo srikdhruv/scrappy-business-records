@@ -105,6 +105,7 @@ describe('the words for extra money', () => {
       student_id: 1,
       student_name: 'Ananya Rao',
       batch_label: null,
+      batch_name: null,
       phone: null,
       payment_id: id,
       paid_on: '2026-09-20',

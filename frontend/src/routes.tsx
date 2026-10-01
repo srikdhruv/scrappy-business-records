@@ -17,6 +17,7 @@ export const routes: RouteObject[] = [
       { path: 'payments', element: <PaymentsPage /> },
       { path: 'report', element: <ReportPage /> },
       { path: 'students', element: <StudentsPage /> },
+      { path: 'students/batch/:batchId', element: <StudentsPage /> },
       { path: 'students/:id', element: <StudentProfilePage /> },
       { path: '*', element: <NotFoundPage /> },
     ],

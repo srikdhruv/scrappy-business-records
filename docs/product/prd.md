@@ -45,16 +45,29 @@ can open the app and see who is left to pay.
      as Excel or print (see "Monthly report for a selected month M").
 5. **Payments page.** Every payment, sortable and filterable.
 6. **Students page.** Every student, with a status and how long they have been a student.
-7. **Excel.** Download the Students and Payments lists (as shown), or everything, as an Excel
-   file; upload students and payments from one, with a preview first. An upload never changes
+   Found fast: search as you type (Enter opens the first match), sort, filter and group.
+7. **Excel.** Download the Students and Payments lists (as shown), or everything (batches
+   included), as an Excel file; upload students and payments from one, with a preview first. A
+   Batch column puts new students in batches by name; a batch the app doesn't know is flagged
+   and only created if the owner ticks it. An upload never changes
    what is already here, and payments whose student isn't found wait as *unassigned* until
    given to a student.
+8. **Batches.** The classes students come to. See [Batches](#batches).
+   - Create, edit and delete batches. A batch has a name (unique, ignoring capitals and
+     spaces), and optionally a location, the days it meets, start and end times, a **usual
+     monthly fee** and notes.
+   - Each student is in **one batch or none** ("No batch").
+   - The Students page has a tab per batch, across the top (the main menu runs down the side),
+     plus *All batches* and *No batch*; a dropdown on a narrow window.
+   - For a chosen month, each batch shows its students, their fees, what's collected and a
+     **% paid**.
+   - The old free-text class labels can be turned into batches, in one step the owner confirms.
 
 ### Not in the MVP
 
-See [future-features.md](future-features.md). In short: locations, batches, bank-statement
-import, notifications, reminders, attendance, instructor payouts, analytics, and a Start Menu
-entry.
+See [future-features.md](future-features.md). In short: locations as records of their own
+(with an address), a student in more than one batch, instructors, bank-statement import,
+notifications, reminders, attendance, instructor payouts, analytics, and a Start Menu entry.
 
 ## User stories
 
@@ -80,6 +93,13 @@ entry.
 | X1 | download the Students or Payments list, or everything, as an Excel file | my records can be moved or shared |
 | X2 | upload students and payments from an Excel file, seeing what will happen first | I can add a list at once, without duplicates or overwriting anything |
 | X3 | give a payment that matched no student to the right student later | nothing uploaded is lost |
+| B1 | create my batches, with their place, days, times and usual fee | my students are grouped the way I teach |
+| B2 | add a student to a batch with its fee filled in, and move a student to another batch | adding someone takes seconds, and a discount is still possible |
+| B3 | see, for any month, how much of each batch's fees is paid (100% when everyone has) | I know which batch to follow up with |
+| B4 | turn the class labels I typed before into batches, after seeing what will happen | I don't have to place every student by hand |
+| B5 | find any student in a keystroke or two, and sort, filter and group everyone by batch, place, day or status | I never hunt for a name |
+| B6 | change a batch's usual fee, and choose whether its students pay it too, from a month | nobody's fee changes by surprise |
+| B7 | tick many students and move them to a batch at once | setting up batches takes minutes, not an afternoon |
 
 ## Data captured
 
@@ -87,10 +107,21 @@ entry.
 - Name (required).
 - Phone (optional).
 - Parent/guardian name (optional).
-- Class/batch label (optional free text, e.g. "Tue/Thu 5pm – Indiranagar").
+- Batch (optional): the batch they're in, or none.
+- Class/batch label (optional free text, e.g. "Tue/Thu 5pm – Indiranagar"): what was typed
+  before batches existed. Kept exactly as typed; the form only shows it for a student who has
+  one.
 - Monthly fee (required).
 - Joined month (required; defaults to this month).
 - Left month (optional).
+- Notes.
+
+**Batch**
+- Name (required, unique ignoring capitals and spaces).
+- Location (optional free text).
+- Days (any of Monday to Sunday).
+- Start and end time (optional, `HH:MM`; the end after the start).
+- Usual monthly fee (optional): prefills the fee of a new student in the batch.
 - Notes.
 
 **Payment**
@@ -255,6 +286,44 @@ These rules decide every number the app shows.
     would make every month away owed. If they came back after all, use this step from the
     month after they left (so nothing is skipped), then set a new left month if needed.
 
+### Batches
+
+1. **One batch or none.** A student is in at most one batch at a time. Deleting a batch never
+   deletes a student: its students are then in no batch.
+2. **The usual fee only prefills.** Every student keeps their own fee (discounts, siblings, a
+   free place). Changing a batch's usual fee changes no student's fee by itself. The owner may
+   tick *Also charge it to …*, which lists every student in the batch who hasn't left, each with
+   a tick box, from one server rule (the preview and the change use the same one):
+   - ticked at first: those whose every month that would change has the **usual fee** (the
+     batch's old one, or if it had none, the fee most of its students pay; nobody on a tie);
+   - not ticked: those on **their own fee**, and those with **a fee change of their own** from
+     that month on: set earlier (a discount, a month off, the fee they came back on) or planned
+     for later. Such a change is never cut short or replaced without that student's own tick;
+   - every student's line says what ticking would do to them, in the words of rule 7 ("from
+     July they'll owe ₹1,800, until September, when ₹1,000 (already set) starts");
+   - not listed as changing: those already on the new fee, and those who leave before the
+     month.
+
+   Each ticked student gets an ordinary fee change (rule 7) from the chosen month (this month
+   at first). Someone who joins after it gets it from their joining month; if the month falls in
+   their months away (rule 11), it starts from the month they came back. A month before this
+   one warns how many months already due change and how much more (or less) the ticked
+   students then owe.
+3. **A batch's numbers for month M** are the Dashboard's summary (rules 1–5 and 10), worked out
+   over the batch's students only: students active in M, expected, collected (or paid ahead,
+   for a later M), still due and not fully paid. **% paid** = (expected − still due) /
+   expected, rounded down, so it is 100% only when every fee in the batch is fully paid; none
+   when nothing is expected. The batch is the one each student is in **now** (a move to another
+   batch takes their past months with them; batch history isn't kept). Every batch plus "No
+   batch" adds up to the Dashboard.
+4. **Labels to batches.** Students in no batch whose label isn't blank are grouped by label,
+   ignoring capitals, accents and spaces. Each group becomes a batch named after its most
+   common spelling (or goes into the existing batch of that name). A preview shows every group
+   and student; nothing changes until the owner confirms. Then, after a backup, it is done in
+   one transaction. Labels are never changed. Running it again does nothing.
+5. **Many at once.** Ticked students on the Students page move to a batch (or none) in one
+   step. Their fees don't change.
+
 ### Dashboard for a selected month M
 
 | Section | Contents |
@@ -298,7 +367,7 @@ The answers come first, then the details:
 | Extra sent elsewhere | M's money above its fee that paid other months, with those months; money no month needed is "kept as credit" |
 | Owed from earlier months | What's left on due months before M (the student's *Backlog* total), with the months as runs ("Jan–Jun 2026 (6 months)") |
 | Kept as credit / paid ahead | `credit_paise` and `paid_ahead_paise` (rule 6) |
-| Class/batch, Phone | As entered |
+| Class/batch, Phone | Their batch (else the old class label), and phone, as entered |
 
 Rows start with whom to follow up (Unpaid, then Partial, Not due yet, Paid (from extra), Paid,
 No fee, Left), then by name, the name compared as the screen's search compares it (accents,
@@ -331,6 +400,11 @@ accounted for.
 - ₹ in Indian grouping (₹1,50,000). Dates like "5 Oct 2026". Months like "October 2026".
 - Every destructive action asks for confirmation and says what will happen.
 - The **+ Log payment** button is visible on every page.
+- **Two directions, never confused.** The main menu runs down the left side; the Students
+  page's batch tabs run across the top. On a narrow window, where the menu moves to the top,
+  the batches are one dropdown instead of a second row of tabs.
+- **Finding a student is instant.** Search as you type on the Students page (and "/" to get
+  there), Enter opens the first match, and one click opens any profile.
 - Works well at laptop widths (1280–1920px) and is still usable on a small window.
 
 ## Non-functional requirements

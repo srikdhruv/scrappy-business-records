@@ -10,15 +10,15 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app import config, migrate, seed
 from app.db import get_engine
-from app.models import Payment, PaymentMethod, Student
+from app.models import Batch, Payment, PaymentMethod, Student
 from app.months import add_months
 from app.schemas import BalanceStatus, MonthStatus
 from app.services import ledger
-from app.services.students import to_record
+from app.services.students import LEDGER_ROWS, to_record
 
 TODAY = dt.date(2026, 9, 29)
 NOW = dt.date(2026, 9, 1)
@@ -33,10 +33,7 @@ def session() -> Iterator[Session]:
 
 
 def load(session: Session) -> list[Student]:
-    stmt = select(Student).options(
-        selectinload(Student.fee_changes), selectinload(Student.payments)
-    )
-    return list(session.scalars(stmt))
+    return list(session.scalars(select(Student).options(*LEDGER_ROWS)))
 
 
 def test_seed_mix(session: Session) -> None:
@@ -48,7 +45,11 @@ def test_seed_mix(session: Session) -> None:
 
     # Fictional details.
     assert all(s.phone is None or s.phone.startswith("90000 000") for s in students)
-    assert len({s.batch_label for s in students}) == 5
+    assert len({s.batch_id for s in students}) == 5
+    assert all(s.batch_id is not None for s in students)
+    batches = list(session.scalars(select(Batch)))
+    assert len(batches) == 5
+    assert all(b.location and b.start_time and b.end_time and b.default_fee_paise for b in batches)
     fees = {f.amount_paise for s in students for f in s.fee_changes}
     assert min(fees) >= 1200_00 and max(fees) <= 3000_00
 

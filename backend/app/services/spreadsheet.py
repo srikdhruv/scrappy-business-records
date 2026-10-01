@@ -66,6 +66,11 @@ class Col(StrEnum):
     phone = "phone"
     guardian = "guardian"
     batch = "batch"
+    label = "label"
+    location = "location"
+    days = "days"
+    starts = "starts"
+    ends = "ends"
     fee = "fee"
     joined = "joined"
     left = "left"
@@ -115,7 +120,16 @@ _STUDENT_HEADINGS = {
         "parent or guardian",
         "parents",
     ),
-    Col.batch: ("class/batch", "class", "batch", "class or batch", "batch/class", "group"),
+    Col.batch: (
+        "batch",
+        "class/batch",
+        "class",
+        "class or batch",
+        "batch/class",
+        "group",
+        "batch name",
+    ),
+    Col.label: ("old class label", "old label", "class label"),
     Col.fee: ("monthly fee", "fee", "fees", "monthly fees", "fee per month"),
     Col.joined: (
         "joined",
@@ -156,11 +170,23 @@ _FEE_HEADINGS = {
 }
 
 
+_BATCH_HEADINGS = {
+    Col.name: ("name", "batch", "batch name"),
+    Col.location: ("location", "place", "where"),
+    Col.days: ("days", "day"),
+    Col.starts: ("starts", "starts at", "start", "start time", "from"),
+    Col.ends: ("ends", "ends at", "end", "end time", "until", "to"),
+    Col.fee: ("usual monthly fee", "usual fee", "default fee", "monthly fee", "fee"),
+    Col.notes: ("notes", "note", "remarks"),
+}
+
+
 class SheetKind(StrEnum):
     students = "students"
     payments = "payments"
     fee_history = "fee_history"
     unassigned = "unassigned"
+    batches = "batches"
 
 
 _HEADINGS = {
@@ -168,14 +194,17 @@ _HEADINGS = {
     SheetKind.payments: _PAYMENT_HEADINGS,
     SheetKind.unassigned: _PAYMENT_HEADINGS,
     SheetKind.fee_history: _FEE_HEADINGS,
+    SheetKind.batches: _BATCH_HEADINGS,
 }
 
-# The app's own sheet names, which decide a sheet's kind before its headings do.
+# The app's own sheet names, which decide a sheet's kind before its headings do. A Batches
+# sheet is only ever read by its name (a list of students has names and days too).
 _TITLES = {
     "students": SheetKind.students,
     "fee history": SheetKind.fee_history,
     "payments": SheetKind.payments,
     "unassigned payments": SheetKind.unassigned,
+    "batches": SheetKind.batches,
 }
 
 
@@ -201,6 +230,8 @@ def _complete(kind: SheetKind, cols: dict[Col, int]) -> bool:
         return Col.name in cols and (Col.fee in cols or Col.joined in cols)
     if kind in (SheetKind.payments, SheetKind.unassigned):
         return (Col.student in cols or Col.phone in cols) and Col.amount in cols
+    if kind is SheetKind.batches:
+        return Col.name in cols
     return Col.fee_from in cols and Col.fee in cols and Col.ref in cols
 
 
@@ -395,9 +426,10 @@ def read_workbook(data: bytes) -> Workbook:
             "Student, Amount and Paid on for payments. Download a blank template to see how."
         )
     if not any(s.kind is SheetKind.students for s in sheets):
-        # A fee history means nothing without its students.
-        ignored += [s.title for s in sheets if s.kind is SheetKind.fee_history]
-        sheets = [s for s in sheets if s.kind is not SheetKind.fee_history]
+        # A fee history, or a list of batches, means nothing without its students.
+        alone = (SheetKind.fee_history, SheetKind.batches)
+        ignored += [s.title for s in sheets if s.kind in alone]
+        sheets = [s for s in sheets if s.kind not in alone]
     return Workbook(sheets=sheets, ignored=ignored, hidden=hidden)
 
 
@@ -664,3 +696,69 @@ def fee_kind(value: object) -> FeeKind:
     if s.startswith("away"):
         return FeeKind.away
     raise CellError(f"“{(text(value) or '')[:40]}” should be Fee or Away")
+
+
+# --------------------------------------------------------------------------- batches
+
+_DAY_WORDS = {
+    "mon": "mon", "monday": "mon", "tue": "tue", "tues": "tue", "tuesday": "tue",
+    "wed": "wed", "wednesday": "wed", "thu": "thu", "thur": "thu", "thurs": "thu",
+    "thursday": "thu", "fri": "fri", "friday": "fri", "sat": "sat", "saturday": "sat",
+    "sun": "sun", "sunday": "sun",
+}  # fmt: skip
+_WEEK = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def days(value: object) -> list[str]:
+    """The days a batch meets, Monday first: "Mon, Wed" and "monday wednesday" are
+    ["mon", "wed"]; "Tue/Thu", "Mon-Fri" (a dash of any kind) and "Every day" work too.
+    Blank -> []. Raises `CellError` for a word that isn't a day."""
+    raw = text(value)
+    if raw is None:
+        return []
+    dashed = raw.lower().replace("\N{EN DASH}", "-").replace("\N{EM DASH}", "-")
+    lowered = re.sub(r"\s*-\s*", "-", dashed)
+    if lowered.strip() in ("every day", "everyday", "daily", "all days"):
+        return list(_WEEK)
+    found: set[str] = set()
+    for part in re.split(r"[,/&;+]|\band\b|\s+(?![^-]*-)", lowered):
+        part = part.strip().strip(".")
+        if not part:
+            continue
+        if "-" in part:  # a range: Mon-Fri
+            start, _, end = (p.strip().strip(".") for p in part.partition("-"))
+            if start in _DAY_WORDS and end in _DAY_WORDS:
+                a, b = _WEEK.index(_DAY_WORDS[start]), _WEEK.index(_DAY_WORDS[end])
+                found.update(_WEEK[a : b + 1] if a <= b else (*_WEEK[a:], *_WEEK[: b + 1]))
+                continue
+        if part not in _DAY_WORDS:
+            raise CellError(f"“{raw[:40]}” isn't a list of days. Write it like Mon, Wed")
+        found.add(_DAY_WORDS[part])
+    return [d for d in _WEEK if d in found]
+
+
+_TIME_RE = re.compile(r"^(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?$")
+
+
+def clock_time(value: object) -> str | None:
+    """A time of day -> "HH:MM", or None if blank: 17:00, 5:00 pm, 5pm, 9.30 am, or an Excel
+    time. Raises `CellError` for anything else."""
+    if _blank(value):
+        return None
+    if isinstance(value, dt.datetime):
+        value = value.time()
+    if isinstance(value, dt.time):
+        return f"{value.hour:02d}:{value.minute:02d}"
+    if isinstance(value, float) and 0 <= value < 1:  # an Excel time as a fraction of a day
+        minutes = round(value * 24 * 60)
+        return f"{minutes // 60:02d}:{minutes % 60:02d}"
+    raw = str(value).strip().lower()
+    match = _TIME_RE.match(raw)
+    if match:
+        hour, minute = int(match.group(1)), int(match.group(2) or 0)
+        half = (match.group(3) or "").replace(".", "")
+        if half and 1 <= hour <= 12:
+            hour = hour % 12 + (12 if half == "pm" else 0)
+        if hour <= 23 and minute <= 59 and (half or match.group(2) is not None):
+            return f"{hour:02d}:{minute:02d}"
+    raise CellError(f"“{str(value)[:40]}” isn't a time. Write it like 17:00 or 5:00 pm")

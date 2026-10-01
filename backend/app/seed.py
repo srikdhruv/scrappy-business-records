@@ -11,7 +11,8 @@ needed. Before `--force` deletes anything, it copies the database into
 Everything is relative to today's month and deterministic: the same day
 always gives the same data.
 
-The mix: about 25 students across five batches, 12 months of history, mostly paid on time and
+The mix: about 25 students in five batches (each with a location, days, times and a usual fee;
+a few students pay their own fee), 12 months of history, mostly paid on time and
 mostly by UPI, with some cash. Also: a few unpaid for this month, two partial payments, one month
 paid in two parts, two students with a backlog, one payment for two months at once (logged for
 this month, so its extra covers last month), one advance payment, one student who left, one fee
@@ -37,17 +38,28 @@ from sqlalchemy.orm import Session
 
 from app import config, migrate
 from app.db import get_engine
-from app.models import FeeChange, Payment, PaymentMethod, Student
+from app.models import Batch, FeeChange, Payment, PaymentMethod, Student
 from app.months import add_months, current_month, month_range
 
 RANDOM_SEED = 2026
-DASH = "\N{EN DASH}"
+
+
+@dataclass(frozen=True)
+class DemoBatch:
+    name: str
+    location: str
+    days: str  # Monday first, as stored: "1010000" is Mon and Wed
+    start: str
+    end: str
+    fee_rupees: int
+
+
 BATCHES = (
-    f"Mon/Wed 5pm {DASH} Koramangala",
-    f"Tue/Thu 6pm {DASH} HSR Layout",
-    f"Sat 10am {DASH} Jayanagar Studio",
-    f"Sun 9am {DASH} Indiranagar",
-    f"Fri 4pm {DASH} Whitefield",
+    DemoBatch("Mon/Wed Evening", "Koramangala", "1010000", "17:00", "18:00", 1500),
+    DemoBatch("Tue/Thu Juniors", "HSR Layout", "0101000", "18:00", "19:00", 1800),
+    DemoBatch("Saturday Morning", "Jayanagar Studio", "0000010", "10:00", "11:30", 1200),
+    DemoBatch("Sunday Seniors", "Indiranagar", "0000001", "09:00", "10:30", 2000),
+    DemoBatch("Friday Beginners", "Whitefield", "0000100", "16:00", "17:00", 2500),
 )
 
 
@@ -144,7 +156,6 @@ class _Maker:
             name=demo.name,
             phone=f"90000 000{index:02d}" if demo.phone else None,  # obviously not real
             guardian_name=demo.guardian,
-            batch_label=BATCHES[demo.batch],
             joined_month=joined,
             notes=demo.notes,
         )
@@ -231,19 +242,44 @@ def seed(session: Session, today: dt.date, *, force: bool = False) -> int:
     """Insert the demo data. Returns the number of students added.
 
     Raises `RuntimeError` if there are students already, unless `force` (which deletes every
-    student, fee change and payment first).
+    student, fee change, payment and batch first).
     """
     existing = student_count(session)
+    if not existing and session.scalar(select(func.count()).select_from(Batch)):
+        existing = -1  # batches but no students: still not an empty database
     if existing and not force:
         raise RuntimeError(
             f"The database already has {existing} students. Use --force to replace them."
+            if existing > 0
+            else "The database already has batches. Use --force to replace them."
         )
     if existing:
         session.execute(delete(Student))  # fee changes and payments cascade
+        session.execute(delete(Batch))
+    batches = build_batches()
+    session.add_all(batches)
+    session.flush()
     students = build_students(today)
+    for student, demo in zip(students, ROSTER, strict=True):
+        student.batch_id = batches[demo.batch].id
     session.add_all(students)
     session.commit()
     return len(students)
+
+
+def build_batches() -> list[Batch]:
+    """The demo batches, not yet saved."""
+    return [
+        Batch(
+            name=b.name,
+            location=b.location,
+            days=b.days,
+            start_time=b.start,
+            end_time=b.end,
+            default_fee_paise=b.fee_rupees * 100,
+        )
+        for b in BATCHES
+    ]
 
 
 def backup_before_wipe() -> Path:

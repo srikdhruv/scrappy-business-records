@@ -3,6 +3,15 @@
  * payments) and answers with the same shapes as the real API (`src/api/schema.d.ts`).
  */
 import type {
+  BatchCreate,
+  BatchOverview,
+  BatchRead,
+  BatchSummary,
+  BatchUpdate,
+  FeePlan,
+  FeePlanStatus,
+  LabelConversion,
+  LabelPreview,
   PaymentCreate,
   PaymentRead,
   PaymentSort,
@@ -15,6 +24,7 @@ import type {
   StudentReturn,
   StudentUpdate,
   UnassignedPaymentRead,
+  Weekday,
 } from '@/api/types'
 import { monthsAhead, needsCheck } from '@/lib/allocation'
 import { nextFeeChange, returnFee } from '@/lib/fees'
@@ -26,6 +36,7 @@ import {
   creditPaise,
   dashboard,
   feeFor,
+  isActive,
   isStillActive,
   ledgerMonths,
   owedPaise,
@@ -35,6 +46,7 @@ import {
   MONTHS_AHEAD,
   suggestPayment,
   tenureMonths,
+  type BatchRow,
   type FeeChangeRow,
   type PaymentRow,
   type StudentBook,
@@ -47,6 +59,15 @@ export interface Fixture {
   payments: PaymentRow[]
   /** Uploaded payments waiting for a student. */
   unassigned?: UnassignedPaymentRead[]
+  batches?: BatchRow[]
+}
+
+const WEEKDAYS: Weekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+
+/** Ignoring capitals, accents and spaces (backend `same_text_key`). */
+export function sameTextKey(text: string): string {
+  return text.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, '')
 }
 
 /** A 404 or 422 to send back, in FastAPI's error shape. */
@@ -128,6 +149,9 @@ export class MockDb {
   fees: FeeChangeRow[] = []
   payments: PaymentRow[] = []
   unassigned: UnassignedPaymentRead[] = []
+  batches: BatchRow[] = []
+  /** Backups the label conversion took (`pre-batches`), newest last. */
+  backups: string[] = []
   private nextId = 1
 
   constructor(fixture?: Fixture) {
@@ -139,9 +163,15 @@ export class MockDb {
     this.fees = fixture.fees.map((f) => ({ ...f }))
     this.payments = fixture.payments.map((p) => ({ ...p }))
     this.unassigned = (fixture.unassigned ?? []).map((u) => ({ ...u }))
-    const ids = [...this.students, ...this.fees, ...this.payments, ...this.unassigned].map(
-      (row) => row.id,
-    )
+    this.batches = (fixture.batches ?? []).map((b) => ({ ...b, days: [...b.days] }))
+    this.backups = []
+    const ids = [
+      ...this.students,
+      ...this.fees,
+      ...this.payments,
+      ...this.unassigned,
+      ...this.batches,
+    ].map((row) => row.id)
     this.nextId = Math.max(0, ...ids) + 1
   }
 
@@ -158,6 +188,19 @@ export class MockDb {
       student,
       fees: this.fees.filter((f) => f.student_id === student.id),
       payments: this.payments.filter((p) => p.student_id === student.id),
+      batchName: this.batchOf(student)?.name ?? null,
+    }
+  }
+
+  private batchOf(student: StudentRow): BatchRow | undefined {
+    return student.batch_id === null
+      ? undefined
+      : this.batches.find((b) => b.id === student.batch_id)
+  }
+
+  private checkBatch(batchId: number | null | undefined) {
+    if (batchId != null && !this.batches.some((b) => b.id === batchId)) {
+      invalid('batch_id', "That batch doesn't exist any more. Choose another one, or No batch.")
     }
   }
 
@@ -178,6 +221,7 @@ export class MockDb {
     const credit = creditPaise(book, now)
     return {
       ...student,
+      batch_name: this.batchOf(student)?.name ?? null,
       is_active: isStillActive(student, now),
       monthly_fee_paise: feeFor(book.fees, now < student.joined_month ? student.joined_month : now),
       balance_paise: balance(book, now),
@@ -212,11 +256,34 @@ export class MockDb {
     }
   }
 
-  listStudents(status: StudentListFilter = 'active', q?: string | null): StudentRead[] {
+  listStudents(
+    status: StudentListFilter = 'active',
+    q?: string | null,
+    batch?: string | null,
+    location?: string | null,
+  ): StudentRead[] {
     const needle = q?.trim().toLowerCase()
     const now = this.now()
+    const place = location?.trim() ? sameTextKey(location) : null
+    if (batch && batch.toLowerCase() !== 'none' && !/^\d+$/.test(batch)) {
+      throw new MockHttpError(422, {
+        detail: [
+          {
+            loc: ['query', 'batch'],
+            msg: 'Choose a batch by its number, or none',
+            type: 'value_error',
+          },
+        ],
+      })
+    }
     return this.students
       .filter((s) => {
+        if (batch && batch.toLowerCase() === 'none' && s.batch_id !== null) return false
+        if (batch && /^\d+$/.test(batch) && s.batch_id !== Number(batch)) return false
+        if (place !== null) {
+          const where = this.batchOf(s)?.location
+          if (!where || sameTextKey(where) !== place) return false
+        }
         if (status === 'active' && !isStillActive(s, now)) return false
         if (status === 'left' && isStillActive(s, now)) return false
         if (!needle) return true
@@ -247,6 +314,7 @@ export class MockDb {
     }
     checkNotTooLate('joined_month', body.joined_month, this.now())
     checkNotTooLate('left_month', body.left_month, this.now())
+    this.checkBatch(body.batch_id)
     const now = nowIso()
     const student: StudentRow = {
       id: this.id(),
@@ -254,6 +322,7 @@ export class MockDb {
       phone: blankToNull(body.phone),
       guardian_name: blankToNull(body.guardian_name),
       batch_label: blankToNull(body.batch_label),
+      batch_id: body.batch_id ?? null,
       joined_month: body.joined_month,
       left_month: body.left_month ?? null,
       notes: blankToNull(body.notes),
@@ -283,6 +352,10 @@ export class MockDb {
     }
     for (const key of ['phone', 'guardian_name', 'batch_label', 'notes'] as const) {
       if (key in body) next[key] = blankToNull(body[key])
+    }
+    if ('batch_id' in body) {
+      this.checkBatch(body.batch_id)
+      next.batch_id = body.batch_id ?? null
     }
     const fee = body.monthly_fee_paise
     if (fee !== undefined && fee !== null && (!Number.isInteger(fee) || fee < 0)) {
@@ -339,22 +412,27 @@ export class MockDb {
     next.joined_month = joined
     next.left_month = left
     if (joined !== student.joined_month && own[0]) own[0].effective_month = joined
-    if (feeMonth !== null && fee != null && feeFor(own, feeMonth) !== fee) {
-      // A fee change for a month that already has one replaces its amount.
-      const existing = own.find((f) => f.effective_month === feeMonth)
-      if (existing) Object.assign(existing, { amount_paise: fee, kind: 'fee' })
-      else
-        this.fees.push({
-          id: this.id(),
-          student_id: id,
-          effective_month: feeMonth,
-          amount_paise: fee,
-          kind: 'fee',
-        })
-    }
+    if (feeMonth !== null && fee != null) this.setFeeFrom(id, feeMonth, fee)
 
     Object.assign(student, next, { updated_at: nowIso() })
     return this.toDetail(student)
+  }
+
+  /** Mirrors `set_fee_from`: an upsert on that month's fee change, or nothing if already so. */
+  private setFeeFrom(id: number, month: string, fee: number) {
+    const own = this.fees.filter((f) => f.student_id === id)
+    const existing = own.find((f) => f.effective_month === month)
+    // A fee change for a month that already has one replaces its amount.
+    if (existing) Object.assign(existing, { amount_paise: fee, kind: 'fee' })
+    else if (feeFor(own, month) !== fee) {
+      this.fees.push({
+        id: this.id(),
+        student_id: id,
+        effective_month: month,
+        amount_paise: fee,
+        kind: 'fee',
+      })
+    }
   }
 
   /** Mirrors `return_student` in backend/app/services/students.py, including its 422s. */
@@ -627,6 +705,344 @@ export class MockDb {
       month ?? this.now(),
       this.now(),
     )
+  }
+
+  // ---- Batches --------------------------------------------------------------------------------
+
+  private findBatch(id: number): BatchRow {
+    return this.batches.find((b) => b.id === id) ?? notFound('Batch')
+  }
+
+  private toBatchRead(batch: BatchRow): BatchRead {
+    const now = this.now()
+    const members = this.students.filter((s) => s.batch_id === batch.id)
+    return {
+      ...batch,
+      days: [...batch.days],
+      student_count: members.length,
+      active_student_count: members.filter((s) => isStillActive(s, now)).length,
+    }
+  }
+
+  listBatches(): BatchRead[] {
+    return this.batches
+      .toSorted(
+        (a, b) =>
+          a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }) || a.id - b.id,
+      )
+      .map((b) => this.toBatchRead(b))
+  }
+
+  getBatch(id: number): BatchRead {
+    return this.toBatchRead(this.findBatch(id))
+  }
+
+  private checkBatchFields(body: BatchUpdate, stored?: BatchRow) {
+    if ('name' in body) {
+      const name = blankToNull(body.name)
+      if (!name) invalid('name', 'Name is required')
+      const clash = this.batches.find(
+        (b) => b.id !== stored?.id && sameTextKey(b.name) === sameTextKey(name),
+      )
+      if (clash)
+        invalid('name', `There's already a batch called ${clash.name}. Choose another name.`)
+    }
+    for (const key of ['start_time', 'end_time'] as const) {
+      const value = blankToNull(body[key])
+      if (value !== null && !TIME_RE.test(value)) invalid(key, 'Enter a time like 17:30')
+    }
+    const start = 'start_time' in body ? blankToNull(body.start_time) : (stored?.start_time ?? null)
+    const end = 'end_time' in body ? blankToNull(body.end_time) : (stored?.end_time ?? null)
+    if (start !== null && end !== null && end <= start) {
+      invalid(
+        'end_time' in body ? 'end_time' : 'start_time',
+        'The end time must be after the start time',
+      )
+    }
+    const fee = body.default_fee_paise
+    if (fee != null && (!Number.isInteger(fee) || fee < 0 || fee > 100_000_000)) {
+      invalid('default_fee_paise', 'Input should be less than or equal to 100000000')
+    }
+  }
+
+  createBatch(body: BatchCreate): BatchRead {
+    this.checkBatchFields(body)
+    const now = nowIso()
+    const batch: BatchRow = {
+      id: this.id(),
+      name: blankToNull(body.name)!,
+      location: blankToNull(body.location),
+      days: WEEKDAYS.filter((d) => (body.days ?? []).includes(d)),
+      start_time: blankToNull(body.start_time),
+      end_time: blankToNull(body.end_time),
+      default_fee_paise: body.default_fee_paise ?? null,
+      notes: blankToNull(body.notes),
+      created_at: now,
+      updated_at: now,
+    }
+    this.batches.push(batch)
+    return this.toBatchRead(batch)
+  }
+
+  /** Mirrors `update_batch` in backend/app/services/batches.py, `apply_fee` included. */
+  updateBatch(id: number, body: BatchUpdate): BatchRead {
+    const batch = this.findBatch(id)
+    this.checkBatchFields(body, batch)
+    if (body.apply_fee && body.default_fee_paise == null) {
+      invalid('apply_fee', 'Send the new fee together with the students to charge it to')
+    }
+    if (body.apply_fee && body.default_fee_paise != null) {
+      const fee = body.default_fee_paise
+      const from = body.apply_fee.from_month
+      checkMonth('from_month', from)
+      const members = body.apply_fee.student_ids.map((sid) =>
+        this.students.find((s) => s.id === sid),
+      )
+      if (members.some((s) => !s || s.batch_id !== id)) {
+        invalid(
+          'apply_fee',
+          "Some of those students aren't in this batch any more. Close this and try again.",
+        )
+      }
+      const plan = this.feePlan(id, fee, from, members as StudentRow[])
+      const confirmed = new Set(body.apply_fee.confirm_planned ?? [])
+      for (const p of plan.students) {
+        if (p.status === 'planned' && !confirmed.has(p.student_id)) {
+          invalid(
+            'apply_fee',
+            `${p.student_name} has a fee change of their own. Tick them only if the new fee should apply to them anyway.`,
+          )
+        }
+      }
+      for (const p of plan.students) {
+        if (['usual', 'own_fee', 'planned'].includes(p.status) && p.start_month) {
+          this.setFeeFrom(p.student_id, p.start_month, fee)
+        }
+      }
+    }
+    if ('name' in body) batch.name = blankToNull(body.name)!
+    for (const key of ['location', 'start_time', 'end_time', 'notes'] as const) {
+      if (key in body) batch[key] = blankToNull(body[key])
+    }
+    if ('default_fee_paise' in body) batch.default_fee_paise = body.default_fee_paise ?? null
+    if (body.days) batch.days = WEEKDAYS.filter((d) => body.days!.includes(d))
+    batch.updated_at = nowIso()
+    return this.toBatchRead(batch)
+  }
+
+  /** Mirrors `services/batches._plans` / `fee_plan`: one rule for the preview and the change. */
+  feePlan(id: number, fee: number, from: string, only?: StudentRow[]): FeePlan {
+    const batch = this.findBatch(id)
+    checkMonth('from_month', from)
+    const now = this.now()
+    const members = (only ?? this.students.filter((s) => s.batch_id === id)).filter(
+      (s) => s.left_month === null || s.left_month >= now,
+    )
+    const own = (s: StudentRow) =>
+      this.fees
+        .filter((f) => f.student_id === s.id)
+        .toSorted((a, b) => a.effective_month.localeCompare(b.effective_month))
+    const current = new Map(
+      members.map((s) => [s.id, feeFor(own(s), now < s.joined_month ? s.joined_month : now)]),
+    )
+    const startOf = (s: StudentRow): string | null => {
+      const rows = own(s)
+      let start: string | null = from > s.joined_month ? from : s.joined_month
+      if (s.left_month !== null && start > s.left_month) return null
+      const inEffect = rows.filter((f) => f.effective_month <= start!).at(-1)
+      if (inEffect?.kind === 'away') {
+        start =
+          rows.find((f) => f.effective_month > start! && f.kind === 'fee')?.effective_month ?? null
+      }
+      return start
+    }
+    // Mirrors `_own_changes`: fee changes of theirs from the start month on, or planned later.
+    const ownChanges = (s: StudentRow, start: string | null) =>
+      own(s)
+        .slice(1)
+        .filter((f) => f.effective_month > now || (start !== null && f.effective_month >= start))
+    const steady = new Map<number, number>()
+    for (const s of members) {
+      const start = startOf(s)
+      if (start !== null && ownChanges(s, start).length === 0) {
+        steady.set(s.id, feeFor(own(s), start))
+      }
+    }
+    let usual = batch.default_fee_paise
+    if (usual === null && steady.size > 0) {
+      const counts = new Map<number, number>()
+      for (const f of steady.values()) counts.set(f, (counts.get(f) ?? 0) + 1)
+      const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1])
+      if (ranked.length === 1 || ranked[0]![1] > ranked[1]![1]) usual = ranked[0]![0]
+    }
+    const students = members
+      .toSorted((a, b) => a.name.localeCompare(b.name) || a.id - b.id)
+      .map((s) => {
+        const rows = own(s)
+        const start = startOf(s)
+        let dueMonths = 0
+        let dueChange = 0
+        let status: FeePlanStatus
+        if (start === null) status = 'not_affected'
+        else {
+          const until = rows.find((f) => f.effective_month > start!)?.effective_month
+          for (let m = start; m <= now && (until === undefined || m < until); m = addMonths(m, 1)) {
+            const old = feeFor(rows, m)
+            if (isActive(s, m) && old !== fee) {
+              dueMonths += 1
+              dueChange += fee - old
+            }
+          }
+          if (ownChanges(s, start).length > 0) status = 'planned'
+          else if (steady.get(s.id) === fee) status = 'already'
+          else if (usual !== null && steady.get(s.id) === usual) status = 'usual'
+          else status = 'own_fee'
+        }
+        return {
+          student_id: s.id,
+          student_name: s.name,
+          current_fee_paise: current.get(s.id) ?? 0,
+          start_month: start,
+          status,
+          selected: status === 'usual',
+          due_months: dueMonths,
+          due_change_paise: dueChange,
+          fee_history: rows.map(({ id: fid, effective_month, amount_paise, kind }) => ({
+            id: fid,
+            effective_month,
+            amount_paise,
+            kind,
+          })),
+        }
+      })
+    return {
+      batch_id: id,
+      fee_paise: fee,
+      from_month: from,
+      current_month: now,
+      usual_fee_paise: usual,
+      students,
+    }
+  }
+
+  /** Mirrors `services/batches.move_students`. */
+  moveStudents(studentIds: number[], batchId: number | null): { moved: number } {
+    this.checkBatch(batchId)
+    const found = studentIds.map((sid) => this.students.find((s) => s.id === sid))
+    if (studentIds.length === 0 || found.some((s) => !s)) {
+      invalid(
+        'student_ids',
+        "Some of those students don't exist any more. Reload the page and try again.",
+      )
+    }
+    for (const s of found as StudentRow[]) s.batch_id = batchId
+    return { moved: found.length }
+  }
+
+  deleteBatch(id: number): void {
+    this.findBatch(id)
+    for (const s of this.students) if (s.batch_id === id) s.batch_id = null
+    this.batches = this.batches.filter((b) => b.id !== id)
+  }
+
+  /** Each batch's numbers for a month: the dashboard's summary over its students. */
+  batchOverview(month?: string | null): BatchOverview {
+    checkMonth('month', month)
+    const now = this.now()
+    const m = month ?? now
+    const summary = (batchId: number | null): BatchSummary => {
+      const members = this.students.filter((s) => s.batch_id === batchId)
+      const s = dashboard(
+        members.map((st) => this.book(st)),
+        m,
+        now,
+      ).summary
+      const paid = s.expected_paise - s.still_due_paise
+      return {
+        batch_id: batchId,
+        student_count: members.filter((st) => isActive(st, m)).length,
+        active_student_count: s.active_student_count,
+        expected_paise: s.expected_paise,
+        collected_paise: s.collected_paise,
+        still_due_paise: s.still_due_paise,
+        paid_ahead_paise: s.paid_ahead_paise,
+        not_fully_paid_count: s.not_fully_paid_count,
+        paid_percent: s.expected_paise > 0 ? Math.floor((paid * 100) / s.expected_paise) : null,
+      }
+    }
+    return {
+      month: m,
+      current_month: now,
+      batches: this.listBatches().map((b) => summary(b.id)),
+      no_batch: summary(null),
+    }
+  }
+
+  private labelGroups() {
+    const groups = new Map<string, StudentRow[]>()
+    for (const s of this.students) {
+      if (s.batch_id !== null || !s.batch_label) continue
+      const key = sameTextKey(s.batch_label)
+      if (!key) continue
+      groups.set(key, [...(groups.get(key) ?? []), s])
+    }
+    return [...groups.entries()]
+      .map(([key, students]) => {
+        const counts = new Map<string, number>()
+        for (const s of students) {
+          const label = s.batch_label!.trim().split(/\s+/).join(' ')
+          counts.set(label, (counts.get(label) ?? 0) + 1)
+        }
+        const labels = [...counts.entries()]
+          .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+          .map(([label]) => label)
+        const existing = this.batches.find((b) => sameTextKey(b.name) === key)
+        return {
+          key,
+          name: existing?.name ?? labels[0]!,
+          labels,
+          students: students.toSorted((a, b) => a.name.localeCompare(b.name)),
+          existing,
+        }
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }))
+  }
+
+  labelPreview(): LabelPreview {
+    const groups = this.labelGroups()
+    return {
+      groups: groups.map((g) => ({
+        name: g.name,
+        labels: g.labels,
+        student_count: g.students.length,
+        student_names: g.students.map((s) => s.name),
+        left_student_names: g.students
+          .filter((s) => !isStillActive(s, this.now()))
+          .map((s) => s.name),
+        active_student_count: g.students.filter((s) => isStillActive(s, this.now())).length,
+        existing_batch_id: g.existing?.id ?? null,
+      })),
+      student_count: groups.reduce((sum, g) => sum + g.students.length, 0),
+      new_batch_count: groups.filter((g) => !g.existing).length,
+    }
+  }
+
+  convertLabels(): LabelConversion {
+    const groups = this.labelGroups()
+    if (groups.length === 0) return { batches_created: 0, students_placed: 0, backup_file: null }
+    const backup = `records-pre-batches-${this.backups.length + 1}.db`
+    this.backups.push(backup)
+    let created = 0
+    let placed = 0
+    for (const g of groups) {
+      const batch = g.existing ?? this.createBatch({ name: g.name })
+      if (!g.existing) created += 1
+      for (const s of g.students) {
+        s.batch_id = batch.id
+        placed += 1
+      }
+    }
+    return { batches_created: created, students_placed: placed, backup_file: backup }
   }
 
   // ---- Monthly report -------------------------------------------------------------------------

@@ -13,6 +13,9 @@ describe('download links', () => {
     expect(studentsDownloadUrl('all', '  Émile d ')).toBe(
       '/api/export/students.xlsx?status=all&q=%C3%89mile+d',
     )
+    expect(studentsDownloadUrl('active', '', 3)).toBe(
+      '/api/export/students.xlsx?status=active&batch=3',
+    )
   })
 
   it('payments: the filters and the order', () => {
@@ -41,14 +44,25 @@ describe('download links', () => {
 describe('on the pages', () => {
   withMockApi()
 
-  it('Students: Download Excel follows the tab and search', async () => {
+  it('Students: Download Excel follows the batch tab, Show and the search', async () => {
     const user = userEvent.setup()
     renderApp('/students')
     const link = await screen.findByRole('link', { name: 'Download Excel' })
     expect(link).toHaveAttribute('href', '/api/export/students.xlsx?status=active')
-    await user.click(screen.getByRole('tab', { name: /Left/ }))
+    await screen.findByRole('table')
+    await user.click(screen.getByRole('combobox', { name: /^Show:/ }))
+    await user.click(await screen.findByRole('option', { name: /^Left/ }))
     await user.type(screen.getByRole('searchbox', { name: 'Search students' }), 'rohan')
     expect(link).toHaveAttribute('href', '/api/export/students.xlsx?status=left&q=rohan')
+    await user.click(
+      within(screen.getByRole('navigation', { name: 'Batches' })).getByRole('link', {
+        name: /^No batch/,
+      }),
+    )
+    expect(await screen.findByRole('link', { name: 'Download Excel' })).toHaveAttribute(
+      'href',
+      '/api/export/students.xlsx?status=active&batch=none',
+    )
     // Download everything is on the page too, not only in the side menu (hidden when narrow).
     for (const everything of screen.getAllByRole('link', { name: 'Download everything' })) {
       expect(everything).toHaveAttribute('href', '/api/export/everything.xlsx')

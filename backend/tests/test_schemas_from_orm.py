@@ -78,6 +78,7 @@ def test_student_read(session: Session) -> None:
     # The computed fields come from the ledger; the stored ones straight from the row.
     row = SimpleNamespace(
         **{c.key: getattr(student, c.key) for c in Student.__table__.columns},
+        batch_name=None,
         is_active=True,
         monthly_fee_paise=1,
         balance_paise=0,

@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Iterable
+from typing import Literal
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.db import lock_for_writing
 from app.errors import not_found, unprocessable
-from app.models import FeeChange, FeeKind, Student
+from app.models import Batch, FeeChange, FeeKind, Student
 from app.months import add_months, format_month, parse_month
 from app.schemas import (
     CreditSource,
@@ -38,6 +39,14 @@ from app.schemas import (
 from app.services import ledger
 from app.services.bounds import check_month, valid_id
 from app.services.text import fold
+
+
+def same_text_key(text: str) -> str:
+    """How two bits of typed text are compared when they name the same thing (a batch, a
+    location): ignoring capitals, accents and spaces, so "Tue/Thu 5pm", "tue/thu  5PM" and
+    "Tue/Thu5pm" are the same."""
+    return "".join(fold(text).split())
+
 
 # --------------------------------------------------------------------------- loading
 
@@ -57,11 +66,17 @@ def to_record(student: Student) -> ledger.StudentRecord:
         ),
         batch_label=student.batch_label,
         phone=student.phone,
+        batch_name=student.batch.name if student.batch else None,
     )
 
 
-# Load what the ledger needs in two extra queries, however many students there are.
-LEDGER_ROWS = (selectinload(Student.fee_changes), selectinload(Student.payments))
+# Load what the ledger needs in two extra queries, however many students there are (and each
+# student's batch in the same query as the students).
+LEDGER_ROWS = (
+    joinedload(Student.batch),
+    selectinload(Student.fee_changes),
+    selectinload(Student.payments),
+)
 
 
 def all_students(session: Session) -> list[Student]:
@@ -70,7 +85,11 @@ def all_students(session: Session) -> list[Student]:
 
 def get_student_row(session: Session, student_id: int) -> Student:
     student = (
-        session.get(Student, student_id, options=LEDGER_ROWS) if valid_id(student_id) else None
+        # populate_existing: a student already in this session (just saved) is read again,
+        # with everything LEDGER_ROWS loads.
+        session.get(Student, student_id, options=LEDGER_ROWS, populate_existing=True)
+        if valid_id(student_id)
+        else None
     )
     if student is None:
         raise not_found("student", student_id)
@@ -87,6 +106,8 @@ def _read_fields(student: Student, led: ledger.StudentLedger) -> dict[str, objec
         "phone": student.phone,
         "guardian_name": student.guardian_name,
         "batch_label": student.batch_label,
+        "batch_id": student.batch_id,
+        "batch_name": student.batch.name if student.batch else None,
         "joined_month": format_month(student.joined_month),
         "left_month": format_month(student.left_month) if student.left_month else None,
         "notes": student.notes,
@@ -195,15 +216,34 @@ def _matches(student: Student, q: str) -> bool:
     return bool(digits and student.phone and digits in student.phone.replace(" ", ""))
 
 
+NO_BATCH = "none"
+"""`GET /students?batch=none`: the students who aren't in any batch."""
+
+
 def list_students(
     session: Session,
     status_filter: StudentListFilter,
     q: str | None,
     current_month: dt.date,
+    batch: int | Literal["none"] | None = None,
+    location: str | None = None,
 ) -> list[StudentRead]:
     """Students sorted by name. `active` = not left yet (no `left_month`, or it is this month or
-    later); `left` = the left month has passed."""
+    later); `left` = the left month has passed. `batch` keeps one batch's students (an id), or
+    those in no batch (`"none"`); `location` keeps the students whose batch is at that location
+    (ignoring capitals, accents and extra spaces)."""
     rows = all_students(session)
+    if batch == NO_BATCH:
+        rows = [s for s in rows if s.batch_id is None]
+    elif batch is not None:
+        rows = [s for s in rows if s.batch_id == batch]
+    if location is not None and location.strip():
+        place = same_text_key(location)
+        rows = [
+            s
+            for s in rows
+            if s.batch and s.batch.location and same_text_key(s.batch.location) == place
+        ]
     if status_filter is not StudentListFilter.all:
         want_left = status_filter is StudentListFilter.left
         rows = [s for s in rows if ledger.has_left(to_record(s), current_month) == want_left]
@@ -237,11 +277,13 @@ def create_student(session: Session, body: StudentCreate, current_month: dt.date
     check_month("joined_month", joined, current_month)
     if body.left_month:
         check_month("left_month", parse_month(body.left_month), current_month)
+    check_batch(session, body.batch_id)
     student = Student(
         name=body.name,
         phone=body.phone,
         guardian_name=body.guardian_name,
         batch_label=body.batch_label,
+        batch_id=body.batch_id,
         joined_month=joined,
         left_month=parse_month(body.left_month) if body.left_month else None,
         notes=body.notes,
@@ -323,7 +365,10 @@ def update_student(
                 "The new fee can't start before the joined month", field="fee_effective_month"
             )
 
-    for name in ("name", "phone", "guardian_name", "batch_label", "notes"):
+    if "batch_id" in sent:
+        check_batch(session, body.batch_id)
+
+    for name in ("name", "phone", "guardian_name", "batch_label", "batch_id", "notes"):
         if name in sent:
             setattr(student, name, getattr(body, name))
     if left is not None and left != student.left_month:
@@ -338,14 +383,23 @@ def update_student(
         session.flush()
 
     if fee_month is not None and body.monthly_fee_paise is not None:
-        _set_fee_from(session, student, fee_month, body.monthly_fee_paise)
+        set_fee_from(session, student, fee_month, body.monthly_fee_paise)
 
     session.commit()
     session.expire(student)
     return get_student(session, student.id, current_month)
 
 
-def _set_fee_from(session: Session, student: Student, month: dt.date, amount: int) -> None:
+def check_batch(session: Session, batch_id: int | None) -> None:
+    """422 on `batch_id` if it names no batch (say it was deleted in another window)."""
+    if batch_id is not None and (not valid_id(batch_id) or session.get(Batch, batch_id) is None):
+        raise unprocessable(
+            "That batch doesn't exist any more. Choose another one, or No batch.",
+            field="batch_id",
+        )
+
+
+def set_fee_from(session: Session, student: Student, month: dt.date, amount: int) -> None:
     """Record that the fee is `amount` from `month` on (an upsert on the fee change for that
     month). Nothing is recorded if that fee is already in effect then."""
     existing = next((f for f in student.fee_changes if f.effective_month == month), None)

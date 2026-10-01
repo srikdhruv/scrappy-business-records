@@ -60,14 +60,14 @@ backend/
     migrate.py       Run Alembic from code (no alembic.ini, no CWD assumptions)
     openapi_dump.py  Print the OpenAPI JSON (used by `make gen-api`)
     services/        ledger.py: pure business rules (dues, statuses, dashboard, report), no I/O;
-                     students.py, payments.py, dashboard.py, report.py: the database work
-                     routers call; report_xlsx.py: the report as an Excel file (openpyxl);
-                     bounds.py (input limits), text.py (case- and accent-insensitive matching,
-                     and `student_matches`, the Python twin of lib/search.ts);
-                     exports.py (Excel downloads), spreadsheet.py (reading an uploaded file),
-                     imports.py (upload preview and add), matching.py (finding students
-                     quickly), unassigned.py (unassigned payments)
-    routers/         health, students, payments, dashboard, report, excel, unassigned
+                     students.py, payments.py, dashboard.py, report.py, batches.py: the
+                     database work routers call; report_xlsx.py: the report as an Excel file
+                     (openpyxl); bounds.py (input limits), text.py (case- and
+                     accent-insensitive matching, and `student_matches`, the Python twin of
+                     lib/search.ts); exports.py (Excel downloads), spreadsheet.py (reading an
+                     uploaded file), imports.py (upload preview and add), matching.py (finding
+                     students quickly), unassigned.py (unassigned payments)
+    routers/         health, students, payments, dashboard, report, excel, unassigned, batches
     migrations/      Alembic env.py and versions/ (ships inside the package)
     static/          Built UI (git-ignored; `make build`)
     launcher.py      Desktop-shortcut entry point: health check, start the server, open the browser
@@ -77,7 +77,8 @@ backend/
                      fixtures/releases/ holds each release's sample database (ADR 0004)
 frontend/src/
   main.tsx, App.tsx  Entry and router
-  routes.tsx         Every client route (/, /report, /payments, /students, /students/:id)
+  routes.tsx         Every client route (/, /report, /payments, /students,
+                     /students/batch/:batchId, /students/:id)
   providers.tsx      QueryClient, tooltips, Log payment, toasts
   api/               schema.d.ts (generated), types.ts (what the UI imports), client.ts
                      (openapi-fetch), queries.ts (hooks)
@@ -85,7 +86,8 @@ frontend/src/
   components/        App building blocks: log-payment (the form), student-form, payments-table,
                      month-picker, month-switcher, student-combobox, mark-left and come-back
                      dialogs, status badges, excel-upload-dialog, excel-buttons,
-                     unassigned-payments (+ banner); layout/; ui/ (shadcn/ui)
+                     unassigned-payments (+ banner); batches/ (tabs, cards, batch form, labels
+                     to batches, the students table, the batch picker); layout/; ui/ (shadcn/ui)
   lib/format.ts      ₹, date and month formatting (the only place that formats them)
   lib/errors.ts      Plain-words messages for API errors, including "Can't reach Scrappy Records"
   lib/search.ts      The student search both lists use (words in any order, accents, phones)
@@ -93,6 +95,8 @@ frontend/src/
   lib/report.ts      The monthly report's statuses, filters, sorting and totals row
   lib/downloads.ts   The Excel download links (what each page shows); lib/upload.ts: the upload
                      preview's counts and sentences
+  lib/batches.ts     Batches in words ("Mon, Wed · 5:00–6:00 pm"), and the students table's
+                     filters, sorting and grouping
   mocks/             The mock API (MSW) for `make dev-mock` and the tests. Never in the build
   index.css          Theme tokens (CSS variables) and Tailwind setup
   styles/            theme.test.ts checks the text contrast of the theme tokens
@@ -185,6 +189,9 @@ searching, the Excel download (read back with openpyxl through `uv run`), the pr
 (print media emulated) and the wide table at 1280 and 800 px.
 `e2e/excel.spec.ts` downloads the Students and Payments lists, uploads them again (one student
 already there, one new), and gives a payment whose student wasn't found to another student.
+`e2e/batches.spec.ts` covers batches: creating one, adding a student from its tab with the fee
+filled in, its % paid after a payment, filtering and grouping, deleting a batch, and turning
+labels into batches.
 Each test sets up its own students through the API, relative to
 the server's current month. The first run needs a browser: `cd frontend && npx playwright install
 chromium`. CI's `e2e` job runs the same thing, with the browser cached.

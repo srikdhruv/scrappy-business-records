@@ -119,7 +119,11 @@ decisions = st.fixed_dictionaries(
             max_size=3,
         ),
     },
-    optional={"filename": scalars},
+    optional={
+        "filename": scalars,
+        "create_batches": st.one_of(scalars, st.lists(st.one_of(st.text(max_size=8), scalars),
+                                                      max_size=3)),
+    },
 )  # fmt: skip
 
 
@@ -146,12 +150,26 @@ def test_no_500_from_commit_bodies(api: TestClient, body: Any) -> None:
             ("get", "/api/export/payments.xlsx"),
             ("get", "/api/export/everything.xlsx"),
             ("get", "/api/import/template.xlsx"),
+            ("get", "/api/report.xlsx"),
         ]
     ),
     id_=st.one_of(st.integers(-3, 5), st.integers(min_value=2**62, max_value=2**80)),
     body=values,
     query=st.dictionaries(
-        st.sampled_from(["status", "q", "student_id", "month", "method", "sort", "order", "kind"]),
+        st.sampled_from(
+            [
+                "status",
+                "q",
+                "student_id",
+                "month",
+                "method",
+                "sort",
+                "order",
+                "kind",
+                "batch",
+                "group",
+            ]
+        ),
         st.one_of(st.text(max_size=12), st.integers(-(2**70), 2**70).map(str)),
         max_size=4,
     ),

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 import enum
+import re
 import unicodedata
 from typing import Annotated, Literal
 
@@ -34,9 +35,15 @@ from app.models import FeeKind, PaymentMethod
 from app.months import MONTH_PATTERN, format_month
 
 __all__ = [
+    "ApplyBatchFee",
     "BacklogItem",
     "BacklogMonth",
     "BalanceStatus",
+    "BatchCreate",
+    "BatchOverview",
+    "BatchRead",
+    "BatchSummary",
+    "BatchUpdate",
     "CreditMoveItem",
     "CreditSource",
     "DashboardResponse",
@@ -45,9 +52,17 @@ __all__ = [
     "ExtraSent",
     "FeeChangeRead",
     "FeeKind",
+    "FeePlan",
+    "FeePlanStatus",
+    "FeePlanStudent",
     "HealthResponse",
+    "LabelConversion",
+    "LabelGroup",
+    "LabelPreview",
     "LedgerMonth",
     "MonthStatus",
+    "MoveResult",
+    "MoveStudents",
     "NoFeeReason",
     "OverpaidItem",
     "PaymentCreate",
@@ -57,6 +72,7 @@ __all__ = [
     "PaymentUpdate",
     "ReportCheck",
     "ReportFilter",
+    "ReportGroup",
     "ReportResponse",
     "ReportRow",
     "ReportSort",
@@ -71,11 +87,14 @@ __all__ = [
     "StudentUpdate",
     "SuggestedPayment",
     "SuggestionReason",
+    "Weekday",
     "YetToPayItem",
 ]
 # Excel download and upload, and unassigned payments (at the end of this file).
 __all__ += [
     "ExportTemplateKind",
+    "ImportBatchPreview",
+    "ImportBatchStatus",
     "ImportCommit",
     "ImportFee",
     "ImportPayment",
@@ -168,6 +187,7 @@ _LABELS = {
     "paid_on": "Paid-on date",
     "for_month": "Month",
     "method": "Payment method",
+    "days": "Days",
 }
 
 
@@ -224,6 +244,40 @@ FeePaise = Annotated[
         description="Monthly fee in paise: 0 or more, at most 100000000 (₹10,00,000).",
     ),
 ]
+
+
+BatchId = Annotated[int, Field(gt=0, strict=True, description="A batch's id.")]
+
+_TIME = re.compile(r"([01][0-9]|2[0-3]):[0-5][0-9]")
+
+
+def _clock_time(value: str) -> str:
+    if not _TIME.fullmatch(value):
+        raise _field_error("Enter a time like 17:30")
+    return value
+
+
+ClockTime = Annotated[
+    Annotated[
+        str,
+        AfterValidator(_clock_time),
+        Field(max_length=5, description='A time of day as "HH:MM", 24-hour, e.g. "17:30".'),
+    ]
+    | None,
+    BeforeValidator(_blank_to_none),
+]
+
+
+def _check_times(start: str | None, end: str | None) -> None:
+    # "HH:MM" strings compare correctly as text.
+    if start is not None and end is not None and end <= start:
+        raise _field_error("The end time must be after the start time")
+
+
+def _weekdays(value: list[Weekday]) -> list[Weekday]:
+    """Each day once, Monday first, whatever order they were sent in."""
+    order = list(Weekday)
+    return sorted(set(value), key=order.index)
 
 
 class _Model(BaseModel):
@@ -327,6 +381,14 @@ class ReportFilter(enum.StrEnum):
     left = "left"
 
 
+class ReportGroup(enum.StrEnum):
+    """How the monthly report's rows are grouped: `none`, or under a heading per `batch`
+    (batches A to Z, "No batch" last; the order inside each group stays)."""
+
+    none = "none"
+    batch = "batch"
+
+
 class ReportSort(enum.StrEnum):
     """A column of the monthly report to sort by (ties keep the report's usual order)."""
 
@@ -364,6 +426,21 @@ class SortOrder(enum.StrEnum):
     desc = "desc"
 
 
+class Weekday(enum.StrEnum):
+    """A day a batch meets. Always listed Monday first."""
+
+    mon = "mon"
+    tue = "tue"
+    wed = "wed"
+    thu = "thu"
+    fri = "fri"
+    sat = "sat"
+    sun = "sun"
+
+
+Weekdays = Annotated[list[Weekday], AfterValidator(_weekdays), Field(max_length=7)]
+
+
 # --------------------------------------------------------------------------- health / errors
 
 
@@ -394,6 +471,9 @@ class StudentCreate(_Model):
     phone: ShortText = None
     guardian_name: ShortText = None
     batch_label: ShortText = None
+    batch_id: BatchId | None = Field(
+        default=None, description="The batch they're in (see /batches), or null for no batch."
+    )
     notes: LongText = None
     left_month: Month | None = Field(
         default=None, description="Last month they owe. Setting it archives the student."
@@ -431,6 +511,9 @@ class StudentUpdate(_Model):
     phone: ShortText = None
     guardian_name: ShortText = None
     batch_label: ShortText = None
+    batch_id: BatchId | None = Field(
+        default=None, description="Move them to this batch; null takes them out of their batch."
+    )
     notes: LongText = None
     joined_month: Month | None = None
     left_month: Month | None = None
@@ -499,7 +582,11 @@ class StudentRead(_ReadModel):
     name: str
     phone: str | None
     guardian_name: str | None
-    batch_label: str | None
+    batch_label: str | None = Field(
+        description="Free text typed before batches existed (kept exactly as it was typed)."
+    )
+    batch_id: int | None = Field(description="The batch they're in, or null for no batch.")
+    batch_name: str | None = Field(description="That batch's name, or null.")
     joined_month: Month
     left_month: Month | None
     notes: str | None
@@ -733,6 +820,7 @@ class YetToPayItem(_ReadModel):
     student_id: int
     student_name: str
     batch_label: str | None
+    batch_name: str | None = Field(description="The name of the batch they're in, if any.")
     phone: str | None
     expected_paise: NonNegativePaise
     paid_paise: NonNegativePaise = Field(description="Logged for M, as typed.")
@@ -764,6 +852,7 @@ class BacklogItem(_ReadModel):
     student_id: int
     student_name: str
     batch_label: str | None
+    batch_name: str | None = Field(description="The name of the batch they're in, if any.")
     phone: str | None
     months: list[BacklogMonth] = Field(description="Oldest first.")
     total_owed_paise: PositivePaise
@@ -780,6 +869,7 @@ class OverpaidItem(_ReadModel):
     student_id: int
     student_name: str
     batch_label: str | None
+    batch_name: str | None = Field(description="The name of the batch they're in, if any.")
     phone: str | None
     month: Month
     expected_paise: NonNegativePaise
@@ -795,6 +885,7 @@ class CreditMoveItem(_ReadModel):
     student_id: int
     student_name: str
     batch_label: str | None
+    batch_name: str | None = Field(description="The name of the batch they're in, if any.")
     phone: str | None
     payment_id: int
     paid_on: dt.date
@@ -851,6 +942,8 @@ class ReportRow(_ReadModel):
     student_id: int
     student_name: str
     batch_label: str | None
+    batch_name: str | None = Field(description="The name of the batch they're in, if any.")
+    batch_id: int | None = Field(default=None, description="The batch they're in, if any.")
     phone: str | None
     joined_month: Month
     left_month: Month | None
@@ -1053,6 +1146,9 @@ class ImportStudent(_Model):
     phone: ShortText = None
     guardian_name: ShortText = None
     batch_label: ShortText = None
+    batch_name: ShortText = Field(
+        default=None, description="The file's Batch (or Class/batch) column: a batch's name."
+    )
     notes: LongText = None
     joined_month: Month
     left_month: Month | None = None
@@ -1107,6 +1203,39 @@ class ImportStudentPreview(_ReadModel):
         description="`similar` only: added unless the owner says Skip (a brother or sister "
         "sharing a phone with an earlier row of the file)."
     )
+    batch_name: str | None = Field(
+        default=None, description="Their batch, as written in the file's Batch column."
+    )
+
+
+class ImportBatchStatus(enum.StrEnum):
+    """What an uploaded file's batch (a Batches sheet row, or a name in the students' Batch
+    column) would do."""
+
+    new = "new"
+    """On the file's Batches sheet, and not here yet: will be added, with its details."""
+    exists = "exists"
+    """Already here (same name, ignoring capitals and spaces): its students go into it. The
+    batch itself is left as it is."""
+    not_found = "not_found"
+    """Only named in the Batch column, and not here: those students are left without a batch
+    (the name is kept in their old class label, next to any label the row has), unless the
+    owner chooses to create it (only offered when a student being added names it)."""
+    problem = "problem"
+    """A Batches sheet row that can't be added (see `reason`)."""
+
+
+class ImportBatchPreview(_ReadModel):
+    name: str
+    status: ImportBatchStatus
+    reason: str | None = Field(description="Why, in plain words (not for `new` or `exists`).")
+    row: int | None = Field(description="Its row on the Batches sheet, if it's there.")
+    student_count: int = Field(
+        ge=0,
+        description="Student rows naming it that will be added (not those already here, "
+        "skipped or with a problem). A `not_found` batch with 0 can't be created.",
+    )
+    batch_id: int | None = Field(description="`exists`: the batch already here.")
 
 
 class ImportPaymentPreview(_ReadModel):
@@ -1153,6 +1282,11 @@ class ImportPreview(_ReadModel):
     fee_changes: int = Field(
         ge=0, description="Fee-history rows that come with the new students (restored exactly)."
     )
+    batches: list[ImportBatchPreview] = Field(
+        default_factory=list,
+        description="Every batch the file names (its Batches sheet, and the students' Batch "
+        "column), by name.",
+    )
     current_month: Month
     file_sha256: str = Field(
         description="The SHA-256 of the file previewed (hex). Add sends it back: the file sent "
@@ -1197,6 +1331,12 @@ class ImportCommit(_Model):
     filename: ShortText = None
     students: list[ImportStudentDecision] = Field(default=[], max_length=MAX_IMPORT_ROWS)
     payments: list[ImportPaymentDecision] = Field(default=[], max_length=MAX_IMPORT_ROWS)
+    create_batches: list[Annotated[str, Field(max_length=200)]] = Field(
+        default=[],
+        max_length=10_000,
+        description="Batches the preview said `not_found` that the owner chose to create (by "
+        "name, as in the preview). Any other not-found batch is never created.",
+    )
 
 
 class ImportResult(_ReadModel):
@@ -1207,6 +1347,243 @@ class ImportResult(_ReadModel):
     payments_added: int = Field(ge=0)
     unassigned_added: int = Field(ge=0)
     skipped: int = Field(ge=0, description="Rows not added (already here, problems, skipped).")
+    batches_added: int = Field(default=0, ge=0, description="Batches created.")
     backup_file: str | None = Field(
         description="The backup taken first (records-pre-import-…), or null if nothing was added."
     )
+
+
+# --------------------------------------------------------------------------- batches
+
+
+class BatchCreate(_Model):
+    """A new batch. Only the name is required. `default_fee_paise` only prefills the fee of a
+    student added to it: each student keeps their own fee."""
+
+    name: Name
+    location: ShortText = None
+    days: Weekdays = Field(default_factory=list, description="The days it meets, Monday first.")
+    start_time: ClockTime = None
+    end_time: ClockTime = None
+    default_fee_paise: FeePaise | None = Field(
+        default=None, description="The usual monthly fee, prefilled for a new student in it."
+    )
+    notes: LongText = None
+
+    @field_validator("end_time")
+    @classmethod
+    def _end_after_start(cls, value: str | None, info: ValidationInfo) -> str | None:
+        _check_times(info.data.get("start_time"), value)
+        return value
+
+
+class ApplyBatchFee(_Model):
+    """Also charge the batch's new default fee to some of its students, from a month on. Each
+    gets a fee change from `from_month` (or from when they joined, if later), exactly like
+    changing their fee in Edit. Without this, no student's fee changes."""
+
+    from_month: Month = Field(description="The first month of the new fee.")
+    student_ids: list[Annotated[int, Field(gt=0, strict=True)]] = Field(
+        max_length=5000,
+        description="The students to charge it to: all must be in this batch. The UI lists "
+        "them first (GET /batches/{id}/fee-plan), so exactly those change.",
+    )
+    confirm_planned: list[Annotated[int, Field(gt=0, strict=True)]] = Field(
+        default_factory=list,
+        max_length=5000,
+        description="Of student_ids, those with a fee change of their own from the start month "
+        "on (status `planned`) that the owner ticked anyway. Any other such student is a 422.",
+    )
+
+
+class BatchUpdate(_Model):
+    """Partial update: only the fields that are sent change. Changing `default_fee_paise` never
+    changes a student's fee by itself; send `apply_fee` too for that."""
+
+    name: Name | None = None
+    location: ShortText = None
+    days: Weekdays | None = None
+    start_time: ClockTime = None
+    end_time: ClockTime = None
+    default_fee_paise: FeePaise | None = None
+    notes: LongText = None
+    apply_fee: ApplyBatchFee | None = Field(
+        default=None,
+        description="Also charge default_fee_paise (which must be sent too) to these students.",
+    )
+
+    @field_validator("name", "days")
+    @classmethod
+    def _not_null(cls, value: object, info: ValidationInfo) -> object:
+        # Only runs for fields that were sent: omitting a field is fine, sending null isn't.
+        return _not_null(value, info)
+
+    @field_validator("end_time")
+    @classmethod
+    def _end_after_start(cls, value: str | None, info: ValidationInfo) -> str | None:
+        # Only against a start_time sent in the same request; the service checks the stored one.
+        _check_times(info.data.get("start_time"), value)
+        return value
+
+    @field_validator("apply_fee")
+    @classmethod
+    def _apply_needs_fee(
+        cls, value: ApplyBatchFee | None, info: ValidationInfo
+    ) -> ApplyBatchFee | None:
+        if value is not None and info.data.get("default_fee_paise") is None:
+            raise _field_error("Send the new fee together with the students to charge it to")
+        return value
+
+
+class BatchRead(_ReadModel):
+    id: int
+    name: str
+    location: str | None
+    days: list[Weekday] = Field(description="The days it meets, Monday first.")
+    start_time: str | None = Field(description='"HH:MM", 24-hour.')
+    end_time: str | None = Field(description='"HH:MM", 24-hour.')
+    default_fee_paise: NonNegativePaise | None
+    notes: str | None
+    student_count: int = Field(ge=0, description="Everyone in it, including those who left.")
+    active_student_count: int = Field(
+        ge=0, description="Those in it who haven't left (is_active on StudentRead)."
+    )
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
+
+
+class BatchSummary(_ReadModel):
+    """One batch's fees for a month M (or the students in no batch, `batch_id` null): the
+    dashboard's summary, counted over that batch's students only. Over every batch and "no
+    batch", each number adds up to the dashboard's."""
+
+    batch_id: int | None = Field(description="Null: the students in no batch.")
+    student_count: int = Field(ge=0, description="Students in it who are active in M.")
+    active_student_count: int = Field(
+        ge=0, description="Of those, the ones with a fee above 0 in M (as on the dashboard)."
+    )
+    expected_paise: NonNegativePaise = Field(description="Their fees for M.")
+    collected_paise: NonNegativePaise = Field(
+        description="What pays M (as the dashboard's collected_paise)."
+    )
+    still_due_paise: NonNegativePaise = Field(description="What's still left on M.")
+    paid_ahead_paise: NonNegativePaise = Field(
+        description="For a month after the current one: what pays it ahead of time. 0 otherwise."
+    )
+    not_fully_paid_count: int = Field(ge=0, description="Students unpaid or partial for M.")
+    paid_percent: int | None = Field(
+        ge=0,
+        le=100,
+        description="(expected - still due) / expected, rounded down, so 100 only when every "
+        "fee for M is paid. Null when nothing is expected.",
+    )
+
+
+class BatchOverview(_ReadModel):
+    month: Month = Field(description="The month shown (M).")
+    current_month: Month
+    batches: list[BatchSummary] = Field(description="One per batch, in the order of /batches.")
+    no_batch: BatchSummary = Field(description="The students who aren't in any batch.")
+
+
+class LabelGroup(_ReadModel):
+    """Students whose old "class or batch" text is the same, ignoring capitals and spaces."""
+
+    name: str = Field(description="The batch's name: the way most of them spell it.")
+    labels: list[str] = Field(description="Every spelling found, most used first.")
+    student_count: int = Field(ge=1)
+    student_names: list[str] = Field(description="Sorted by name.")
+    left_student_names: list[str] = Field(
+        description="Those of student_names whose last month has passed (they have left)."
+    )
+    active_student_count: int = Field(
+        ge=0, description="Those still coming. 0: the batch would have nobody coming now."
+    )
+    existing_batch_id: int | None = Field(
+        description="A batch with this name already exists, so they go into it."
+    )
+
+
+class LabelPreview(_ReadModel):
+    """What "Create batches from existing labels" would do: students in no batch who have a
+    label, grouped. Nothing changes until it is confirmed."""
+
+    groups: list[LabelGroup] = Field(description="Sorted by name.")
+    student_count: int = Field(ge=0)
+    new_batch_count: int = Field(ge=0, description="Groups with no batch of that name yet.")
+
+
+class LabelConversion(_ReadModel):
+    batches_created: int = Field(ge=0)
+    students_placed: int = Field(ge=0)
+    backup_file: str | None = Field(
+        description="The backup taken first (a file name), or null if nothing needed doing."
+    )
+
+
+class FeePlanStatus(enum.StrEnum):
+    """What "Also charge the new usual fee" would do to one student (`GET /batches/{id}/fee-plan`).
+
+    - `usual`: every month that would change has the usual fee (the batch's old one, or the
+      most common one if it had none): ticked at first.
+    - `own_fee`: those months have a fee of their own (a discount, a free place): not ticked.
+    - `planned` (shown as "has its own fee change"): a fee change of theirs from the start
+      month on, set earlier (a discount for July and August, a month off, the fee they came
+      back on) or planned for a later month; the new fee would end at it, or replace it. Not
+      ticked at first, and only changed with `confirm_planned`.
+    - `already`: they'd already pay it from that month: nothing changes.
+    - `not_affected`: they leave before it would start: nothing changes.
+    """
+
+    usual = "usual"
+    own_fee = "own_fee"
+    planned = "planned"
+    already = "already"
+    not_affected = "not_affected"
+
+
+class FeePlanStudent(_ReadModel):
+    student_id: int
+    student_name: str
+    current_fee_paise: NonNegativePaise = Field(description="Their fee this month.")
+    start_month: Month | None = Field(
+        description="The month the new fee would start for them (their joining month if later; "
+        "the month they came back if the chosen month is one of their months away). Null if "
+        "they leave before it."
+    )
+    status: FeePlanStatus
+    selected: bool = Field(description="Ticked at first (status `usual`).")
+    due_months: int = Field(
+        ge=0, description="Months already due (up to the current month) whose fee would change."
+    )
+    due_change_paise: SignedPaise = Field(
+        description="How much more those months would owe in total (less, if below 0)."
+    )
+    fee_history: list[FeeChangeRead] = Field(
+        description="Their fee changes, oldest first, so the UI can say how long it would last."
+    )
+
+
+class FeePlan(_ReadModel):
+    batch_id: int
+    fee_paise: NonNegativePaise
+    from_month: Month
+    current_month: Month
+    usual_fee_paise: NonNegativePaise | None = Field(
+        description="The fee counted as the usual one: the batch's usual fee, or if it has "
+        "none, the fee most of its students pay (null on a tie)."
+    )
+    students: list[FeePlanStudent] = Field(description="Everyone in it who hasn't left, A to Z.")
+
+
+class MoveStudents(_Model):
+    """Put students in a batch (or none) at once. Their fees don't change."""
+
+    student_ids: list[Annotated[int, Field(gt=0, strict=True)]] = Field(
+        min_length=1, max_length=5000
+    )
+    batch_id: BatchId | None = Field(description="The batch, or null for no batch.")
+
+
+class MoveResult(_ReadModel):
+    moved: int = Field(ge=0)

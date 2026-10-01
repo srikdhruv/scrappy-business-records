@@ -11,7 +11,7 @@ import type { PaymentMethod } from '@/api/types'
 import { addMonths, currentMonth, today } from '@/lib/format'
 
 import type { Fixture } from './db'
-import type { FeeChangeRow, PaymentRow, StudentRow } from './ledger'
+import type { BatchRow, FeeChangeRow, PaymentRow, StudentRow } from './ledger'
 
 interface StudentSpec {
   name: string
@@ -41,6 +41,46 @@ const TUE_THU = 'Tue/Thu 5pm – Indiranagar'
 const MON_WED = 'Mon/Wed 6pm – Koramangala'
 const SAT = 'Sat 10am – HSR Layout'
 const SUN_KIDS = 'Sun 11am Kids – Indiranagar'
+
+/** The demo batches, one per label: the students are in them (their labels were converted). */
+const DEMO_BATCHES: Omit<BatchRow, 'id' | 'created_at' | 'updated_at'>[] = [
+  {
+    name: TUE_THU,
+    location: 'Indiranagar',
+    days: ['tue', 'thu'],
+    start_time: '17:00',
+    end_time: '18:00',
+    default_fee_paise: 150000,
+    notes: null,
+  },
+  {
+    name: MON_WED,
+    location: 'Koramangala',
+    days: ['mon', 'wed'],
+    start_time: '18:00',
+    end_time: '19:00',
+    default_fee_paise: 150000,
+    notes: null,
+  },
+  {
+    name: SAT,
+    location: 'HSR Layout',
+    days: ['sat'],
+    start_time: '10:00',
+    end_time: '11:30',
+    default_fee_paise: 180000,
+    notes: null,
+  },
+  {
+    name: SUN_KIDS,
+    location: 'Indiranagar',
+    days: ['sun'],
+    start_time: '11:00',
+    end_time: '12:00',
+    default_fee_paise: 120000,
+    notes: 'Ages 6 to 9',
+  },
+]
 
 export const DEMO_STUDENTS: StudentSpec[] = [
   { name: 'Ananya Rao', guardian: 'Lakshmi Rao', batch: TUE_THU, fee: 1500, joined: 14 },
@@ -149,6 +189,13 @@ export function buildFixture(specs: StudentSpec[], now: Date = new Date()): Fixt
   const fees: FeeChangeRow[] = []
   const payments: PaymentRow[] = []
   const stamp = `${todayStr}T09:00:00Z`
+  const used = new Set(specs.map((spec) => spec.batch))
+  const batches: BatchRow[] = DEMO_BATCHES.filter((b) => used.has(b.name)).map((b, i) => ({
+    ...b,
+    id: 901 + i, // apart from the students, so Ananya Rao stays student 1
+    created_at: stamp,
+    updated_at: stamp,
+  }))
 
   const pay = (studentId: number, forMonth: string, rupees: number, method: PaymentMethod) => {
     // Most people pay in the first ten days; some pay a few days late, early next month.
@@ -187,6 +234,7 @@ export function buildFixture(specs: StudentSpec[], now: Date = new Date()): Fixt
       phone: `90000 000${String(index + 1).padStart(2, '0')}`,
       guardian_name: spec.guardian ?? null,
       batch_label: spec.batch ?? null,
+      batch_id: batches.find((b) => b.name === spec.batch)?.id ?? null,
       joined_month: joined,
       left_month: left,
       notes: spec.notes ?? null,
@@ -235,7 +283,7 @@ export function buildFixture(specs: StudentSpec[], now: Date = new Date()): Fixt
   const aarav = students.find((s) => s.name === 'Aarav Gupta')
   const withNote = payments.find((p) => p.student_id === aarav?.id && p.amount_paise === 300000)
   if (withNote) withNote.note = 'Paid for two months together'
-  return { students, fees, payments }
+  return { students, fees, payments, batches }
 }
 
 /** The standard demo: ~20 students and a year of payments. */
@@ -245,7 +293,7 @@ export function demoFixture(now: Date = new Date()): Fixture {
 
 /** A brand-new install: nobody yet. */
 export function emptyFixture(): Fixture {
-  return { students: [], fees: [], payments: [] }
+  return { students: [], fees: [], payments: [], batches: [] }
 }
 
 /** Everyone active has paid for this month and nobody owes anything. */

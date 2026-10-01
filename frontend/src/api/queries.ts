@@ -15,7 +15,15 @@ import {
 
 import { api, unwrap } from './client'
 import type {
+  BatchCreate,
+  BatchOverview,
+  BatchRead,
+  BatchUpdate,
   DashboardResponse,
+  FeePlan,
+  LabelConversion,
+  LabelPreview,
+  MoveResult,
   ImportCommit,
   ImportPreview,
   ImportResult,
@@ -52,6 +60,14 @@ export const queryKeys = {
     all: ['dashboard'] as const,
     month: (month: string) => ['dashboard', month] as const,
   },
+  batches: {
+    all: ['batches'] as const,
+    list: ['batches', 'list'] as const,
+    overview: (month: string) => ['batches', 'summary', month] as const,
+    labels: ['batches', 'from-labels'] as const,
+    feePlan: (id: number, fee: number, from: string) =>
+      ['batches', 'fee-plan', id, fee, from] as const,
+  },
   report: {
     all: ['report'] as const,
     month: (month: string) => ['report', month] as const,
@@ -65,6 +81,7 @@ export function invalidateRecords(queryClient: QueryClient) {
     queryClient.invalidateQueries({ queryKey: queryKeys.students.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.payments.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.batches.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.report.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.unassigned }),
   ])
@@ -383,6 +400,112 @@ export function useCommitImport() {
   return useMutation({
     mutationFn: async (body: ImportCommit): Promise<ImportResult> =>
       unwrap(await api.POST('/api/import/commit', { body })),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+// ---- Batches ------------------------------------------------------------------------------------
+
+/** Every batch, sorted by name, with how many students are in it. */
+export function useBatches() {
+  return useQuery({
+    queryKey: queryKeys.batches.list,
+    queryFn: async (): Promise<BatchRead[]> => unwrap(await api.GET('/api/batches')),
+  })
+}
+
+/** Each batch's fees for `month` (the server's current month when undefined). */
+export function useBatchOverview(month: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.batches.overview(month ?? 'current'),
+    queryFn: async (): Promise<BatchOverview> =>
+      unwrap(await api.GET('/api/batches/summary', { params: { query: { month } } })),
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** What "Create batches from existing labels" would do. */
+export function useLabelPreview() {
+  return useQuery({
+    queryKey: queryKeys.batches.labels,
+    queryFn: async (): Promise<LabelPreview> => unwrap(await api.GET('/api/batches/from-labels')),
+  })
+}
+
+export function useCreateBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: BatchCreate): Promise<BatchRead> =>
+      unwrap(await api.POST('/api/batches', { body })),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+export function useUpdateBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: number; body: BatchUpdate }): Promise<BatchRead> =>
+      unwrap(
+        await api.PATCH('/api/batches/{batch_id}', { params: { path: { batch_id: id } }, body }),
+      ),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+/** Delete a batch; its students stay, in no batch. */
+export function useDeleteBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) =>
+      unwrap(await api.DELETE('/api/batches/{batch_id}', { params: { path: { batch_id: id } } })),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+export function useConvertLabels() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (): Promise<LabelConversion> =>
+      unwrap(await api.POST('/api/batches/from-labels')),
+    onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+/**
+ * What "Also charge the new usual fee" would do to each student of the batch (the server's own
+ * rule, the one the change itself uses). Only while `enabled`.
+ */
+export function useFeePlan(
+  batchId: number,
+  feePaise: number | null,
+  fromMonth: string | null,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: queryKeys.batches.feePlan(batchId, feePaise ?? -1, fromMonth ?? ''),
+    queryFn: async (): Promise<FeePlan> =>
+      unwrap(
+        await api.GET('/api/batches/{batch_id}/fee-plan', {
+          params: {
+            path: { batch_id: batchId },
+            query: { fee_paise: feePaise!, from_month: fromMonth! },
+          },
+        }),
+      ),
+    enabled: enabled && feePaise !== null && fromMonth !== null,
+    placeholderData: keepPreviousData,
+    staleTime: 0,
+  })
+}
+
+/** Put students in a batch (or none), all at once. Their fees don't change. */
+export function useMoveStudents() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: {
+      student_ids: number[]
+      batch_id: number | null
+    }): Promise<MoveResult> => unwrap(await api.POST('/api/batches/move', { body })),
     onSuccess: () => invalidateRecords(queryClient),
   })
 }

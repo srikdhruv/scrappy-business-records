@@ -87,6 +87,53 @@ class TimestampMixin:
     )
 
 
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+"""The order of `Batch.days`: one character per weekday, Monday first."""
+
+MAX_FEE_PAISE = 100_000_000
+"""₹10,00,000, as `schemas.MAX_AMOUNT_PAISE`: a batch's default fee is capped like any fee."""
+
+
+def _clock_time(column: str) -> str:
+    # "HH:MM", 00:00 to 23:59. GLOB checks the shape, the comparison the range.
+    return f"{column} IS NULL OR ({column} GLOB '[0-2][0-9]:[0-5][0-9]' AND {column} <= '23:59')"
+
+
+class Batch(TimestampMixin, Base):
+    """A class the students come to: a name, an optional location, the days and times it
+    meets, and the fee new students in it usually pay (`default_fee_paise`, which only
+    prefills the form: each student keeps their own fee)."""
+
+    __tablename__ = "batches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # NOCASE: two batches can't share a name that differs only in capitals (A-Z; the API also
+    # checks other letters, ignoring case and spaces).
+    name: Mapped[str] = mapped_column(String(collation="NOCASE"), nullable=False)
+    location: Mapped[str | None] = mapped_column(String)
+    # Seven characters, Monday first: "1010100" is Mon, Wed, Fri. "0000000" is no days set.
+    days: Mapped[str] = mapped_column(
+        String(7), nullable=False, default="0000000", server_default="0000000"
+    )
+    start_time: Mapped[str | None] = mapped_column(String(5))
+    end_time: Mapped[str | None] = mapped_column(String(5))
+    default_fee_paise: Mapped[int | None] = mapped_column(Integer)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        UniqueConstraint("name"),
+        CheckConstraint("length(trim(name)) > 0", name="name_not_blank"),
+        CheckConstraint("length(days) = 7 AND days NOT GLOB '*[^01]*'", name="days_mask"),
+        CheckConstraint(_clock_time("start_time"), name="start_time_valid"),
+        CheckConstraint(_clock_time("end_time"), name="end_time_valid"),
+        CheckConstraint(
+            "default_fee_paise IS NULL OR "
+            f"(default_fee_paise >= 0 AND default_fee_paise <= {MAX_FEE_PAISE})",
+            name="default_fee_range",
+        ),
+    )
+
+
 class Student(TimestampMixin, Base):
     __tablename__ = "students"
 
@@ -105,6 +152,14 @@ class Student(TimestampMixin, Base):
     # whatever their database ids. Given the first time they're downloaded.
     uid: Mapped[str | None] = mapped_column(String)
 
+    # The batch they're in, or none. Deleting a batch leaves its students in no batch: the
+    # database says `ON DELETE SET NULL` (migration 0005), and `services.batches.delete_batch`
+    # also clears them itself first. The migration adds the column in place (no table copy),
+    # so the link is written inline, and SQLite can't read an inline link's name or ON DELETE
+    # back: `ondelete` is left out here so the models still match what the database reports.
+    batch_id: Mapped[int | None] = mapped_column(ForeignKey("batches.id"), index=True)
+    # Loaded with the student (a join, `services.students.LEDGER_ROWS`), never on its own.
+    batch: Mapped[Batch | None] = relationship(lazy="raise")
     fee_changes: Mapped[list[FeeChange]] = relationship(
         back_populates="student",
         cascade="all, delete-orphan",
