@@ -203,6 +203,20 @@ Tell the developer from inside the app:
 
 **⚙ Settings → About** shows your version and where your records and backups are.
 
+## When a new version is ready
+
+A note appears at the top of the page: **"A new version (0.3.0) is ready."**, and the **⚙
+Settings** button gets a small dot.
+
+1. Finish and save anything you're typing.
+2. Click **Update now**, then **Update now** again in the window that asks.
+3. The page says **"Updating… the app will reopen in a minute"**. Leave it open. It reloads by
+   itself on the new version, with all your records.
+
+Busy? Click **Not now**. You can update later from **⚙ Settings → About → Update now**. **See
+what's new** says what changed. If it ever says **"The update didn't finish"**, your records are
+safe and the old version is still there: see [troubleshooting](troubleshooting.md#the-update-didnt-finish).
+
 ## If the app says "Can't reach Scrappy Records"
 
 Close the browser tab and open **Scrappy Records** again from the Desktop. See
@@ -212,7 +226,8 @@ Close the browser tab and open **Scrappy Records** again from the Desktop. See
 
 Yes.
 - Everything stays on this laptop. Only feedback you choose to send leaves it, and never
-  your records file or backups.
+  your records file or backups. (The app also asks GitHub whether a new version is out; that
+  only reads, it sends nothing about you.)
 - Once a day a copy is saved in `Documents\ScrappyRecords Backups`. The last 30 days are
   kept.
 - **Download everything** (bottom of the side menu) gives you all of it as an Excel file too.

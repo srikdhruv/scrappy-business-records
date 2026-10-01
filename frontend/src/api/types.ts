@@ -70,6 +70,11 @@ export type {
   SuggestedPayment,
   SuggestionReason,
   UnassignedPaymentRead,
+  UpdateAttemptRead,
+  UpdateCheckError,
+  UpdateInfo,
+  UpdateOutcome,
+  UpdateReason,
   Weekday,
   YetToPayItem,
 } from './schema'

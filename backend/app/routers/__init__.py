@@ -11,6 +11,7 @@ from app.routers import (
     report,
     students,
     unassigned,
+    update,
 )
 
 api_router = APIRouter(prefix="/api")
@@ -24,3 +25,4 @@ api_router.include_router(unassigned.router)
 api_router.include_router(batches.router)
 api_router.include_router(about.router)
 api_router.include_router(feedback.router)
+api_router.include_router(update.router)

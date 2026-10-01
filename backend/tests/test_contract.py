@@ -40,6 +40,9 @@ EXPECTED_OPERATIONS = {
     ("get", "/api/about"): "getAbout",
     ("post", "/api/feedback"): "createFeedback",
     ("get", "/api/feedback/{feedback_id}"): "getFeedback",
+    ("get", "/api/update"): "getUpdate",
+    ("post", "/api/update/check"): "checkForUpdate",
+    ("post", "/api/update/start"): "startUpdate",
     ("get", "/api/export/students.xlsx"): "exportStudents",
     ("get", "/api/export/payments.xlsx"): "exportPayments",
     ("get", "/api/export/everything.xlsx"): "exportEverything",
@@ -73,6 +76,8 @@ def test_status_codes(client: TestClient) -> None:
     assert "200" in paths["/api/students/{student_id}/return"]["post"]["responses"]
     assert "201" in paths["/api/feedback"]["post"]["responses"]
     assert "404" in paths["/api/feedback/{feedback_id}"]["get"]["responses"]
+    assert "202" in paths["/api/update/start"]["post"]["responses"]
+    assert {"403", "409", "415", "424"} <= set(paths["/api/update/start"]["post"]["responses"])
     assert "404" in paths["/api/students/{student_id}"]["get"]["responses"]
     assert "201" in paths["/api/batches"]["post"]["responses"]
     assert "204" in paths["/api/batches/{batch_id}"]["delete"]["responses"]

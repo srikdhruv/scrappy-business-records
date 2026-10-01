@@ -10,6 +10,9 @@ the app somewhere else by setting environment variables before (or even after) i
 | `SCRAPPY_BACKUP_DIR` | `Documents\\ScrappyRecords Backups`    | Backups                     |
 | `SCRAPPY_PORT`       | `8765`                                | Server port                 |
 | `SCRAPPY_FEEDBACK_URL` | `FEEDBACK_URL` below                | Feedback relay; empty = off |
+| `SCRAPPY_UPDATE_FEED_URL` | `UPDATE_FEED_URL` below          | Update check; empty = off   |
+| `SCRAPPY_TEST_MODE`  | (unset)                               | `1`: allow the test hooks   |
+| `SCRAPPY_UPDATE_DOWNLOAD_URL` | `RELEASE_DOWNLOAD_URL` below | Tests only: release files   |
 
 On macOS the home is `~/Library/Application Support/ScrappyRecords`.
 """
@@ -31,11 +34,25 @@ DEFAULT_PORT = 8765
 
 FEEDBACK_URL = "https://scrappy-feedback.srikdhruv.workers.dev/feedback"
 """The feedback relay (a Cloudflare Worker, `relay/`), e.g.
-`https://scrappy-feedback.<account>.workers.dev/feedback`. Sending feedback is the app's only
-outbound call at runtime, and only feedback the owner chose to send goes there (ADR 0005).
+`https://scrappy-feedback.<account>.workers.dev/feedback`. Sending feedback is one of the
+app's two outbound calls at runtime (the other is the update check, ADR 0006), and only feedback
+the owner chose to send goes there (ADR 0005).
 Empty means sending is off: feedback is still saved on the laptop and goes out once a version
 with a URL is installed. Set it when the relay is deployed
 (docs/runbooks/feedback-relay-setup.md)."""
+
+
+REPO = "srikdhruv/scrappy-business-records"
+
+UPDATE_FEED_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
+"""Where the app looks for a new version (ADR 0006): GitHub's public "latest release", which
+skips drafts and prereleases. Only public release information is read; nothing about the owner
+or her records is sent. At startup, then every 12 hours, and when she clicks Check for updates."""
+
+RELEASE_DOWNLOAD_URL = f"https://github.com/{REPO}/releases/download/{{tag}}/"
+"""Where a release's files are: the zips, `install.ps1`, `install.sh` and `SHA256SUMS`. "Update
+now" runs the NEW release's own installer from here, after checking it against that release's
+`SHA256SUMS` (releases are immutable: their files can't be changed once published)."""
 
 
 def _env_path(name: str) -> Path | None:
@@ -88,6 +105,27 @@ def feedback_url() -> str:
     when set to empty, which turns sending off: tests and dev mode do that)."""
     value = os.environ.get("SCRAPPY_FEEDBACK_URL")
     return (FEEDBACK_URL if value is None else value).strip()
+
+
+def update_feed_url() -> str:
+    """Where the update check looks. `SCRAPPY_UPDATE_FEED_URL` overrides `UPDATE_FEED_URL`;
+    empty turns the check off (tests and dev mode). Tests point it at a fake feed."""
+    value = os.environ.get("SCRAPPY_UPDATE_FEED_URL")
+    return (UPDATE_FEED_URL if value is None else value).strip()
+
+
+def test_mode() -> bool:
+    """`SCRAPPY_TEST_MODE=1` (CI and the tests set it): the test hooks below work. Otherwise
+    they are ignored, so nothing on a real laptop can point updates elsewhere."""
+    return os.environ.get("SCRAPPY_TEST_MODE", "").strip() == "1"
+
+
+def update_download_url(tag: str) -> str:
+    """Where release `tag`'s files are (ends with `/`). In test mode, `SCRAPPY_UPDATE_DOWNLOAD_URL`
+    (with `{tag}`) points at a local server instead."""
+    template = os.environ.get("SCRAPPY_UPDATE_DOWNLOAD_URL", "").strip() if test_mode() else ""
+    url = (template or RELEASE_DOWNLOAD_URL).replace("{tag}", tag)
+    return url if url.endswith("/") else url + "/"
 
 
 def feedback_dir() -> Path:

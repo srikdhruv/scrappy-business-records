@@ -415,7 +415,12 @@ accounted for.
 - **Privacy:** data never leaves the laptop. The server listens on `127.0.0.1` only. The one
   exception is feedback the owner chooses to send (Settings → Send feedback): her message, a
   picture of the screen if she leaves it ticked, and details about the app, never the records
-  file or backups ([ADR 0005](../adr/0005-feedback-is-the-only-outbound-call.md)).
+  file or backups ([ADR 0005](../adr/0005-feedback-is-the-only-outbound-call.md)). The app
+  also reads GitHub's public "latest release" to offer updates, sending nothing about her
+  ([ADR 0006](../adr/0006-in-app-update.md)).
+- **Updates:** a new version is offered inside the app ("A new version is ready" → **Update
+  now**); one click backs up, installs it and reopens the app, with the records kept. The
+  pasted install line is only for the first install, and as a fallback.
 - **Durability:**
   - A daily backup is kept in *Documents*, for 30 days.
   - A backup is taken before every update and every schema migration.

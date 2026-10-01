@@ -1,7 +1,8 @@
-"""Sends saved feedback to the relay, in the background. The app's only outbound call.
+"""Sends saved feedback to the relay, in the background. One of the app's two outbound calls.
 
 ADR 0005: the app makes no network calls at runtime, except this one, which the owner starts
-by sending feedback. Only the `feedback` table's rows go out (see `services/feedback.py`), to
+by sending feedback, and the update check (ADR 0006, `app/updater.py`), which only reads public
+release information. Only the `feedback` table's rows go out (see `services/feedback.py`), to
 `config.feedback_url()`; when that is empty, nothing is ever sent.
 
 - A daemon thread (`scrappy-feedback`) tries at startup, whenever new feedback is saved
@@ -96,7 +97,7 @@ def usable_url(url: str) -> bool:
         return False
 
 
-def _ssl_context() -> ssl.SSLContext:
+def ssl_context() -> ssl.SSLContext:
     context = ssl.create_default_context()
     # The bundled Python may not find the operating system's certificates (macOS); certifi's
     # list is always there.
@@ -129,7 +130,7 @@ def post_feedback(url: str, payload: dict[str, Any], timeout: float) -> SendResu
     )
     retry_after = 0.0
     try:
-        context = _ssl_context() if url.startswith("https:") else None
+        context = ssl_context() if url.startswith("https:") else None
         with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
             status = response.status
             raw = response.read(_MAX_ANSWER_BYTES)

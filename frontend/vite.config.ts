@@ -60,7 +60,17 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '/api': { target: API_TARGET, changeOrigin: false },
+      // The server only answers requests addressed to itself (backend/app/local_only.py):
+      // present them as coming from its own address, not from Vite's :5173.
+      '/api': {
+        target: API_TARGET,
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            if (proxyReq.getHeader('origin')) proxyReq.setHeader('origin', API_TARGET)
+          })
+        },
+      },
     },
   },
   build: {

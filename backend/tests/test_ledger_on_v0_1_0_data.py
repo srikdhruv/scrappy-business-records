@@ -111,7 +111,7 @@ def v010_api() -> Iterator[tuple[TestClient, Path]]:
     dispose_engines()
     app = create_app()
     app.dependency_overrides[get_today] = lambda: FROZEN_TODAY
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
         yield client, db
 
 

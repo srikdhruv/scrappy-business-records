@@ -166,7 +166,7 @@ def _leave_hot_journal(db: Path) -> None:
 
 
 def test_backup_and_startup_survive_a_hot_journal() -> None:
-    with TestClient(create_app()):
+    with TestClient(create_app(), base_url="http://127.0.0.1:8765"):
         pass
     db = config.db_path()
     with sqlite3.connect(db) as conn:
@@ -186,7 +186,9 @@ def test_backup_and_startup_survive_a_hot_journal() -> None:
         conn.close()
 
     _leave_hot_journal(db)
-    with TestClient(create_app()) as client:  # daily backup, migrations check, serve
+    with TestClient(
+        create_app(), base_url="http://127.0.0.1:8765"
+    ) as client:  # daily backup, migrations check, serve
         assert client.get("/api/health").status_code == 200
     assert (config.backup_dir() / f"records-{dt.date.today():%Y-%m-%d}.db").is_file()
 
@@ -209,16 +211,16 @@ def _backups() -> list[str]:
 
 
 def test_first_start_takes_no_backups() -> None:
-    with TestClient(create_app()):
+    with TestClient(create_app(), base_url="http://127.0.0.1:8765"):
         pass
     assert config.db_path().is_file()
     assert _backups() == []
 
 
 def test_later_start_takes_a_daily_backup_but_no_pre_migration_one() -> None:
-    with TestClient(create_app()):
+    with TestClient(create_app(), base_url="http://127.0.0.1:8765"):
         pass
-    with TestClient(create_app()):
+    with TestClient(create_app(), base_url="http://127.0.0.1:8765"):
         pass
     names = _backups()
     assert names == [f"records-{dt.date.today():%Y-%m-%d}.db"]
@@ -242,7 +244,7 @@ def test_start_with_an_outdated_database_takes_a_pre_migration_backup(
         c.close()
 
     monkeypatch.setattr(migrate, "upgrade_to_head", fake_upgrade)
-    with TestClient(create_app()):
+    with TestClient(create_app(), base_url="http://127.0.0.1:8765"):
         pass
 
     pre = list(config.backup_dir().glob("records-pre-migration-*.db"))

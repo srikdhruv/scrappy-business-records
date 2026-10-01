@@ -51,10 +51,16 @@ the bottom (a photo of the screen helps).
 9. [ ] Paste the install line into PowerShell again, while the app is still open. It says
    **"Scrappy Records is installed"** again. The app reopens with the same data, and the backups
    folder now also has a `records-pre-update-….db` file.
+10. [ ] **Update now** (from v0.2.0, when a newer release than the installed one exists: install
+    the previous release with `-Version`, then open the app). Within a minute the page says "A
+    new version (…) is ready" (or use **⚙ Settings → About → Check for updates**). Click **Update
+    now** → **Update now**. No window flashes up, the page says "Updating…", then reloads on
+    the new version with the same data and "Updated to version …". Only one browser tab is
+    open, and there's another `records-pre-update-….db`.
 
 ### Clean up (only if the owner will use this laptop)
 
-10. [ ] Restart the laptop, so the app isn't running. Then delete the folder
+11. [ ] Restart the laptop, so the app isn't running. Then delete the folder
     `%LOCALAPPDATA%\ScrappyRecords\data` (paste the path into File Explorer's address bar). Also
     delete the test backups in `Documents\ScrappyRecords Backups`. The next time the app opens,
     it starts empty.

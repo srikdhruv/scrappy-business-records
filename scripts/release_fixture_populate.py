@@ -345,7 +345,7 @@ def main() -> None:
 
     app = create_app()
     app.dependency_overrides[get_today] = lambda: args.today
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
         populate(Api(client, args.today))
 
 

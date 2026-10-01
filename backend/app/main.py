@@ -5,7 +5,8 @@ Startup order (see docs/architecture.md, "Lifecycle"):
 2. daily backup, and a pre-migration backup if the schema is behind (`app.backup`);
 3. `alembic upgrade head`;
 4. start sending any saved feedback, if a relay is set (`app.feedback_sender`, ADR 0005);
-5. serve requests.
+5. settle the last in-app update, and start looking for new versions (`app.updater`, ADR 0006);
+6. serve requests.
 """
 
 from __future__ import annotations
@@ -20,9 +21,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse
 from sqlalchemy.exc import IntegrityError
 
-from app import __version__, backup, config, errors, feedback_sender, migrate
+from app import __version__, backup, config, errors, feedback_sender, migrate, updater
 from app.db import dispose_engines
 from app.limits import COMMIT_BODY_LIMIT, BodyLimit
+from app.local_only import LocalOnlyMiddleware
 from app.routers import api_router
 
 log = logging.getLogger("scrappy")
@@ -53,7 +55,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Sends saved feedback in the background, if a relay is set (ADR 0005). None otherwise.
     sender = feedback_sender.start_if_enabled()
     app.state.feedback_sender = sender
+    # Settles the last "Update now", and looks for new versions if checks are on (ADR 0006).
+    app.state.updater = updater.Updater().start()
     yield
+    app.state.updater.stop()
     if sender is not None:
         sender.stop()
     dispose_engines()
@@ -95,6 +100,9 @@ def create_app(static_dir: Path | None = None) -> FastAPI:
         # One schema per model in the OpenAPI output, so generated TypeScript names match ours.
         separate_input_output_schemas=False,
     )
+    # Only this laptop's own pages: the Host must be the app, and a change can't come from
+    # another website (DNS rebinding, cross-site requests). See app/local_only.py.
+    app.add_middleware(LocalOnlyMiddleware)
     app.add_exception_handler(RequestValidationError, errors.validation_error_handler)
     app.add_exception_handler(IntegrityError, errors.integrity_error_handler)
     app.add_middleware(BodyLimit, paths=("/api/import/commit",), limit=COMMIT_BODY_LIMIT)

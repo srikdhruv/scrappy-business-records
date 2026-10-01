@@ -39,6 +39,7 @@ import type {
   StudentRead,
   StudentUpdate,
   SuggestedPayment,
+  UpdateInfo,
 } from './types'
 
 export interface PaymentFilters {
@@ -50,6 +51,7 @@ export interface PaymentFilters {
 export const queryKeys = {
   health: ['health'] as const,
   about: ['about'] as const,
+  update: ['update'] as const,
   feedback: (id: string) => ['feedback', id] as const,
   students: {
     all: ['students'] as const,
@@ -366,6 +368,51 @@ export function useFeedbackStatus(id: string | null, poll: boolean) {
       ),
     enabled: id !== null,
     refetchInterval: poll ? 1000 : false,
+  })
+}
+
+// ---- Updating from inside the app (ADR 0006) ----------------------------------------------------
+
+/**
+ * The two update actions only accept requests the app's own page makes: JSON, with this header
+ * (another website can't add it; see backend/app/routers/update.py).
+ */
+export const APP_REQUEST_HEADERS = {
+  'Content-Type': 'application/json',
+  'X-Scrappy-Request': '1',
+} as const
+
+/** Is there a newer version? The server looks every 12 hours; this reads what it found. */
+export function useUpdateInfo() {
+  return useQuery<UpdateInfo>({
+    queryKey: queryKeys.update,
+    queryFn: async () => unwrap(await api.GET('/api/update')),
+    refetchInterval: 10 * 60_000,
+    refetchOnWindowFocus: true,
+    staleTime: 60_000,
+    retry: false,
+  })
+}
+
+/** About → Check for updates: the server asks GitHub now. */
+export function useCheckForUpdate() {
+  const queryClient = useQueryClient()
+  return useMutation<UpdateInfo, Error, void>({
+    mutationFn: async () =>
+      unwrap(await api.POST('/api/update/check', { headers: APP_REQUEST_HEADERS })),
+    onSuccess: (info) => queryClient.setQueryData(queryKeys.update, info),
+  })
+}
+
+/** Update now: the server starts the new version's installer (which then stops the server). */
+export function useStartUpdate() {
+  const queryClient = useQueryClient()
+  return useMutation<UpdateInfo, Error, string>({
+    mutationFn: async (version) =>
+      unwrap(
+        await api.POST('/api/update/start', { body: { version }, headers: APP_REQUEST_HEADERS }),
+      ),
+    onSuccess: (info) => queryClient.setQueryData(queryKeys.update, info),
   })
 }
 

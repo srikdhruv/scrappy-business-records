@@ -17,18 +17,22 @@ no Docker, no database server and no separate web server.
 │  ┌──────────── pythonw.exe -m app  (uvicorn, 127.0.0.1:8765) ───────────┐  │
 │  │  FastAPI                                                             │  │
 │  │   ├─ /api/health, students, payments, dashboard, batches, export, …  │  │
-│  │   │  about, feedback                                                 │  │
+│  │   │  about, feedback, update                                         │  │
 │  │   ├─ services/ledger.py  (pure business rules: dues, statuses)       │  │
 │  │   ├─ SQLAlchemy ──► sqlite3 (built into Python) ──► data/records.db  │  │
 │  │   └─ /  → static/ (built React app, index.html fallback)             │  │
 │  │  on startup: make dirs → daily backup → Alembic migrations           │  │
 │  │  feedback sender thread ─────────────────────────────────────────────┼──┼──► relay
-│  └──────────────────────────────────────────────────────────────────────┘  │   (HTTPS,
-│                            ▲                                               │    only
-│  Browser (Edge/Chrome) ────┘  React UI calls /api/* with fetch             │ feedback)
+│  │  update check thread ────────────────────────────────────────────────┼──┼──► GitHub
+│  │  Update now: installer, detached ── stops the server, swaps app\ ────┼──┼──► GitHub
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                            ▲                                               │
+│  Browser (Edge/Chrome) ────┘  React UI calls /api/* with fetch             │
 └────────────────────────────────────────────────────────────────────────────┘
 
-relay: a Cloudflare Worker (relay/) ──► GitHub issue in the private feedback repo
+relay: a Cloudflare Worker (relay/) ──► GitHub issue in the private feedback repo (HTTPS, only
+feedback). GitHub: the public "latest release" (read twice a day), and the new release's
+installer and zip when the owner clicks Update now (HTTPS, reads only).
 ```
 
 ## Components
@@ -52,6 +56,7 @@ relay: a Cloudflare Worker (relay/) ──► GitHub issue in the private feedba
 | Install checks | End-to-end install tests CI runs on each OS | `scripts/ci/` |
 | Feedback | Saved in the `feedback` table, sent by a background thread to the relay | `backend/app/services/feedback.py`, `backend/app/feedback_sender.py`, `backend/app/diagnostics.py` |
 | Feedback relay | Cloudflare Worker (TypeScript) filing feedback as issues in a private repo | `relay/`, [setup](runbooks/feedback-relay-setup.md) |
+| Updates | A thread that reads GitHub's latest release; Update now starts the new release's installer, detached | `backend/app/updater.py`, `backend/app/versions.py`, `backend/app/routers/update.py`, `frontend/src/components/update.tsx`, `frontend/src/lib/update.ts` ([ADR 0006](adr/0006-in-app-update.md)) |
 
 ## Where things live on the user's laptop (Windows)
 
@@ -59,6 +64,7 @@ Everything is per-user, so no admin rights are needed.
 
 ```
 %TEMP%\scrappy-records-windows-x64.zip  ← downloaded by the installer, deleted after extracting
+%TEMP%\scrappy-update-<tag>-…\install.ps1 ← the new release's installer, for Update now
 %LOCALAPPDATA%\ScrappyRecords\          (C:\Users\<name>\AppData\Local\ScrappyRecords)
   app\                                  ← the zip's contents; replaced wholesale on update
     python\                             ← portable CPython 3.12 (python-build-standalone)
@@ -83,6 +89,8 @@ Everything is per-user, so no admin rights are needed.
     server.log (+ .1, .2)               ← rotating log (about 1 MB each), for troubleshooting
     server-console.log                  ← the server's raw output; started fresh at each start
     launcher.lock                       ← stops two launchers starting two servers
+    update.log (+ .1)                   ← what the installer said, for updates started in the app
+    update-attempt.json                 ← the last Update now: from, to, when, how it ended
 Desktop\Scrappy Records.lnk             → app\python\pythonw.exe -m app.launcher (icon: scrappy.ico)
 Documents\ScrappyRecords Backups\       ← records-YYYY-MM-DD.db (30 kept) + pre-update copies
 ```
@@ -102,6 +110,9 @@ environment variable, which tests and dev mode use:
 | `SCRAPPY_BACKUP_DIR` | `Documents\ScrappyRecords Backups` | Backups |
 | `SCRAPPY_PORT` | `8765` | Server port |
 | `SCRAPPY_FEEDBACK_URL` | `FEEDBACK_URL` in `config.py` | Where feedback is sent; empty turns sending off (tests, dev) |
+| `SCRAPPY_UPDATE_FEED_URL` | `UPDATE_FEED_URL` in `config.py` (GitHub's latest release) | Where the update check looks; empty turns it off (tests, dev) |
+| `SCRAPPY_TEST_MODE` | — | `1` (CI, tests): allow the test hooks below; ignored otherwise |
+| `SCRAPPY_UPDATE_DOWNLOAD_URL` | `RELEASE_DOWNLOAD_URL` in `config.py` | Test mode only: where a release's files are (`{tag}` filled in); plain http to this laptop allowed |
 
 The paths are looked up each time they're needed, not once at import, so tests can change them.
 `SCRAPPY_BACKUP_DIR` does **not** follow `SCRAPPY_HOME`: dev mode (`make dev`, `make run`) and the
@@ -195,7 +206,10 @@ messages instead of showing a box, which would otherwise wait for a click.
    `PRAGMA foreign_key_check` finds any broken references afterwards. Migrations only add (see
    "Data safety" below).
 4. Start the **feedback sender** if a relay URL is set (see "Feedback" below).
-5. Serve requests.
+5. Settle the last **Update now**, if one was running (`logs/update-attempt.json`: this is the
+   new version → succeeded, else failed), and start the **update check** (see "Updating from
+   inside the app" below).
+6. Serve requests.
 
 The server's version (in `/api/health`) comes from the installed package metadata. If that's
 missing, it's read from a `VERSION` file next to the `app` package, as in the bundle layout above.
@@ -321,23 +335,88 @@ The relay URL is `FEEDBACK_URL` in `backend/app/config.py`, empty (sending off) 
 is deployed. `SCRAPPY_FEEDBACK_URL` overrides it; tests and `make dev` set it empty. Plain HTTP
 is only allowed to `127.0.0.1` (the tests' fake relay).
 
+## Updating from inside the app
+
+[ADR 0006](adr/0006-in-app-update.md); the owner's side is in the
+[feature guide](feature-guide.md#updating-the-app).
+
+1. **The check** (`app/updater.py`, thread `scrappy-update-check`): at startup, every 12 hours
+   (an hour after a failure; wall-clock time, so a sleeping laptop still checks), and on About →
+   Check for updates (`POST /api/update/check`), it reads
+   `GET https://api.github.com/repos/srikdhruv/scrappy-business-records/releases/latest`
+   (unauthenticated, 15 s timeout, `User-Agent: scrappy-records/<version> (update check)`). A
+   rate limit (403 with `X-RateLimit-Remaining: 0`, or 429) is waited out until the time GitHub
+   gives. Drafts, prereleases and tags that aren't `vX.Y.Z` are ignored; versions compare the
+   semver way (`app/versions.py`). The answer is cached; `GET /api/update` reads it.
+2. **The banner** (`components/update.tsx`): when `can_update`, every page shows "A new version
+   (X) is ready" with See what's new, Update now and Not now (hidden until a newer version,
+   `localStorage`), and the ⚙ button gets a dot.
+3. **Update now** (`POST /api/update/start`, only from the app's own page: JSON, the
+   `X-Scrappy-Request: 1` header, `Host`/`Origin`/`Sec-Fetch-Site` of the app itself): the
+   server asks GitHub again (a pulled release is never installed), downloads `install.ps1` (or
+   `install.sh`) and `SHA256SUMS` **from the new release's own files**
+   (`releases/download/<tag>/`) and checks the one against the other (else 424, nothing
+   changed), writes `logs/update-attempt.json`, and starts it on its own, so it outlives the server (Windows:
+   `CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW`, out of any job object if allowed, working
+   folder `%TEMP%`, never `app\`; not `DETACHED_PROCESS`, with which Windows PowerShell exits at
+   once; macOS: `start_new_session`), with `-Version <tag>`, `SCRAPPY_UPDATE_FROM_APP=1`,
+   `SCRAPPY_INSTALL_ROOT` (the running copy's folder, as its Python was started) and its output
+   in `logs/update.log`. One at a time: a second start answers 409.
+4. **The installer** does what it always does: check the zip against `SHA256SUMS`, stop
+   politely, back up, swap, open the new version and wait (up to 10 minutes while it is still
+   starting) for it to answer as
+   itself (else put `app.old` back and open that), shortcut. Started from the app, it also
+   opens the version still installed if it fails after closing the app, and runs the launcher
+   with `SCRAPPY_AFTER_UPDATE=1`.
+5. **The page** shows "Updating… the app will reopen in a minute" and polls
+   `/api/health?waiting_for_update=true` every 2 s (`lib/update.ts`): another version → reload;
+   the same version and a failed attempt in `/api/update` → "The update didn't finish", with the
+   log's location (the installer's own line folded under "Technical details"); 15 minutes →
+   "taking too long", and that window doesn't show the screen for that attempt again. Other
+   open windows of the app see the running attempt and show the same screen. A running attempt
+   older than 30 minutes is failed by the server. After a failed or cut-short update, the page
+   says once "The last update didn't finish — your records are safe", with Try again. Before starting, it warns if something typed in any window
+   of the app isn't saved (`lib/unsaved.ts`, a `BroadcastChannel`).
+6. **The launcher** (after an update) waits up to 8 s for `page_waiting` in `/api/update`: if the
+   old page is polling, it reloads itself, so no second browser tab is opened.
+7. **The next server** settles the attempt at startup; the page on the new version says
+   "Updated to version X" once.
+
 ## Security and privacy
 
 - The server listens on `127.0.0.1` only, so it isn't reachable from the network and triggers no
   firewall prompt.
 - There is no authentication, by design: only the logged-in Windows user can reach loopback.
-- There is no telemetry. The only outbound call at runtime is **feedback the owner chooses to
-  send**, to the feedback relay, over HTTPS ([ADR 0005](adr/0005-feedback-is-the-only-outbound-call.md)).
-  Only rows of the `feedback` table go out: never the database, backups or exports.
+- **Only the app's own pages** (`app/local_only.py`, middleware on every request): a request
+  whose `Host` isn't `127.0.0.1:<port>` or `localhost:<port>` (the port the server listens on)
+  gets a plain 403, API and UI files alike, so a website whose name is pointed at 127.0.0.1
+  (DNS rebinding) can't read anything. A request that changes something (not GET/HEAD, under
+  `/api/`) is refused if its `Origin` or `Sec-Fetch-Site` says another site sent it. The
+  launcher, installers and tests send neither header and use `127.0.0.1`. The Vite dev proxy
+  presents requests as the server's own (`vite.config.ts`).
+- The two actions that reach outside (Check for updates, Update now) also need JSON and the
+  `X-Scrappy-Request: 1` header, so another website open in the browser can't trigger them.
+- There is no telemetry. The app makes exactly two kinds of outbound call at runtime:
+  - **feedback the owner chooses to send**, to the feedback relay, over HTTPS
+    ([ADR 0005](adr/0005-feedback-is-the-only-outbound-call.md)). Only rows of the `feedback`
+    table go out: never the database, backups or exports;
+  - **the update check and Update now**, to GitHub, over HTTPS ([ADR 0006](adr/0006-in-app-update.md)):
+    reading the public latest release, and, when the owner clicks Update now, downloading the
+    new release's installer and `SHA256SUMS` (checked against each other), and the installer
+    then downloads and checks its zip. Nothing about the owner or her records is
+    sent, and nothing is sent when checks are off (`SCRAPPY_UPDATE_FEED_URL=`).
 - The GitHub token that files issues lives only in the relay, as a Worker secret, limited to the
   private feedback repo. The app holds no secret.
-- Otherwise, the only network access is the installer downloading the release zip from GitHub.
+- Otherwise, the only network access is the pasted install line downloading the installer and
+  the release zip from GitHub.
 
 ## Development mode
 
 `make dev` runs two processes:
 - uvicorn with `--reload` on :8765, using `SCRAPPY_HOME=./.devdata`, so a developer never touches
-  real data;
+  real data (feedback isn't sent and updates aren't checked, unless `SCRAPPY_FEEDBACK_URL` or
+  `SCRAPPY_UPDATE_FEED_URL` is given to `make dev`; a copy running from source never updates
+  itself);
 - Vite on :5173, proxying `/api` to :8765.
 
 `make run` serves the production build from :8765 with `python -m app`, exactly as the laptop

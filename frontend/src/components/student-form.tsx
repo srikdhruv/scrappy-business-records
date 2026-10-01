@@ -16,6 +16,7 @@ import type { BatchRead, StudentDetail, StudentUpdate } from '@/api/types'
 import { AwayWarning } from '@/components/away-warning'
 import { BatchPicker } from '@/components/batches/batch-picker'
 import { MonthPicker } from '@/components/month-picker'
+import { TrackUnsaved } from '@/components/track-unsaved'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -85,14 +86,16 @@ export function StudentFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
         <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
-          <StudentForm
-            student={student}
-            batchId={batchId ?? null}
-            onDone={(saved) => {
-              onOpenChange(false)
-              if (saved) onSaved?.(saved)
-            }}
-          />
+          <TrackUnsaved>
+            <StudentForm
+              student={student}
+              batchId={batchId ?? null}
+              onDone={(saved) => {
+                onOpenChange(false)
+                if (saved) onSaved?.(saved)
+              }}
+            />
+          </TrackUnsaved>
         </DialogContent>
       )}
     </Dialog>

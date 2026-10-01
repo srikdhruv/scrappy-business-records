@@ -195,7 +195,7 @@ jobs:
     # PowerShell 5.1 and no Python or uv on PATH. See scripts/ci/smoke_install_windows.ps1.
     name: Windows install (bundle, installer, launcher, data survives restart and update)
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -226,12 +226,16 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass
           -File scripts\ci\smoke_install_windows.ps1
           -ZipPath dist\scrappy-records-windows-x64.zip
+      - name: Update from inside the app (Update now, from a 0.0.1 copy of this bundle to this one)
+        # scripts/ci/smoke_in_app_update.py: a fake release feed and installer on 127.0.0.1;
+        # the app starts the real installer detached, which stops it, backs up, swaps, reopens.
+        run: uv run --project backend python scripts/ci/smoke_in_app_update.py dist/scrappy-records-windows-x64.zip
 
   macos-install:
     # The same for the Mac bundle and scripts/install.sh (see scripts/ci/smoke_install_mac.sh).
     name: macOS install (bundle, installer, launcher, data survives restart and update)
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -258,3 +262,5 @@ jobs:
         run: uv run --project backend python scripts/build_bundle.py
       - name: Install and run it like a user (env -i, no developer tools on PATH)
         run: scripts/ci/smoke_install_mac.sh dist/scrappy-records-macos-arm64.zip
+      - name: Update from inside the app (Update now, from a 0.0.1 copy of this bundle to this one)
+        run: uv run --project backend python scripts/ci/smoke_in_app_update.py dist/scrappy-records-macos-arm64.zip

@@ -44,6 +44,33 @@ Another program is using the app's port.
 
 Press **Ctrl + F5** in the browser to force a full reload.
 
+## The update didn't finish
+
+After **Update now**, the page says **"The update didn't finish"** (or **"The update is taking
+too long"**).
+
+- **Your records are safe.** An update never touches them, and a backup was taken first.
+- **The old version is still there.** If the new one couldn't be put in place, the installer
+  put the old one back and opened it again. Click **Back to the app** and carry on.
+- If the page says the app isn't answering, double-click **Scrappy Records** on the Desktop (on
+  a Mac, open it from Applications), then click **Check again**.
+- **Try again later** from **⚙ Settings → About → Update now**. The most common cause is the
+  internet dropping during the download.
+- **"The last update didn't finish — your records are safe"** (or *"…your records were put back
+  as they were before the update"*) at the top of the page means an update was cut short (the laptop restarted in the middle, say) or failed while the window
+  wasn't open. Nothing is lost; click **Try again** when it suits you.
+- The page says it in plain words; **Technical details** (folded, under the message) has the
+  installer's own words, for whoever helps you.
+- If it keeps failing, update with the pasted line instead ([update.md](update.md#the-pasted-line-the-first-install-and-the-fallback)),
+  and send the log to whoever set this up: `%LOCALAPPDATA%\ScrappyRecords\logs\update.log`
+  (the page shows the exact path; on a Mac,
+  `~/Library/Application Support/ScrappyRecords/logs/update.log`). Its last lines say what went
+  wrong, in the same words as the pasted line would (see the table below).
+
+**About says "Couldn't check just now"**: the laptop is offline, or GitHub didn't answer. It
+tries again by itself; nothing else is affected. "GitHub asked the app to wait" means it checked
+too often (GitHub allows 60 checks an hour per internet connection): it waits and tries later.
+
 ## The install line shows an error
 
 The installer ends with **"Sorry, Scrappy Records was NOT installed. Your data has not been
@@ -57,6 +84,11 @@ changed."**, a hint, and the details. Nothing was changed, so it's safe to run t
 | `404` / `Not Found` | No release has been published yet (or that version doesn't exist). Ask whoever set this up. |
 | `The download looks incomplete` | The download was cut short. Run the line again. |
 | `Couldn't save a backup copy of your data` | Restart the laptop, then run the line again. Nothing was changed. |
+| `doesn't match its checksum` / `SHA256SUMS` | The download isn't exactly the file that was published (cut short, or changed on the way). Nothing was changed. Try again later; if it keeps happening, tell whoever set this up. |
+| `The new version (…) didn't start, so the previous version (…) was put back` | The new version couldn't start on this laptop. Your previous version is back and open, with your records (if the new version had already changed them, they were put back as they were before the update; its copy is kept as `records-failed-update-….db`). Tell whoever set this up (send `logs\update.log` and `logs\server.log`). |
+| `…your records couldn't be put back as they were before the update by themselves` | Nothing is lost, but the old version may not open the records the new one changed, so it wasn't opened. Restore the `records-pre-update-….db` named in the message ([backups and restore](backup-and-restore.md#restore-a-backup)), then open the app. |
+| `…the previous version couldn't be put back` | Something held a file. Restart the laptop, then run the install line again. Your records are safe. |
+| `This release has no checksum list (SHA256SUMS)` | Only v0.1.0 was published without one, and is only installed with `-Version v0.1.0`. For anything else, ask whoever set this up. |
 
 If the installer finishes but shows a yellow **Note:** (for example, the Desktop shortcut
 couldn't be created), the app *was* installed; the note says what to do.

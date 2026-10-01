@@ -2,7 +2,8 @@
  * End-to-end tests (`make e2e`): the real production server (`python -m app`) serving the built
  * UI (`make build`), on a free port, with a throwaway data folder. Nothing here touches
  * ./.devdata or a real install. Feedback goes to a fake relay on another free port
- * (e2e/fake-relay.mjs), never to the internet.
+ * (e2e/fake-relay.mjs), never to the internet, and the update check asks that relay's stand-in
+ * for GitHub's latest release.
  */
 import { mkdtempSync } from 'node:fs'
 import { createServer } from 'node:net'
@@ -76,6 +77,9 @@ export default defineConfig({
         SCRAPPY_BACKUP_DIR: path.join(home, 'backups'),
         SCRAPPY_PORT: port,
         SCRAPPY_FEEDBACK_URL: `${relayURL}/feedback`,
+        // The update check asks the fake relay's stand-in for GitHub, never the internet.
+        SCRAPPY_UPDATE_FEED_URL: `${relayURL}/releases/latest`,
+        SCRAPPY_TEST_MODE: '1', // plain http to the fake feed is only allowed in test mode
       },
       // The server's request log is only worth reading when CI fails.
       stdout: 'ignore',

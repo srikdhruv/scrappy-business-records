@@ -4,7 +4,9 @@ Scrappy Records is a small, private app for anyone who runs classes, such as dan
 tuition, and collects a monthly fee. It answers one question at a glance: **who has paid for
 which month, and who is still left to pay?** Everything stays on your own laptop, and it works
 without the internet. The only thing that ever leaves the laptop is feedback you choose to
-send (see [Settings and feedback](#settings-and-feedback)).
+send (see [Settings and feedback](#settings-and-feedback)). When it's online, the app also
+looks for new versions of itself, and updates when you click **Update now** (see
+[Updating the app](#updating-the-app)).
 
 ## How to use this guide
 
@@ -32,11 +34,12 @@ send (see [Settings and feedback](#settings-and-feedback)).
 10. [Downloading and uploading Excel](#downloading-and-uploading-excel)
 11. [Unassigned payments](#unassigned-payments)
 12. [Settings and feedback](#settings-and-feedback)
-13. [What the words and colours mean](#what-the-words-and-colours-mean)
-14. [Everyday situations](#everyday-situations)
-15. [Your data and safety](#your-data-and-safety)
-16. [For developers: feature map](#for-developers-feature-map)
-17. [Keeping this guide up to date](#keeping-this-guide-up-to-date)
+13. [Updating the app](#updating-the-app)
+14. [What the words and colours mean](#what-the-words-and-colours-mean)
+15. [Everyday situations](#everyday-situations)
+16. [Your data and safety](#your-data-and-safety)
+17. [For developers: feature map](#for-developers-feature-map)
+18. [Keeping this guide up to date](#keeping-this-guide-up-to-date)
 
 ---
 
@@ -2076,9 +2079,12 @@ narrow window). Click it for a small menu:
   same as *Download everything* in the side menu; see
   [Downloading and uploading Excel](#downloading-and-uploading-excel)). Handy on a narrow
   window, where the side menu hides it.
-- **About**: the version, and where your records and backups are.
+- **About**: the version, whether there's a newer one (**Check for updates**, **Update
+  now**), and where your records and backups are.
 
-More settings will go in this menu later.
+When a new version is ready, the gear has a small marigold dot and the menu says **New
+version** next to **About** (see [Updating the app](#updating-the-app)). More settings will go
+in this menu later.
 
 <br clear="right">
 
@@ -2119,10 +2125,13 @@ After **Send**, the window says one of:
 - **Saved on this laptop, but the feedback inbox didn't accept it.** Rare: tell the developer
   another way.
 
-**About** shows the **Version** (for example 0.1.0), the **Build** (a code that tells the
-developer exactly which copy of the app this is), where **Your records**, the **Daily backups**
-and the **Log files** are on this laptop, and, if any is waiting, how many feedback messages
-haven't been sent yet. If this version can't send feedback, it says so here too.
+**About** shows the **Version** (for example 0.1.0), the **Newest version** (whether a newer
+one is out, and when the app last looked; see [Updating the app](#updating-the-app)), the
+**Build** (a code that tells the developer exactly which copy of the app this is), where **Your
+records**, the **Daily backups** and the **Log files** are on this laptop, and, if any is
+waiting, how many feedback messages haven't been sent yet. If this version can't send feedback,
+it says so here too. Its buttons: **Check for updates**, **Close**, and **Update now** when a
+new version is ready.
 
 ### What you can do
 
@@ -2136,10 +2145,15 @@ haven't been sent yet. If this version can't send feedback, it says so here too.
 **See your version, or where your records are**
 1. Click **⚙ Settings**, then **About**.
 
+**Look for a new version now**
+1. Click **⚙ Settings**, then **About**, then **Check for updates**.
+
 ### Good to know
 
 - Nothing else ever leaves the laptop: never your records file, the backups or anything you
-  download. Feedback is the one exception, and only when you click **Send**.
+  download. Feedback is the one exception, and only when you click **Send**. (Looking for a new
+  version only *reads* from GitHub; nothing about you is sent. See
+  [Updating the app](#updating-the-app).)
 - If the picture can't be taken, the window says so and the message is sent without it.
 - Clicking **Send** twice sends it once.
 - Until the developer switches on the feedback inbox, the window says *It can't be sent
@@ -2179,6 +2193,145 @@ haven't been sent yet. If this version can't send feedback, it says so here too.
 - **Tests:** `components/feedback-dialog.test.tsx`, `lib/diagnostics.test.ts`,
   `lib/feedback.test.ts`, `backend/tests/test_feedback.py`, `e2e/feedback.spec.ts` (against a
   fake relay, `e2e/fake-relay.mjs`), `relay/test/relay.test.ts`.
+
+</details>
+
+---
+
+## Updating the app
+
+### What it's for
+
+Getting the newest version of Scrappy Records, with its fixes and new features, in one click,
+without typing anything. Your records are kept, and a backup copy is saved first.
+
+### What you'll see
+
+**A note at the top of every page** when a new version is out:
+
+![A calm note across the top of the Dashboard: a sparkle, 'A new version (0.2.0) is ready.', and three buttons: 'See what's new', a marigold 'Update now', and 'Not now'.](images/feature-guide/update-banner.png)
+
+- **See what's new**: what changed in the new version, in a small window (with **Update now**
+  there too).
+- **Update now**: starts the update (it asks first).
+- **Not now**: hides the note until the next version comes out. The small dot on the **⚙
+  Settings** button stays, and **About** still offers **Update now**.
+
+**⚙ Settings → About** shows the same, under **Newest version**:
+
+<img src="images/feature-guide/update-about.png" alt="The About window: Version 0.1.0; Newest version: 'Version 0.2.0 is ready to install. Last checked 15 Sep 2026, 10:30.'; Build; where Your records, Daily backups and Log files are; and buttons Check for updates, Close and Update now." width="400">
+
+It says **You have the newest version.** when there's nothing new, **Couldn't check just now. Is
+the internet on?** when it couldn't look, and **Last checked** with the date and time of the last
+look. **Check for updates** looks straight away.
+
+**Update now** asks first:
+
+<img src="images/feature-guide/update-confirm.png" alt="A small window: 'Update to version 0.2.0?' 'Updating takes about a minute. Your records are kept and backed up first. The app will reopen by itself.' Buttons: Not now, and a marigold Update now." width="400">
+
+If something you typed in a form isn't saved yet, in this window or another Scrappy Records
+window, an amber note says so: *Save it first, or it will be lost when the app reopens.*
+
+Then, while it updates, the page shows:
+
+<img src="images/feature-guide/update-updating.png" alt="A card over the page with a turning circle: 'Updating… the app will reopen in a minute'. 'Installing version 0.2.0. Your records are kept, and a backup copy is saved first. Please leave this window open.'" width="480">
+
+After about a minute the page reloads by itself on the new version, and a green message says
+**Updated to version 0.2.0. Your records are just as you left them.** Only this window is used:
+no new browser tab opens. (If you had closed the window, the app opens the browser itself.)
+
+If it takes more than 3 minutes, it adds *This is taking longer than usual, but it's still
+working* (a slow internet connection can do that). If it can't finish, the card says **The update
+didn't finish**, why in plain words, and that **your records are safe** and the old version
+is still there, with **Back to the app**. A small folded **Technical details** line under it has
+the installer's own words, for whoever helps you. After 15 minutes with no answer it says **The
+update is taking too long**, what to do (open it from the Desktop, then **Check again**), and
+the name of the log file to send to whoever set up the app. That window won't show the
+Updating card for that update again.
+
+**If an update was cut short** (the laptop restarted in the middle, say) or failed while the
+window was closed, the next time you open the app an amber note says once: **The last update
+didn't finish — your records are safe.** *You still have version 0.1.0, just as it was.* With
+**Try again** (when the new version can be installed) and **OK**. If the new version had changed
+your records before it stopped, it says instead **…your records were put back as they were
+before the update.**
+
+### What you can do
+
+**Update to a new version**
+1. Save anything you're typing.
+2. Click **Update now** in the note at the top (or **⚙ Settings → About → Update now**).
+3. Read the window, and click **Update now**.
+4. Leave the window open. It reloads by itself when the new version is ready.
+
+**See what's new first**
+1. Click **See what's new** in the note. Then **Update now**, or **Close**.
+
+**Not now**
+1. Click **Not now**. The note goes away until the next version; update any time from **⚙
+   Settings → About**.
+
+**Look for a new version straight away**
+1. Click **⚙ Settings → About → Check for updates**.
+
+### Good to know
+
+- **Your records are never touched by an update**, and a backup copy is saved just before
+  (`records-pre-update-….db` in the backups folder). If the new version stores records in a new
+  way, it takes one more backup before changing anything.
+- **When it looks:** when the app starts, then twice a day while it's running, if the laptop is
+  online. It only ever offers a *newer* version that has been fully checked (never a test
+  version).
+- **What it sends:** nothing about you or your records. It asks GitHub, where the app is
+  published, which version is the newest, like opening that web page; and when you click
+  **Update now**, it asks once more, then downloads the new version from there.
+- **Only the real thing is installed.** Each version is published with a list of fingerprints
+  of its files (checksums). The app and the installer check every download against it, and
+  stop, with nothing changed, if anything doesn't match. A published version can never be
+  changed afterwards.
+- **It needs the internet** for the download (about 25 MB, 30 MB on a Mac). Offline, the note
+  just doesn't appear.
+- **Clicking twice starts it once.** If you have the app open in two browser windows, both show
+  *Updating…* and both reload on the new version.
+- **If it fails**, the old version is put back and opened again, exactly as it was. That
+  includes a new version that won't start on this laptop: the installer waits for it to open
+  (a few minutes if it's slow), and if it never does it puts the old one back, and, if the new
+  one had already changed your records, puts them back as they were before the update (the
+  note then says so). Try again later; if it keeps failing, see
+  [troubleshooting](runbooks/troubleshooting.md#the-update-didnt-finish).
+- **Only this laptop's own pages can use the app.** Another website open in the browser can't
+  read your records or start an update.
+- **Version 0.2.0 is the first with this button**, so getting *to* 0.2.0 needs the pasted line
+  once more ([Updating](runbooks/update.md)); every later update is **Update now**.
+- A copy of the app run by a developer (not installed) looks, but never updates itself: it
+  says *This copy can't update itself*.
+
+<details><summary>For developers</summary>
+
+- **Components:** `frontend/src/components/update.tsx` (`UpdateProvider` in `providers.tsx`
+  owns the dialogs and the Updating screen; `UpdateBanner` in `components/layout/app-shell.tsx`;
+  `UpdateDot` and "New version" in `components/settings-menu.tsx`; the Newest version row and
+  buttons in `components/about-dialog.tsx`).
+- **Waiting:** `src/lib/update.ts` (`nextPhase`, `watchUpdate`): polls
+  `/api/health?waiting_for_update=true` every 2 s; another version → reload; the same version
+  and a failed attempt → failed; 3 min → slow; 15 min → timeout. Not now and "Updated" once are
+  in `localStorage`.
+- **Unsaved input:** `src/lib/unsaved.ts` (`findUnsavedInput`, a `BroadcastChannel` to ask other
+  windows), `components/track-unsaved.tsx` around the payment, student and feedback forms, and
+  `useTrackUnsaved` in Mark as coming again.
+- **API:** `GET /api/update` (`getUpdate`), `POST /api/update/check` (`checkForUpdate`), `POST
+  /api/update/start` (`startUpdate`; JSON, `X-Scrappy-Request: 1`, the app's own `Host` and
+  `Origin`), `GET /api/health?waiting_for_update=` (`getHealth`). See
+  [data model](data-model.md).
+- **Backend:** `app/updater.py` (the check, the attempt file, starting the installer detached),
+  `app/versions.py` (semver), `routers/update.py` (the guards), `launcher.py`
+  (`page_is_waiting`), and `scripts/install.ps1` / `install.sh` (`SCRAPPY_UPDATE_FROM_APP`).
+  [ADR 0006](adr/0006-in-app-update.md); the [release runbook](runbooks/release.md#updating-from-inside-the-app-what-must-keep-working)
+  lists what future installers must keep doing.
+- **Tests:** `components/update.test.tsx`, `lib/update.test.ts`, `lib/unsaved.test.ts`,
+  `backend/tests/test_update.py`, `test_local_only.py`, `test_release_contract.py`,
+  `e2e/update.spec.ts` (a fake feed in `e2e/fake-relay.mjs`),
+  and a real update of a real install in CI's install jobs (`scripts/ci/smoke_in_app_update.py`).
 
 </details>
 
@@ -2229,6 +2382,13 @@ The same word always has the same colour, everywhere in the app.
 | **Sent ✓** | Green tick | The Send feedback window | Your feedback reached the developer's private feedback inbox |
 | **Saved** (feedback) | Marigold | The Send feedback window; About ("waiting to be sent") | Your feedback is kept on this laptop and will be sent by itself when the internet is on |
 | **Build** | — (a code) | About | Which exact copy of the app this is, so the developer can find the code it runs |
+| **A new version (…) is ready** | Marigold sparkle | The note at the top of every page; a dot on **⚙ Settings**; **New version** next to About | A newer version of the app is out and can be installed with **Update now** |
+| **Newest version** | — | About | What the app found the last time it looked: *ready to install*, *You have the newest version*, or *Couldn't check just now* |
+| **Updating…** | Marigold, turning | Over the whole page, after **Update now** | The new version is being installed; the page reloads by itself |
+| **Updated to version …** | Green | A message after the update | The update worked; everything you entered is still there |
+| **The update didn't finish** | Muted red | Over the page, after **Update now** | The new version couldn't go in; the old one is still there and your records are safe |
+| **The last update didn't finish** | Amber | A note at the top, once, after an update that failed or was cut short | Nothing was lost; **Try again** when it suits you |
+| **Technical details** | — (small, folded) | Under "The update didn't finish" | The installer's own words, for whoever helps you |
 
 **The colours themselves:** green for paid, amber for partly paid, a soft muted red for owed,
 teal for extra or ahead, and grey for anything not due. Marigold is the app's own colour, used
@@ -2518,6 +2678,20 @@ yet, write it down and log it once you do.)
 2. Click **Download Excel**. The file in *Downloads* has just those payments, with the total
    easy to add up in Excel. Attach it to an email or a WhatsApp message.
 
+### A new version is ready
+
+The note at the top says **"A new version (0.3.0) is ready."**
+
+1. Finish what you're doing and save it (a payment you're typing, say).
+2. Click **See what's new** if you're curious, then **Update now**.
+3. Click **Update now** in the window that asks.
+4. Wait about a minute with the window open. The page reloads on the new version and says
+   **Updated to version 0.3.0**. Carry on as before: everything is where you left it.
+
+In the middle of a busy day? Click **Not now**, and update later from **⚙ Settings → About →
+Update now**. If it says **The update didn't finish**, nothing is lost: click **Back to the
+app**, and try again later.
+
 ### Something looks wrong — tell the developer
 
 1. Stay on the page where it looks wrong (for example the student's profile, or the Dashboard
@@ -2562,20 +2736,26 @@ Open their profile and look at **Month by month** to see which month shows as ow
   feedback inbox, with the details listed under *What gets sent* (the version, the page, recent
   errors, the computer's system). Never your records file, backups or downloads. See
   [Settings and feedback](#settings-and-feedback).
+- **Looking for new versions** only reads from GitHub, where the app is published: nothing
+  about you or your records is sent. See [Updating the app](#updating-the-app).
 - **It works offline.** After installing, the app never needs the internet. Only installing
-  and updating download something, and feedback waits on the laptop until you're online.
+  and updating download something (the app just doesn't offer an update while offline), and
+  feedback waits on the laptop until you're online.
 - **Automatic backups.** A copy is saved every day to **Documents\ScrappyRecords Backups**
   (Documents/ScrappyRecords Backups on a Mac), and the last 30 days are kept. Another copy is
   saved before every update, before the app upgrades its records to a new layout, and before
   an Excel upload is added. Those are kept until you delete them.
 - **Restoring a backup** (after a big mistake, or on a new laptop) is a few steps in File
   Explorer. See [Backups and restore](runbooks/backup-and-restore.md).
-- **Updating.** Paste the same one line you installed with. The installer closes the app, saves
+- **Updating.** When a new version is out, click **Update now** (see
+  [Updating the app](#updating-the-app)); the pasted install line is only needed to get to
+  version 0.2.0, or if the button keeps failing. Either way the installer closes the app, saves
   a backup, swaps in the new version and opens it. Your data is never touched, and if the new
   version needs to upgrade the records it takes one more backup first. An update only ever adds
   to how records are kept: what you typed in is never changed or removed, and before each new
   version is released it's checked against records saved by every earlier version. See
-  [Updating](runbooks/update.md). The version you have is at the bottom of the side menu.
+  [Updating](runbooks/update.md). The version you have is in **⚙ Settings → About** and at the
+  bottom of the side menu.
 
   > **After the update that brings "extra money pays the months still owed":** nothing you
   > typed changes, but money already recorded above a month's fee now pays the oldest months
@@ -2632,6 +2812,7 @@ Open their profile and look at **Month by month** to see which month shows as ow
 | Download Excel, Download everything | `components/excel-buttons.tsx`, `lib/downloads.ts`, `components/layout/app-shell.tsx` | `GET /api/export/students.xlsx` (`exportStudents`), `GET /api/export/payments.xlsx` (`exportPayments`), `GET /api/export/everything.xlsx` (`exportEverything`) | `services/exports.py` | `lib/downloads.test.ts`, `test_excel_export.py`, `e2e/excel.spec.ts` |
 | Upload Excel (preview, choices, Add), blank templates | `components/excel-upload-dialog.tsx`, `lib/upload.ts` | `POST /api/import/preview` (`previewImport`), `POST /api/import/commit` (`commitImport`), `GET /api/import/template.xlsx` (`importTemplate`) | `services/spreadsheet.py`, `services/imports.py`, `services/matching.py`, `services/text.py`; `backup.py` (`pre-import`) | `components/excel-upload-dialog.test.tsx`, `test_excel_import.py`, `test_excel_review.py`, `test_spreadsheet_cells.py`, `test_fuzz_excel.py`, `e2e/excel.spec.ts` |
 | Unassigned payments, the Dashboard line | `components/unassigned-payments.tsx`, `components/unassigned-banner.tsx`, `components/student-combobox.tsx` | `GET /api/unassigned-payments` (`listUnassignedPayments`), `POST /api/unassigned-payments/{id}/assign` (`assignUnassignedPayment`), `DELETE /api/unassigned-payments/{id}` (`deleteUnassignedPayment`) | `services/unassigned.py` | `components/unassigned-payments.test.tsx`, `test_unassigned.py`, `test_migration_unassigned.py`, `e2e/excel.spec.ts` |
+| Updating the app: the check, the banner, Update now | `components/update.tsx`, `lib/update.ts`, `lib/unsaved.ts`, `components/track-unsaved.tsx`, `components/about-dialog.tsx`, `components/settings-menu.tsx` | `GET /api/update` (`getUpdate`), `POST /api/update/check` (`checkForUpdate`), `POST /api/update/start` (`startUpdate`), `GET /api/health?waiting_for_update=` (`getHealth`) | `updater.py`, `versions.py`, `routers/update.py`, `local_only.py`, `launcher.py`; `scripts/install.ps1`, `install.sh` (checksums, rollback) | `components/update.test.tsx`, `lib/update.test.ts`, `lib/unsaved.test.ts`, `test_update.py`, `e2e/update.spec.ts`, `scripts/ci/smoke_in_app_update.py` |
 | Settings menu, Send feedback, About | `components/settings-menu.tsx`, `components/feedback-dialog.tsx`, `components/about-dialog.tsx`, `lib/diagnostics.ts`, `lib/screenshot.ts`, `lib/feedback.ts` | `POST /api/feedback` (`createFeedback`), `GET /api/feedback/{feedback_id}` (`getFeedback`), `GET /api/about` (`getAbout`) | `services/feedback.py`, `diagnostics.py`, `feedback_sender.py`; relay in `relay/` | `components/feedback-dialog.test.tsx`, `lib/diagnostics.test.ts`, `lib/feedback.test.ts`, `test_feedback.py`, `e2e/feedback.spec.ts`, `relay/test/relay.test.ts` |
 
 Test paths without a folder are in `frontend/src/` (`*.tsx`, `*.ts`) or `backend/tests/`

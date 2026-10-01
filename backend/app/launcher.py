@@ -15,6 +15,10 @@ Two launches at once (a double double-click) don't start two servers: the check-
 holds a lock file, so the second launcher waits, sees the server is up and just opens the browser.
 And a server started anyway exits at once if another one holds the server lock.
 
+After an in-app update (ADR 0006), the installer runs this with `SCRAPPY_AFTER_UPDATE=1`. The
+page that started the update is usually still open, polling `/api/health?waiting_for_update=true`
+and about to reload itself; if it asks within a few seconds, no second browser tab is opened.
+
 Environment switches, for tests and CI:
 - `SCRAPPY_NO_BROWSER=1`: don't open the browser.
 - `SCRAPPY_NO_DIALOG=1`: don't show message boxes (they would block an unattended run).
@@ -51,6 +55,7 @@ LOCK_TIMEOUT = SLOW_START_TIMEOUT + 15.0
 # A server that has held its lock this long without opening the port is stuck, not slow.
 STUCK_STARTING_SECONDS = 180.0
 POLL_INTERVAL = 0.25
+PAGE_WAIT_SECONDS = 8.0  # after an update: how long to wait for the old page to ask
 IS_WINDOWS = sys.platform == "win32"
 
 # Our own copy of the app lives next to this file; the server runs from that folder.
@@ -176,6 +181,9 @@ def start_server(port: int) -> subprocess.Popen[bytes]:
     """Start the server so it outlives this launcher and has no window."""
     env = dict(os.environ)
     env["SCRAPPY_PORT"] = str(port)
+    # How this launcher was started (after an update) says nothing about the server's own run.
+    for name in ("SCRAPPY_AFTER_UPDATE", "SCRAPPY_UPDATE_FROM_APP"):
+        env.pop(name, None)
     kwargs: dict[str, object] = {}
     if IS_WINDOWS:
         kwargs["creationflags"] = (
@@ -317,6 +325,24 @@ def ensure_server(port: int) -> subprocess.Popen[bytes] | None:
         return wait_until_up(port, start_server(port))
 
 
+def page_is_waiting(port: int, wait: float = PAGE_WAIT_SECONDS) -> bool:
+    """After an update: is the page that started it still open (it reloads itself)?"""
+    url = f"http://{config.HOST}:{port}/api/update"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            with opener.open(url, timeout=2.0) as response:
+                body = json.loads(response.read(256 * 1024).decode("utf-8"))
+            if isinstance(body, dict) and body.get("page_waiting") is True:
+                return True
+        except (OSError, http.client.HTTPException, ValueError):
+            pass
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.5)
+
+
 # --------------------------------------------------------------------------- telling the user
 
 
@@ -379,7 +405,9 @@ def main() -> int:
         show_message(_with_log_hint(f"{APP_TITLE} couldn't start ({exc})."))
         return 1
 
-    if _flag("SCRAPPY_NO_BROWSER"):
+    if _flag("SCRAPPY_AFTER_UPDATE") and page_is_waiting(port):
+        log.info("After an update: the page that started it reloads itself; no new browser tab")
+    elif _flag("SCRAPPY_NO_BROWSER"):
         log.info("SCRAPPY_NO_BROWSER is set, so not opening the browser")
     elif not webbrowser.open(app_url(port)):
         show_message(
