@@ -2226,6 +2226,12 @@ export interface components {
              * @description In plain words, when it failed.
              */
             detail: string;
+            /**
+             * Technical
+             * @description The installer's own words, for whoever looks after the app (or empty).
+             * @default
+             */
+            technical: string;
         };
         /**
          * UpdateCheckError

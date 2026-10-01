@@ -11,8 +11,8 @@ the app somewhere else by setting environment variables before (or even after) i
 | `SCRAPPY_PORT`       | `8765`                                | Server port                 |
 | `SCRAPPY_FEEDBACK_URL` | `FEEDBACK_URL` below                | Feedback relay; empty = off |
 | `SCRAPPY_UPDATE_FEED_URL` | `UPDATE_FEED_URL` below          | Update check; empty = off   |
-| `SCRAPPY_UPDATE_INSTALLER_URL` | `INSTALLER_URL` below       | Tests: the installer to run |
-| `SCRAPPY_UPDATE_ZIP` | (unset)                               | Tests: install this zip     |
+| `SCRAPPY_TEST_MODE`  | (unset)                               | `1`: allow the test hooks   |
+| `SCRAPPY_UPDATE_DOWNLOAD_URL` | `RELEASE_DOWNLOAD_URL` below | Tests only: release files   |
 
 On macOS the home is `~/Library/Application Support/ScrappyRecords`.
 """
@@ -49,9 +49,10 @@ UPDATE_FEED_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 skips drafts and prereleases. Only public release information is read; nothing about the owner
 or her records is sent. At startup, then every 12 hours, and when she clicks Check for updates."""
 
-INSTALLER_URL = f"https://raw.githubusercontent.com/{REPO}/{{tag}}/scripts/{{script}}"
-"""The installer that "Update now" runs, taken from the NEW release's tag, so the installer and
-the release it installs always match. `{script}` is `install.ps1` or `install.sh`."""
+RELEASE_DOWNLOAD_URL = f"https://github.com/{REPO}/releases/download/{{tag}}/"
+"""Where a release's files are: the zips, `install.ps1`, `install.sh` and `SHA256SUMS`. "Update
+now" runs the NEW release's own installer from here, after checking it against that release's
+`SHA256SUMS` (releases are immutable: their files can't be changed once published)."""
 
 
 def _env_path(name: str) -> Path | None:
@@ -113,17 +114,18 @@ def update_feed_url() -> str:
     return (UPDATE_FEED_URL if value is None else value).strip()
 
 
-def update_installer_url(tag: str, script: str) -> str:
-    """The installer for release `tag`. `SCRAPPY_UPDATE_INSTALLER_URL` overrides it (CI serves
-    this commit's script from a local server); `{tag}` and `{script}` in it are filled in."""
-    template = os.environ.get("SCRAPPY_UPDATE_INSTALLER_URL", "").strip() or INSTALLER_URL
-    return template.replace("{tag}", tag).replace("{script}", script)
+def test_mode() -> bool:
+    """`SCRAPPY_TEST_MODE=1` (CI and the tests set it): the test hooks below work. Otherwise
+    they are ignored, so nothing on a real laptop can point updates elsewhere."""
+    return os.environ.get("SCRAPPY_TEST_MODE", "").strip() == "1"
 
 
-def update_zip() -> str:
-    """Testing only: a local zip the installer installs instead of downloading the release
-    (`SCRAPPY_UPDATE_ZIP`, passed on as the installer's `-ZipPath`)."""
-    return os.environ.get("SCRAPPY_UPDATE_ZIP", "").strip()
+def update_download_url(tag: str) -> str:
+    """Where release `tag`'s files are (ends with `/`). In test mode, `SCRAPPY_UPDATE_DOWNLOAD_URL`
+    (with `{tag}`) points at a local server instead."""
+    template = os.environ.get("SCRAPPY_UPDATE_DOWNLOAD_URL", "").strip() if test_mode() else ""
+    url = (template or RELEASE_DOWNLOAD_URL).replace("{tag}", tag)
+    return url if url.endswith("/") else url + "/"
 
 
 def feedback_dir() -> Path:

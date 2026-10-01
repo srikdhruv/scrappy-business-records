@@ -255,7 +255,9 @@ def test_release_data_upgrades_intact(release: Release, migrations: Path) -> Non
 
     app = create_app()
     app.dependency_overrides[get_today] = lambda: release.today
-    with TestClient(app) as client:  # the real startup: backups, then alembic upgrade head
+    with TestClient(
+        app, base_url="http://127.0.0.1:8765"
+    ) as client:  # the real startup: backups, then alembic upgrade head
         assert migrate.current_revision() == migrate.head_revision()
         _check_database(db)
         _assert_intact(db, release, "while upgrading")
@@ -293,5 +295,5 @@ def test_release_data_upgrades_intact(release: Release, migrations: Path) -> Non
     _assert_intact(db, release, "going up again")
 
     # And the app still starts on it and serves it.
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
         _check_api(client, release)

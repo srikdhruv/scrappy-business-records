@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
+import hashlib
 import http.client
 import json
 import logging
@@ -67,6 +68,14 @@ from app.schemas import (
 
 log = logging.getLogger("scrappy.update")
 
+
+def update_url_ok(url: str) -> bool:
+    """HTTPS; plain HTTP only to this laptop, and only in test mode (CI's fake GitHub)."""
+    if url.startswith("https:"):
+        return usable_url(url)
+    return config.test_mode() and usable_url(url)
+
+
 CHECK_INTERVAL = 12 * 3600.0  # seconds between checks that worked
 RETRY_INTERVAL = 3600.0  # ...and after one that didn't
 MAX_WAIT = 24 * 3600.0  # the longest a rate limit can make us wait
@@ -90,7 +99,10 @@ ASSETS: dict[Platform, str] = {
 SCRIPTS: dict[Platform, str] = {"windows": "install.ps1", "macos": "install.sh"}
 
 # Only plain release tags reach a URL or a command line: v1.2.3, nothing else.
-_RELEASE_TAG = re.compile(r"^v?\d{1,9}\.\d{1,9}\.\d{1,9}$")
+_RELEASE_TAG = re.compile(r"^v?[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$", re.ASCII)
+SUMS = "SHA256SUMS"
+STALE_SECONDS = 30 * 60.0  # a "running" update this old has failed (the installer is gone)
+_MAX_SUMS_BYTES = 64 * 1024
 
 
 def update_log_file() -> Path:
@@ -293,7 +305,7 @@ class UpdateChecker:
 
     @property
     def enabled(self) -> bool:
-        return usable_url(self.url())
+        return update_url_ok(self.url())
 
     def _waiting(self, now: float) -> bool:
         """Rate limited: GitHub asked us to wait until `wait_until`. (A wait much longer than
@@ -373,6 +385,7 @@ class Attempt:
     outcome: str = UpdateOutcome.running.value
     finished_at: str | None = None
     detail: str = ""
+    technical: str = ""  # the installer's own words (newer field: older apps don't write it)
 
     def read(self) -> UpdateAttemptRead | None:
         try:
@@ -385,6 +398,7 @@ class Attempt:
                 else None,
                 outcome=UpdateOutcome(self.outcome),
                 detail=self.detail,
+                technical=self.technical,
             )
         except ValueError:
             return None
@@ -401,9 +415,36 @@ def load_attempt() -> Attempt | None:
             outcome=str(data.get("outcome", UpdateOutcome.running.value)),
             finished_at=data.get("finished_at") or None,
             detail=str(data.get("detail", "")),
+            technical=str(data.get("technical", "")),
         )
     except (OSError, ValueError, KeyError, TypeError):
         return None
+
+
+def settled_attempt(now: dt.datetime | None = None) -> Attempt | None:
+    """The last attempt; one still "running" after 30 minutes is marked failed (the installer
+    died, or the laptop was switched off), so the page stops waiting and Update now works again."""
+    attempt = load_attempt()
+    if attempt is None or attempt.outcome != UpdateOutcome.running.value:
+        return attempt
+    now = now or _utcnow()
+    try:
+        started = dt.datetime.fromisoformat(attempt.started_at)
+    except ValueError:
+        started = now - dt.timedelta(seconds=STALE_SECONDS)
+    if (now - started).total_seconds() < STALE_SECONDS:
+        return attempt
+    attempt = replace(
+        attempt,
+        outcome=UpdateOutcome.failed.value,
+        finished_at=now.isoformat(),
+        detail=_failed_detail(attempt.to_version, __version__),
+        technical="No word from the installer for 30 minutes.",
+    )
+    log.warning("The update to %s never finished; giving up on it", attempt.to_version)
+    with contextlib.suppress(OSError):
+        save_attempt(attempt)
+    return attempt
 
 
 def save_attempt(attempt: Attempt) -> None:
@@ -438,6 +479,7 @@ def reconcile_attempt(current: str = __version__) -> Attempt | None:
             outcome=UpdateOutcome.failed.value,
             finished_at=now,
             detail=_failed_detail(attempt.to_version, current),
+            technical=_installer_problem(None),
         )
         log.warning("The update to %s didn't finish; still on %s", attempt.to_version, current)
     with contextlib.suppress(OSError):
@@ -456,30 +498,65 @@ class UpdateError(Exception):
         self.status = status
 
 
-def download_installer(url: str, dest: Path, timeout: float = INSTALLER_TIMEOUT) -> None:
-    """Fetch the installer script to `dest`. Raises UpdateError (424) if it can't: not 502,
-    which the page reads as "the app isn't answering"."""
-    cant = (
-        "Couldn't download the update. Check that the laptop is connected to the internet, "
-        "then try again. Nothing was changed."
-    )
-    if not usable_url(url):
-        log.error("The installer address isn't https: %s", url)
-        raise UpdateError(424, cant)
+_CANT_DOWNLOAD = (
+    "Couldn't download the update. Check that the laptop is connected to the internet, then "
+    "try again. Nothing was changed."
+)
+_DOESNT_CHECK_OUT = (
+    "The update didn't download correctly (it isn't exactly what was published), so it wasn't "
+    "started. Nothing was changed. Try again later."
+)
+
+
+def download(url: str, max_bytes: int, timeout: float = INSTALLER_TIMEOUT) -> bytes:
+    """GET a release file. Raises UpdateError (424) if it can't: not 502, which the page reads
+    as "the app isn't answering"."""
+    if not update_url_ok(url):
+        log.error("Not downloading from %s: it isn't https", url)
+        raise UpdateError(424, _CANT_DOWNLOAD)
     request = urllib.request.Request(
         url, headers={"User-Agent": f"scrappy-records/{__version__} (update)"}
     )
     try:
         context = ssl_context() if url.startswith("https:") else None
         with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
-            body = response.read(_MAX_INSTALLER_BYTES + 1)
+            body = response.read(max_bytes + 1)
     except (OSError, http.client.HTTPException, ValueError) as e:
-        log.warning("Couldn't download the installer from %s: %s", url, e)
-        raise UpdateError(424, cant) from e
-    if not body or len(body) > _MAX_INSTALLER_BYTES or body.lstrip()[:1] == b"<":
-        # Empty, huge, or a web page (a Wi-Fi login page, an error page) instead of a script.
-        log.warning("The installer from %s doesn't look like a script (%d bytes)", url, len(body))
-        raise UpdateError(424, cant)
+        log.warning("Couldn't download %s: %s", url, e)
+        raise UpdateError(424, _CANT_DOWNLOAD) from e
+    if not body or len(body) > max_bytes:
+        log.warning("%s is empty or too big (%d bytes)", url, len(body))
+        raise UpdateError(424, _CANT_DOWNLOAD)
+    return body
+
+
+def parse_sums(text: str) -> dict[str, str]:
+    """`sha256sum` output (`<64 hex>  <name>`, or `*<name>` in binary mode) → {name: hash}."""
+    sums: dict[str, str] = {}
+    for line in text.splitlines():
+        match = re.match(r"^([0-9a-fA-F]{64}) [ *]?(\S.*?)\s*$", line, re.ASCII)
+        if match:
+            sums[match.group(2)] = match.group(1).lower()
+    return sums
+
+
+def download_installer(tag: str, name: str, dest: Path) -> None:
+    """Fetch release `tag`'s installer `name` to `dest`, after checking it against the
+    release's own `SHA256SUMS`. Raises UpdateError (424) if it can't, or if it doesn't match."""
+    base = config.update_download_url(tag)
+    try:
+        sums = parse_sums(download(base + SUMS, _MAX_SUMS_BYTES).decode("utf-8", "replace"))
+    except UpdateError:
+        raise
+    expected = sums.get(name)
+    if expected is None:
+        log.error("%s has no checksum for %s", base + SUMS, name)
+        raise UpdateError(424, _DOESNT_CHECK_OUT)
+    body = download(base + name, _MAX_INSTALLER_BYTES)
+    actual = hashlib.sha256(body).hexdigest()
+    if actual != expected:
+        log.error("%s doesn't match SHA256SUMS (%s, expected %s)", base + name, actual, expected)
+        raise UpdateError(424, _DOESNT_CHECK_OUT)
     dest.write_bytes(body)
 
 
@@ -512,7 +589,7 @@ def install_root(bundle: Path) -> Path:
     return bundle.parent
 
 
-def installer_env(root: Path) -> dict[str, str]:
+def installer_env(root: Path, tag: str) -> dict[str, str]:
     """The installer's environment: ours, plus how it was started (the contract with future
     installers, docs/runbooks/release.md). `root` is the running app folder (`<root>/app`)."""
     env = dict(os.environ)
@@ -520,11 +597,11 @@ def installer_env(root: Path) -> dict[str, str]:
         env.pop(name, None)
     env["SCRAPPY_UPDATE_FROM_APP"] = "1"
     env["SCRAPPY_INSTALL_ROOT"] = str(install_root(root))  # update the copy that is running
-    zip_path = config.update_zip()
-    if zip_path:
-        env["SCRAPPY_INSTALL_ZIP"] = zip_path
-    else:
-        env.pop("SCRAPPY_INSTALL_ZIP", None)
+    # The installer downloads the release's zip and SHA256SUMS itself (never a local zip).
+    env.pop("SCRAPPY_INSTALL_ZIP", None)
+    env.pop("SCRAPPY_INSTALL_DOWNLOAD_URL", None)
+    if config.test_mode() and os.environ.get("SCRAPPY_UPDATE_DOWNLOAD_URL", "").strip():
+        env["SCRAPPY_INSTALL_DOWNLOAD_URL"] = config.update_download_url(tag)
     return env
 
 
@@ -583,17 +660,19 @@ def spawn_installer(
     raise last
 
 
-def _installer_problem(code: int) -> str:
+def _installer_problem(code: int | None) -> str:
     """The installer's own "Details:" line from update.log, if it printed one."""
     with contextlib.suppress(OSError):
         with open(update_log_file(), "rb") as f:
             f.seek(0, os.SEEK_END)
             f.seek(max(0, f.tell() - 8192))
             tail = f.read().decode("utf-8", "replace")
+        # Only this attempt's part: after the last header the server wrote.
+        tail = tail.rsplit("\n==== ", 1)[-1]
         for line in reversed(tail.splitlines()):
             if line.strip().startswith("Details:"):
                 return line.strip()[:300]
-    return f"The installer stopped with code {code}."
+    return "" if code is None else f"The installer stopped with code {code}."
 
 
 def _clean_old_temp_folders() -> None:
@@ -609,7 +688,7 @@ class UpdateRunner:
     def __init__(
         self,
         spawn: Callable[[list[str], dict[str, str], Path, Any], Any] = spawn_installer,
-        download: Callable[[str, Path], None] = download_installer,
+        download: Callable[[str, str, Path], None] = download_installer,
     ) -> None:
         self.spawn = spawn
         self.download = download
@@ -620,13 +699,13 @@ class UpdateRunner:
         if not self._lock.acquire(blocking=False):
             raise UpdateError(409, "The update has already started.")
         try:
-            current = load_attempt()
+            current = settled_attempt()
             if current is not None and current.outcome == UpdateOutcome.running.value:
                 raise UpdateError(409, "The update has already started.")
             _clean_old_temp_folders()
             folder = Path(tempfile.mkdtemp(prefix=f"scrappy-update-{tag}-"))
             script = folder / SCRIPTS[kind]
-            self.download(config.update_installer_url(tag, SCRIPTS[kind]), script)
+            self.download(tag, SCRIPTS[kind], script)
             if kind == "macos":
                 script.chmod(0o700)
             attempt = Attempt(
@@ -647,7 +726,7 @@ class UpdateRunner:
                 handle.write(header.encode("utf-8"))
                 handle.flush()
                 try:
-                    self.process = self.spawn(command, installer_env(root), folder, handle)
+                    self.process = self.spawn(command, installer_env(root, tag), folder, handle)
                 except OSError as e:
                     log.exception("Couldn't start the installer")
                     failed = replace(
@@ -655,6 +734,7 @@ class UpdateRunner:
                         outcome=UpdateOutcome.failed.value,
                         finished_at=_utcnow().isoformat(),
                         detail="The update couldn't start. Nothing was changed.",
+                        technical=str(e)[:300],
                     )
                     save_attempt(failed)
                     raise UpdateError(
@@ -692,7 +772,8 @@ class UpdateRunner:
                 current,
                 outcome=UpdateOutcome.failed.value,
                 finished_at=_utcnow().isoformat(),
-                detail=f"{_failed_detail(current.to_version, __version__)} {problem}",
+                detail=_failed_detail(current.to_version, __version__),
+                technical=problem,
             )
         )
 
@@ -736,7 +817,7 @@ class Updater:
         return self._page_seen > 0 and time.monotonic() - self._page_seen < PAGE_WAITING_SECONDS
 
     def _blocker(self, result: FeedResult | None, available: bool) -> UpdateReason | None:
-        attempt = load_attempt()
+        attempt = settled_attempt()
         if attempt is not None and attempt.outcome == UpdateOutcome.running.value:
             return UpdateReason.updating
         if not self.checker.enabled:
@@ -751,7 +832,7 @@ class Updater:
         kind = self.kind()
         if kind is None:
             return UpdateReason.unsupported
-        if ASSETS[kind] not in result.assets:
+        if not {ASSETS[kind], SCRIPTS[kind], SUMS} <= result.assets:
             return UpdateReason.no_download
         return None
 
@@ -760,7 +841,7 @@ class Updater:
         latest = result.latest if result else None
         available = versions.is_newer(latest, __version__)
         reason = self._blocker(result, available)
-        attempt = load_attempt()
+        attempt = settled_attempt()
         return UpdateInfo(
             current=__version__,
             latest=latest,
@@ -779,6 +860,15 @@ class Updater:
         info = self.info()
         if info.reason is UpdateReason.updating:
             raise UpdateError(409, "The update has already started.")
+        # Ask GitHub again first: a release pulled since the last check is never installed.
+        self.checker.check_now()
+        if self.checker.error is not None:
+            raise UpdateError(
+                424,
+                "Couldn't check the new version just now. Check that the laptop is connected "
+                "to the internet, then try again. Nothing was changed.",
+            )
+        info = self.info()
         if not info.can_update:
             raise UpdateError(409, _cant_update_message(info))
         if versions.parse(version) != versions.parse(info.latest):

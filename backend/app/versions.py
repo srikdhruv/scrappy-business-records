@@ -11,10 +11,13 @@ import functools
 import re
 from dataclasses import dataclass
 
+# ASCII digits only: [0-9], not \d, which also matches other scripts' digits.
 _SEMVER = re.compile(
-    r"^v?(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})"
-    r"(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?"
-    r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
+    r"^v?(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})"
+    r"(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?"
+    r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$",
+    re.ASCII,
 )
 
 
@@ -65,7 +68,7 @@ def _prerelease_lt(a: tuple[str, ...], b: tuple[str, ...]) -> bool:
     for x, y in zip(a, b, strict=False):
         if x == y:
             continue
-        x_num, y_num = x.isdigit(), y.isdigit()
+        x_num, y_num = x.isascii() and x.isdigit(), y.isascii() and y.isdigit()
         if x_num and y_num:
             return int(x) < int(y)
         if x_num != y_num:

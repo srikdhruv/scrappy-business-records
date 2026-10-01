@@ -1419,6 +1419,9 @@ class UpdateAttemptRead(_ReadModel):
     finished_at: UtcDatetime | None
     outcome: UpdateOutcome
     detail: str = Field(description="In plain words, when it failed.")
+    technical: str = Field(
+        "", description="The installer's own words, for whoever looks after the app (or empty)."
+    )
 
 
 class UpdateInfo(_ReadModel):

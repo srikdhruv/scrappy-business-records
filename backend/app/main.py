@@ -24,6 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from app import __version__, backup, config, errors, feedback_sender, migrate, updater
 from app.db import dispose_engines
 from app.limits import COMMIT_BODY_LIMIT, BodyLimit
+from app.local_only import LocalOnlyMiddleware
 from app.routers import api_router
 
 log = logging.getLogger("scrappy")
@@ -99,6 +100,9 @@ def create_app(static_dir: Path | None = None) -> FastAPI:
         # One schema per model in the OpenAPI output, so generated TypeScript names match ours.
         separate_input_output_schemas=False,
     )
+    # Only this laptop's own pages: the Host must be the app, and a change can't come from
+    # another website (DNS rebinding, cross-site requests). See app/local_only.py.
+    app.add_middleware(LocalOnlyMiddleware)
     app.add_exception_handler(RequestValidationError, errors.validation_error_handler)
     app.add_exception_handler(IntegrityError, errors.integrity_error_handler)
     app.add_middleware(BodyLimit, paths=("/api/import/commit",), limit=COMMIT_BODY_LIMIT)

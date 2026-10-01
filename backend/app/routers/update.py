@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app import config
+from app.local_only import app_hosts
 from app.schemas import ErrorResponse, UpdateInfo, UpdateStart
 from app.updater import UpdateError, Updater
 
@@ -30,14 +30,6 @@ def get_updater(request: Request) -> Updater:
     return updater
 
 
-def _app_hosts() -> set[str]:
-    try:
-        port = config.port()
-    except ValueError:
-        return set()
-    return {f"127.0.0.1:{port}", f"localhost:{port}"}
-
-
 def same_app_only(request: Request) -> None:
     """Refuse anything that isn't the app's own page (see the module docstring)."""
     content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
@@ -47,7 +39,7 @@ def same_app_only(request: Request) -> None:
         )
     if request.headers.get(REQUEST_HEADER) != "1":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the app itself can do this.")
-    hosts = _app_hosts()
+    hosts = app_hosts(request.scope)
     if request.headers.get("host", "").lower() not in hosts:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the app itself can do this.")
     origin = request.headers.get("origin")

@@ -822,7 +822,7 @@ def test_running_app_sends_in_the_background(
 ) -> None:
     """The real thing: startup starts the sender, saving wakes it, the dialog sees 'sent'."""
     monkeypatch.setenv("SCRAPPY_FEEDBACK_URL", relay.url)
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), base_url="http://127.0.0.1:8765") as c:
         body = feedback_body()
         saved = c.post("/api/feedback", json=body).json()
         assert saved["sending"] is True
@@ -844,7 +844,7 @@ def test_waiting_feedback_is_sent_at_startup(
     client.post("/api/feedback", json=body)  # saved while sending was off
     dispose_engines()
     monkeypatch.setenv("SCRAPPY_FEEDBACK_URL", relay.url)
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), base_url="http://127.0.0.1:8765") as c:
         deadline = time.monotonic() + 10
         while c.get(f"/api/feedback/{body['id']}").json()["status"] != "sent":
             assert time.monotonic() < deadline
@@ -904,7 +904,7 @@ def test_feedback_on_upgraded_v0_1_0_data() -> None:
         return rows
 
     before = records(source)
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), base_url="http://127.0.0.1:8765") as c:
         assert c.post("/api/feedback", json=feedback_body()).status_code == 201
         assert c.get("/api/about").json()["feedback_waiting"] == 1
     dispose_engines()

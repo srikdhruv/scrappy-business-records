@@ -8,7 +8,9 @@ starting it is replaced by a fake that records the command.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
+import hashlib
 import http.server
 import json
 import os
@@ -56,7 +58,13 @@ def release(tag: str = f"v{NEXT}", **overrides: Any) -> dict[str, Any]:
         "html_url": f"https://github.com/example/releases/tag/{tag}",
         "assets": [
             {"name": name, "state": "uploaded"}
-            for name in ("scrappy-records-windows-x64.zip", "scrappy-records-macos-arm64.zip")
+            for name in (
+                "scrappy-records-windows-x64.zip",
+                "scrappy-records-macos-arm64.zip",
+                "install.ps1",
+                "install.sh",
+                "SHA256SUMS",
+            )
         ],
     }
     body.update(overrides)
@@ -186,6 +194,7 @@ class FakeFeed:
     answers: list[tuple[int, bytes, dict[str, str]]] = field(default_factory=list)
     release: dict[str, Any] = field(default_factory=release)
     installer: bytes = b"# Scrappy Records installer\n"
+    sums: bytes | None = None  # None: the right SHA256SUMS for `installer`
     requests: list[dict[str, str]] = field(default_factory=list)
     delay: float = 0.0
 
@@ -201,6 +210,13 @@ def feed() -> Iterator[FakeFeed]:
                 time.sleep(fake.delay)
             if self.path.startswith("/installer/"):
                 status, body, headers = 200, fake.installer, {}
+            elif self.path.startswith("/download/") and self.path.endswith("/SHA256SUMS"):
+                right = f"{hashlib.sha256(fake.installer).hexdigest()}  install.ps1\n".encode()
+                status, body, headers = 200, right if fake.sums is None else fake.sums, {}
+            elif self.path.startswith("/download/") and self.path.endswith("/install.ps1"):
+                status, body, headers = 200, fake.installer, {}
+            elif self.path.startswith("/download/"):
+                status, body, headers = 404, b"Not Found", {}
             elif fake.answers:
                 status, body, headers = fake.answers.pop(0)
             else:
@@ -395,8 +411,8 @@ def rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Rig]:
     spawned = Spawned()
     downloads: list[str] = []
 
-    def download(url: str, dest: Path) -> None:
-        downloads.append(url)
+    def download(tag: str, name: str, dest: Path) -> None:
+        downloads.append(f"{tag}/{name}")
         dest.write_text("# installer\n")
 
     checker = UpdateChecker(
@@ -531,12 +547,6 @@ def test_guards_let_the_app_through(rig: Rig, extra: dict[str, str]) -> None:
     assert response.status_code == 200, response.text
 
 
-def test_guard_wrong_host_from_the_default_test_client(client: TestClient) -> None:
-    # TestClient's Host is "testserver", which isn't the app.
-    response = client.post("/api/update/start", json={"version": NEXT}, headers=GOOD_HEADERS)
-    assert response.status_code == 403
-
-
 # ---- starting it ---------------------------------------------------------------------------
 
 
@@ -548,10 +558,8 @@ def test_start_runs_the_new_releases_installer_detached(rig: Rig) -> None:
     assert info["last_attempt"]["outcome"] == "running"
     assert info["last_attempt"]["from_version"] == __version__
     assert info["last_attempt"]["to_version"] == NEXT
-    # The installer comes from the NEW release's tag.
-    assert rig.downloads == [
-        f"https://raw.githubusercontent.com/{config.REPO}/v{NEXT}/scripts/install.ps1"
-    ]
+    # The installer comes from the NEW release's own files.
+    assert rig.downloads == [f"v{NEXT}/install.ps1"]
     [(command, env, cwd)] = rig.spawned.calls
     assert command[0].lower().endswith("powershell.exe")
     assert command[1:7] == [
@@ -609,7 +617,7 @@ def test_start_only_the_version_the_page_showed(rig: Rig) -> None:
 
 
 def test_start_download_fails_changes_nothing(rig: Rig) -> None:
-    def fail(url: str, dest: Path) -> None:
+    def fail(tag: str, name: str, dest: Path) -> None:
         raise UpdateError(424, "Couldn't download the update. Nothing was changed.")
 
     rig.updater.runner.download = fail
@@ -644,8 +652,12 @@ def test_installer_failing_while_the_app_runs_is_reported(rig: Rig) -> None:
             break
         time.sleep(0.05)
     assert attempt["outcome"] == "failed"
-    assert f"so you still have version {__version__}" in attempt["detail"]
-    assert "Details: The remote name could not be resolved" in attempt["detail"]
+    # Plain words for the owner; the installer's own line kept apart, for whoever helps.
+    assert attempt["detail"] == (
+        f"The update to version {NEXT} didn't finish, so you still have version {__version__}. "
+        "Your records are as they were."
+    )
+    assert attempt["technical"] == "Details: The remote name could not be resolved"
     assert attempt["finished_at"] is not None
     # And it can be tried again.
     assert rig.client.get("/api/update").json()["can_update"] is True
@@ -657,7 +669,7 @@ def test_installer_env_and_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     monkeypatch.setenv("SCRAPPY_INSTALL_ZIP", "/somewhere/old.zip")
     monkeypatch.setenv("SCRAPPY_AFTER_UPDATE", "1")
     root = tmp_path / "Root" / "app"
-    env = updater.installer_env(root)
+    env = updater.installer_env(root, "v1.2.3")
     assert env["SCRAPPY_UPDATE_FROM_APP"] == "1"
     assert env["SCRAPPY_INSTALL_ROOT"] == str(tmp_path / "Root")
     for gone in (
@@ -667,8 +679,12 @@ def test_installer_env_and_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         "SCRAPPY_AFTER_UPDATE",
     ):
         assert gone not in env
-    monkeypatch.setenv("SCRAPPY_UPDATE_ZIP", "/ci/new.zip")
-    assert updater.installer_env(root)["SCRAPPY_INSTALL_ZIP"] == "/ci/new.zip"
+    # A local release server (CI) only in test mode.
+    monkeypatch.setenv("SCRAPPY_UPDATE_DOWNLOAD_URL", "http://127.0.0.1:5/download/{tag}")
+    assert "SCRAPPY_INSTALL_DOWNLOAD_URL" not in updater.installer_env(root, "v1.2.3")
+    monkeypatch.setenv("SCRAPPY_TEST_MODE", "1")
+    env = updater.installer_env(root, "v1.2.3")
+    assert env["SCRAPPY_INSTALL_DOWNLOAD_URL"] == "http://127.0.0.1:5/download/v1.2.3/"
     script = tmp_path / "install.sh"
     assert updater.installer_command("macos", script, "v1.2.3") == [
         "/bin/sh",
@@ -704,31 +720,66 @@ def test_install_root_is_spelled_as_our_python_was_started(
     assert updater.install_root(app_dir) == real
 
 
-def test_installer_url_can_be_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert config.update_installer_url("v1.2.3", "install.sh").endswith(
-        "/v1.2.3/scripts/install.sh"
-    )
-    monkeypatch.setenv("SCRAPPY_UPDATE_INSTALLER_URL", "http://127.0.0.1:5/{tag}/{script}")
-    assert (
-        config.update_installer_url("v1.2.3", "install.ps1")
-        == "http://127.0.0.1:5/v1.2.3/install.ps1"
-    )
+def test_release_files_url_and_its_test_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    real = f"https://github.com/{config.REPO}/releases/download/v1.2.3/"
+    assert config.update_download_url("v1.2.3") == real
+    monkeypatch.setenv("SCRAPPY_UPDATE_DOWNLOAD_URL", "http://127.0.0.1:5/d/{tag}")
+    assert config.update_download_url("v1.2.3") == real  # ignored outside test mode
+    monkeypatch.setenv("SCRAPPY_TEST_MODE", "1")
+    assert config.update_download_url("v1.2.3") == "http://127.0.0.1:5/d/v1.2.3/"
 
 
-def test_download_installer(feed: FakeFeed, tmp_path: Path) -> None:
+def test_plain_http_only_in_test_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert updater.update_url_ok("https://api.github.com/x")
+    assert not updater.update_url_ok("http://127.0.0.1:5/feed")
+    checker = UpdateChecker(url=lambda: "http://127.0.0.1:5/feed")
+    assert not checker.enabled
+    monkeypatch.setenv("SCRAPPY_TEST_MODE", "1")
+    assert updater.update_url_ok("http://127.0.0.1:5/feed")
+    assert not updater.update_url_ok("http://example.com/feed")
+    assert checker.enabled
+
+
+def test_parse_sums() -> None:
+    a, b = "a" * 64, "B" * 64
+    text = f"{a}  install.ps1\n{b} *scrappy-records-windows-x64.zip\nnot a line\n{'c' * 63}  x\n"
+    assert updater.parse_sums(text) == {
+        "install.ps1": a,
+        "scrappy-records-windows-x64.zip": b.lower(),
+    }
+
+
+def test_download_installer_checks_it_against_the_release(
+    feed: FakeFeed, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     base = feed.url.rsplit("/releases", 1)[0]
+    monkeypatch.setenv("SCRAPPY_TEST_MODE", "1")
+    monkeypatch.setenv("SCRAPPY_UPDATE_DOWNLOAD_URL", f"{base}/download/{{tag}}/")
     dest = tmp_path / "install.ps1"
-    updater.download_installer(f"{base}/installer/install.ps1", dest)
+    updater.download_installer("v1.2.3", "install.ps1", dest)
     assert dest.read_bytes() == feed.installer
-    for body in (b"", b"  <html>Wi-Fi login</html>"):
-        feed.installer = body
+    assert [r["path"] for r in feed.requests] == [
+        "/download/v1.2.3/SHA256SUMS",
+        "/download/v1.2.3/install.ps1",
+    ]
+    dest.unlink()
+    for sums in (
+        f"{'0' * 64}  install.ps1\n".encode(),  # someone else's file
+        f"{hashlib.sha256(feed.installer).hexdigest()}  install.sh\n".encode(),  # no entry
+        b"",  # empty
+    ):
+        feed.sums = sums
         with pytest.raises(UpdateError) as e:
-            updater.download_installer(f"{base}/installer/install.ps1", dest)
+            updater.download_installer("v1.2.3", "install.ps1", dest)
         assert e.value.status == 424
+        assert "Nothing was changed" in str(e.value)
+        assert not dest.exists()  # never written, so never run
+    feed.sums = None
     with pytest.raises(UpdateError):
-        updater.download_installer("http://example.com/install.ps1", dest)  # not https
+        updater.download_installer("v1.2.3", "install.sh", dest)  # no such file: 404
+    monkeypatch.delenv("SCRAPPY_TEST_MODE")
     with pytest.raises(UpdateError):
-        updater.download_installer("http://127.0.0.1:9/install.ps1", dest)  # offline
+        updater.download_installer("v1.2.3", "install.ps1", dest)  # real GitHub, not reachable
 
 
 def test_spawn_installer_really_detaches(tmp_path: Path) -> None:
@@ -746,6 +797,77 @@ def test_spawn_installer_really_detaches(tmp_path: Path) -> None:
     assert proc.wait(30) == 0
     text = out.read_text()
     assert "hello from the installer" in text and "own session: True" in text
+
+
+def test_a_running_update_older_than_30_minutes_has_failed(rig: Rig) -> None:
+    rig.client.post("/api/update/start", json={"version": NEXT}, headers=GOOD_HEADERS)
+    assert rig.client.get("/api/update").json()["reason"] == "updating"
+    # The installer vanished (the laptop was switched off, say): 31 minutes later...
+    attempt = updater.load_attempt()
+    assert attempt is not None
+    long_ago = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=31)
+    updater.save_attempt(dataclasses.replace(attempt, started_at=long_ago.isoformat()))
+    info = rig.client.get("/api/update").json()
+    assert info["last_attempt"]["outcome"] == "failed"
+    assert info["last_attempt"]["technical"] == "No word from the installer for 30 minutes."
+    assert (info["can_update"], info["reason"]) == (True, None)
+    # ...and Update now works again.
+    again = rig.client.post("/api/update/start", json={"version": NEXT}, headers=GOOD_HEADERS)
+    assert again.status_code == 202
+    assert again.json()["last_attempt"]["outcome"] == "running"
+    assert len(rig.spawned.calls) == 2
+
+
+def test_a_running_update_under_30_minutes_is_left_alone() -> None:
+    config.log_dir().mkdir(parents=True)
+    started = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=29)
+    updater.save_attempt(dataclasses.replace(_attempt(NEXT), started_at=started.isoformat()))
+    settled = updater.settled_attempt()
+    assert settled is not None and settled.outcome == "running"
+
+
+def test_start_asks_github_again_first(rig: Rig) -> None:
+    calls: list[float] = []
+
+    def pulled(url: str, timeout: float, now: float) -> FeedResult:
+        calls.append(now)
+        return parse_feed(release(f"v{__version__}"))  # 99.0.0 was pulled since the banner
+
+    rig.updater.checker.fetch = pulled
+    response = rig.client.post("/api/update/start", json={"version": NEXT}, headers=GOOD_HEADERS)
+    assert response.status_code == 409
+    assert len(calls) == 1 and rig.spawned.calls == []
+
+
+def test_start_refuses_when_it_cant_check(rig: Rig) -> None:
+    offline = FeedResult(ok=False, error=UpdateCheckError.offline)
+    rig.updater.checker.fetch = lambda url, timeout, now: offline
+    response = rig.client.post("/api/update/start", json={"version": NEXT}, headers=GOOD_HEADERS)
+    assert response.status_code == 424
+    assert "Nothing was changed" in response.json()["detail"]
+    assert rig.spawned.calls == []
+
+
+def test_a_release_without_its_installer_or_checksums_isnt_offered(rig: Rig) -> None:
+    for missing in ("install.ps1", "SHA256SUMS"):
+        assets = [
+            {"name": n}
+            for n in ("scrappy-records-windows-x64.zip", "install.ps1", "SHA256SUMS")
+            if n != missing
+        ]
+        rig.updater.checker.fetch = lambda url, timeout, now, a=assets: parse_feed(
+            release(assets=a)
+        )
+        rig.updater.checker.check_now()
+        assert rig.client.get("/api/update").json()["reason"] == "no_download"
+
+
+@pytest.mark.parametrize(
+    "text", ["\u0661.\u0662.\u0663", "1.\u0662.3", "v\uff11.0.0", "1.0.0-\u0661", "\u0967.0.0"]
+)
+def test_only_ascii_digits_make_a_version(text: str) -> None:
+    assert versions.parse(text) is None
+    assert parse_feed(release(tag=text)).latest is None
 
 
 def test_installed_bundle_only_for_an_installed_copy() -> None:
@@ -798,7 +920,7 @@ def test_reconcile_without_or_with_a_broken_file() -> None:
 def test_app_startup_settles_the_attempt(client: TestClient) -> None:
     client.close()
     updater.save_attempt(_attempt(NEXT))
-    with TestClient(create_app()) as again:
+    with TestClient(create_app(), base_url="http://127.0.0.1:8765") as again:
         attempt = again.get("/api/update").json()["last_attempt"]
     assert attempt["outcome"] == "failed" and attempt["to_version"] == NEXT
 
@@ -908,7 +1030,9 @@ anything = st.one_of(
     path=st.sampled_from(["/api/update/start", "/api/update/check", "/api/update"]),
 )
 def test_no_500(rig: Rig, body: Any, headers: dict[str, str], path: str) -> None:
-    rig.updater.runner.download = lambda url, dest: (_ for _ in ()).throw(UpdateError(424, "no"))
+    rig.updater.runner.download = lambda tag, name, dest: (_ for _ in ()).throw(
+        UpdateError(424, "no")
+    )
     merged = {**GOOD_HEADERS, **headers}
     method = "get" if path == "/api/update" else "post"
     response = rig.client.request(method, path, content=json.dumps(body), headers=merged)

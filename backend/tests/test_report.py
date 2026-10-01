@@ -699,7 +699,7 @@ def test_owes_anything_on_past_months_is_owed_up_to_that_month() -> None:
     today = dt.date(2026, 9, 15)
     app = create_app()
     app.dependency_overrides[get_today] = lambda: today
-    with TestClient(app) as api:
+    with TestClient(app, base_url="http://127.0.0.1:8765") as api:
         with session_factory()() as session:
             seed(session, today)
         students = {s["id"]: s for s in api.get("/api/students", params={"status": "all"}).json()}

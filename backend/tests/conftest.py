@@ -24,7 +24,7 @@ def scrappy_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pa
     monkeypatch.setenv("SCRAPPY_FEEDBACK_URL", "")
     # Never look for updates on GitHub from a test (tests that do use a fake feed).
     monkeypatch.setenv("SCRAPPY_UPDATE_FEED_URL", "")
-    for name in ("SCRAPPY_UPDATE_INSTALLER_URL", "SCRAPPY_UPDATE_ZIP"):
+    for name in ("SCRAPPY_UPDATE_DOWNLOAD_URL", "SCRAPPY_TEST_MODE"):
         monkeypatch.delenv(name, raising=False)
     yield home
     dispose_engines()
@@ -33,7 +33,7 @@ def scrappy_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pa
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     """A client for a fresh app; entering it runs startup (folders + migrations)."""
-    with TestClient(create_app()) as c:
+    with TestClient(create_app(), base_url="http://127.0.0.1:8765") as c:
         yield c
 
 
@@ -48,5 +48,5 @@ def api() -> Iterator[TestClient]:
     is `FROZEN_MONTH`, June 2026)."""
     app = create_app()
     app.dependency_overrides[get_today] = lambda: FROZEN_TODAY
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1:8765") as c:
         yield c

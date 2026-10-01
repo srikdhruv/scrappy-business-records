@@ -22,7 +22,7 @@ def static_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def spa_client(static_dir: Path) -> Iterator[TestClient]:
-    with TestClient(create_app(static_dir=static_dir)) as c:
+    with TestClient(create_app(static_dir=static_dir), base_url="http://127.0.0.1:8765") as c:
         yield c
 
 
@@ -78,7 +78,9 @@ def test_no_path_traversal(spa_client: TestClient) -> None:
 
 
 def test_missing_build_gives_helpful_404(tmp_path: Path) -> None:
-    with TestClient(create_app(static_dir=tmp_path / "nope")) as c:
+    with TestClient(
+        create_app(static_dir=tmp_path / "nope"), base_url="http://127.0.0.1:8765"
+    ) as c:
         response = c.get("/")
         assert response.status_code == 404
         assert "make build" in response.json()["detail"]
