@@ -27,10 +27,10 @@ V0_1_0_HEAD = "0002"
 
 
 # Since v0.1.0 only these added to the database: Excel uploads (0003, a new table,
-# unassigned_payments; 0004, a new nullable column, students.uid) and batches (0005, a new
-# table and a new nullable column, students.batch_id). The ledger doesn't read them, and
-# credit allocation itself stores nothing.
-ADDED_SINCE_V0_1_0 = ("0003", "0004", "0005")
+# unassigned_payments; 0004, a new nullable column, students.uid), batches (0005, a new
+# table and a new nullable column, students.batch_id) and in-app feedback (0006, a new
+# table). The ledger doesn't read them, and credit allocation itself stores nothing.
+ADDED_SINCE_V0_1_0 = ("0003", "0004", "0005", "0006")
 
 
 def test_no_migration_since_v0_1_0() -> None:

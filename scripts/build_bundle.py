@@ -9,6 +9,7 @@ The zip holds everything the app needs on a laptop with nothing installed:
       .../site-packages/     runtime dependencies from uv.lock, plus scrappy-records.pth
     app/                     the backend package, migrations and the built UI in app/static/
     VERSION                  from backend/pyproject.toml
+    BUILD_ID                 the git commit it was built from (Settings → About, feedback)
     scrappy.ico, scrappy.png the app icon (shortcut icon on Windows, .app icon on macOS)
     Start Scrappy Records.cmd       (Windows) debug launcher that shows errors in a console
     Start Scrappy Records.command   (macOS)   the same
@@ -32,6 +33,7 @@ import json
 import os
 import platform
 import py_compile
+import re
 import shutil
 import socket
 import stat
@@ -286,9 +288,35 @@ def copy_app(bundle: Path) -> None:
     )
 
 
-def add_extras(bundle: Path, target: Target, name: str, version: str) -> None:
-    step("Adding VERSION, icon, .pth file and the debug launcher")
+def build_id() -> str:
+    """The commit being built: CI's `GITHUB_SHA`, else `git rev-parse HEAD` (with `-dirty` for
+    local changes), else "unknown". The app shows it in Settings → About and attaches it to
+    feedback, so a report points at the exact code."""
+    sha = os.environ.get("GITHUB_SHA", "").strip()
+    if re.fullmatch(r"[0-9a-f]{40}", sha):
+        return sha
+    try:
+        sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True
+        ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        return "unknown"
+    return f"{sha}-dirty" if dirty else sha
+
+
+def add_extras(bundle: Path, target: Target, name: str, version: str, build: str) -> None:
+    step("Adding VERSION, BUILD_ID, icon, .pth file and the debug launcher")
     (bundle / "VERSION").write_text(version + "\n", encoding="utf-8")
+    (bundle / "BUILD_ID").write_text(build + "\n", encoding="utf-8")
     write_icons(bundle)
     pth = bundle / target.site_packages / "scrappy-records.pth"
     pth.write_text(target.pth_to_root + "\n", encoding="utf-8")
@@ -403,7 +431,7 @@ def get(url: str, timeout: float = 2.0) -> tuple[int, bytes]:
         return r.status, r.read()
 
 
-def self_test(zip_path: Path, target: Target, version: str) -> None:
+def self_test(zip_path: Path, target: Target, version: str, build: str) -> None:
     step("Self-test: unpacking the zip and starting the server from it, with no dev tools")
     with tempfile.TemporaryDirectory(prefix="scrappy-selftest-") as tmp:
         tmp_path = Path(tmp)
@@ -458,6 +486,9 @@ def self_test(zip_path: Path, target: Target, version: str) -> None:
             expected = {"app": "scrappy-records", "version": version, "status": "ok"}
             if health != expected:
                 fail(f"/api/health returned {health}, expected {expected}")
+            about = json.loads(get(f"http://127.0.0.1:{port}/api/about")[1])
+            if about.get("build_id") != build or about.get("version") != version:
+                fail(f"/api/about returned {about}, expected build {build}")
             status, page = get(f"http://127.0.0.1:{port}/")
             if status != 200 or b"<title>Scrappy Records</title>" not in page:
                 fail("The UI wasn't served at /")
@@ -487,7 +518,8 @@ def main() -> None:
     name, target = args.platform, TARGETS[args.platform]
     native = name == host_platform()
     version = project_version()
-    step(f"Building scrappy-records {version} for {name}")
+    build = build_id()
+    step(f"Building scrappy-records {version} ({build}) for {name}")
 
     if not (APP_SRC / "static" / "index.html").is_file():
         fail("The UI isn't built (backend/app/static/index.html is missing). Run `make build`.")
@@ -499,7 +531,7 @@ def main() -> None:
     install_dependencies(bundle, target, native)
     remove_console_scripts(bundle, target)
     copy_app(bundle)
-    add_extras(bundle, target, name, version)
+    add_extras(bundle, target, name, version, build)
     precompile(bundle, target, native)
     out = DIST / f"scrappy-records-{name}.zip"
     write_zip(bundle, out)
@@ -511,7 +543,7 @@ def main() -> None:
     elif args.skip_self_test:
         print("(Skipping the self-test, as asked.)")
     else:
-        self_test(out, target, version)
+        self_test(out, target, version, build)
 
 
 if __name__ == "__main__":

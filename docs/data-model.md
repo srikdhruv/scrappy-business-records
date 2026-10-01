@@ -103,6 +103,30 @@ ledger never sees them: no student's or month's totals, and not *Collected*.
 | `source` | TEXT NULL | Where it came from, e.g. `Upload: october.xlsx` |
 | `created_at` | DATETIME | |
 
+### `feedback`
+In-app feedback (Settings → Send feedback), saved here first and then sent to the feedback
+relay by the server ([ADR 0005](adr/0005-feedback-is-the-only-outbound-call.md)). Not the
+owner's records: nothing in the ledger reads it. Added by migration `0006` (a new table only).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | TEXT(36) PK | A UUID made by the dialog when it opens: the idempotency key here and at the relay |
+| `created_at` | DATETIME | UTC, set by the database |
+| `category` | TEXT NOT NULL | `problem`, `idea` or `question` (CHECK) |
+| `message` | TEXT NOT NULL | What the owner wrote; not blank (CHECK) |
+| `route` | TEXT NULL | The page's path only, e.g. `/payments` (a query or `#` part is dropped: a search can be a name) |
+| `diagnostics` | TEXT NOT NULL | JSON, see [Feedback](#feedback) below. Default `{}` |
+| `screenshot_file` | TEXT NULL | The picture's file name in `<data folder>/feedback/` (`<id>.jpg` or `.png`) |
+| `status` | TEXT NOT NULL | `pending` (default), `sent` or `failed` (CHECK) |
+| `attempts` | INTEGER NOT NULL | How many times sending was tried (default 0, ≥ 0) |
+| `last_error` | TEXT NULL | Why the last try failed, in words |
+| `sent_at` | DATETIME NULL | UTC |
+| `remote_ref` | TEXT NULL | The issue's URL in the private feedback repo |
+
+Index: `feedback(status)`. The **picture is a file, not a column**, so the daily backups (30 of
+them) stay small; it only exists until the feedback is sent, then it's deleted (the relay has
+it). If it's gone before then, the rest is sent without it.
+
 ### Database safeguards
 
 The database itself rejects bad rows, as a last line of defence behind the API's validation:
@@ -155,6 +179,9 @@ request and response models are in `backend/app/schemas.py`. Their names (`Stude
 | `GET /batches/{id}/fee-plan?fee_paise=&from_month=` | `FeePlan`: what "Also charge the new usual fee" would do to each student of the batch, and who is ticked at first (`getFeePlan`). The same rule `PATCH … apply_fee` uses. See [Batch rules](#batch-rules) |
 | `POST /batches/move` | `{student_ids, batch_id}` (`batch_id: null` for no batch): put them all in it at once, in one transaction; fees and labels don't change. 422 on `student_ids` if one doesn't exist, on `batch_id` if the batch doesn't. Answers `{moved}` (`moveStudents`) |
 | `POST /batches/from-labels` | Do it (`LabelConversion`). Takes a `pre-batches` backup first (none if there's nothing to do); a failed backup is a 422 and nothing changes. Running it again does nothing |
+| `GET /about` | Settings → About: `AboutResponse` (`version`, `build_id`, `data_dir`, `backup_dir`, `log_dir`, `feedback_sending`, `feedback_waiting`) |
+| `POST /feedback` | Save feedback (`FeedbackCreate`), answer 201 with `FeedbackRead` at once, and wake the sender. Idempotent: the same `id` again answers with the row already saved, unchanged. See [Feedback](#feedback) |
+| `GET /feedback/{feedback_id}` | `FeedbackRead`: whether it has been sent yet (the dialog polls it). 404 if unknown; 422 if not a UUID |
 | `GET /dashboard?month=YYYY-MM` | See the PRD's "Dashboard for a selected month M" section. Returns `month`, `current_month`, `summary`, `yet_to_pay[]`, `backlog[]`, `overpaid[]` (months holding credit) and `credit_moves[]` |
 | `GET /report?month=YYYY-MM` | The monthly report: one `ReportRow` per student relevant to the month, and `totals`. See [Monthly report](#monthly-report). `month` defaults to the current month |
 | `GET /report.xlsx?month=YYYY-MM&status=&q=&sort=&order=&batch=&group=` | The report as the page shows it (`batch`: an id or `none`; `group=batch` puts each batch's rows under a heading row and ends them with a subtotal row of `SUBTOTAL(109, …)` formulas, batches A to Z, "No batch" last), as an Excel file (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`), a download named `scrappy-records-report-YYYY-MM.xlsx`. `status` is a `ReportFilter` (default `all`), `q` the search (as `lib/search.ts`: name, class or phone), `sort` a `ReportSort` and `order` `asc`/`desc` (ties keep the usual order): `services/report.shown`, the same rules as `frontend/src/lib/report.ts`. A title row (with the filter, search and sort in words), the date, frozen bold headings with Excel's filter buttons, one row per student in the screen's column order (money in rupees with the Indian-grouping formats `RUPEES` / `RUPEES_PAISE`), a bold totals row of `SUBTOTAL(109, …)` formulas, and a Collected line (a formula); A4 landscape, one page wide, when printed from Excel. `services/report_xlsx.py` (openpyxl) |
@@ -215,6 +242,10 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 | `LabelConversion` | `batches_created`, `students_placed`, `backup_file` (the backup's file name, or `null`) |
 | `FeePlan` | `batch_id`, `fee_paise`, `from_month`, `current_month`, `usual_fee_paise` (the batch's usual fee, or the most common one if it has none; `null` on a tie), `students[]` (`FeePlanStudent`: `student_id`, `student_name`, `current_fee_paise`, `start_month` (null if they leave before it), `status` (`FeePlanStatus`: `usual`, `own_fee`, `planned`, `already`, `not_affected`), `selected` (ticked at first: `usual`), `due_months` and `due_change_paise` (months already due whose fee would change, and how much more they'd owe; negative for less), `fee_history[]`) |
 | `HealthResponse` | `app`, `version`, `status` |
+| `AboutResponse` | `version`, `build_id` (the git commit the app was built from, or `unknown`), `data_dir`, `backup_dir` (the fallback `data/backups` if Documents couldn't be used), `log_dir`, `feedback_sending` (a relay URL is set), `feedback_waiting` (pending count) |
+| `FeedbackCreate` (request) | `id` (UUID, optional: made by the server if absent), `category`, `message` (1–5,000 characters after trimming; "Please write a message"), `route` (≤ 500, cut), `client` (`FeedbackClientInfo`), `screenshot` (base64 or a `data:` URL of a JPEG or PNG, ≤ 700,000 bytes; else 422 "The picture of the screen is too big to send" / "couldn't be read"; `null` for none) |
+| `FeedbackClientInfo` | `local_time`, `timezone`, `language`, `user_agent`, `screen`, `window`, `ui_build`, `errors[]` (`FeedbackClientError`: `at`, `kind`, `message`; the last 20 kept). Best effort: too-long text is cut and unsavable characters become `?`, never a 422 |
+| `FeedbackRead` | `id`, `category`, `status`, `created_at`, `sent_at`, `attempts`, `sending` (this copy is trying to send it) |
 
 **Enums.**
 - `MonthStatus`: `paid`, `partial`, `unpaid`, `overpaid`, `not_applicable`, from what pays the
@@ -246,6 +277,8 @@ creates nothing, so it answers 200). `DELETE` answers 204 with no body.
 - `FeePlanStatus`: `usual`, `own_fee`, `planned`, `already`, `not_affected`.
 - `ImportBatchStatus`: `new`, `exists`, `not_found`, `problem`.
 - `ReportGroup`: `none`, `batch`.
+- `FeedbackCategory`: `problem`, `idea`, `question`. `FeedbackStatus`: `pending`, `sent`,
+  `failed`.
 
 **Lists.** `GET /students` and `GET /payments` return plain JSON arrays, **unpaginated**: at
 this scale (thousands of payments at most) one response is small and fast. Students are sorted by
@@ -653,3 +686,36 @@ always reconciles with the dashboard and the profiles (`tests/test_report.py`
   extra_unused + covered_by_credit` = Σ `paid_direct + covered_by_credit`.
 - **`checks`:** each payment logged for M with `ledger.needs_check` (pays 4 or more months
   ahead, or has money kept as credit), as the dashboard's `payment_needs_check`.
+
+## Feedback
+
+What **Send feedback** stores and sends ([ADR 0005](adr/0005-feedback-is-the-only-outbound-call.md),
+[architecture](architecture.md#feedback)).
+
+**`diagnostics`** (JSON text in the `feedback` row), assembled when it's saved:
+
+| Key | From | What |
+|---|---|---|
+| `install_id` | server | A random UUID for this copy of the app, made once in `<data folder>/install-id` |
+| `server` | server | `app_version`, `build_id`, `os`, `machine`, `python`, `db_revision`, `server_time` (local, with offset), `server_timezone` |
+| `client` | browser | `FeedbackClientInfo`: local time, time zone, language, user agent, screen and window size, the UI's build, and its last 20 errors (script errors, unhandled rejections, failed API calls as "GET /api/students → 500": method, path and status, no query or body). The error messages go through `redact()` too |
+| `log_tail` | server | The last 200 lines worth sending from `server.log` (and `server.log.1`): WARNING and above with their tracebacks, and the app's own (`scrappy`) notes; other libraries' INFO lines are left out. Each ≤ 500 characters, ≤ 64 KB in all. An exception raised in the app's own code (the traceback's last frame is in `app/`) keeps only its type and where it happened (`ValueError: [message left out: raised by the app]`), since its message could quote a student unquoted; a library's or the system's message is kept, redacted. `redact()`: escapes are decoded first (`\u0101`, `\xc4\x81`, `%C4%81`, and accents normalised), then the home folder in any spelling (`\`, `\\`, `/`, any case, only as a whole folder name) becomes `~`, any `Users\<name>` / `/home/<name>` folder (8.3 short names too) becomes `<user>`, and the user's name as a whole word (4 characters or more) becomes `<user>`. Quoted values become `'…'` (traceback `File "…"` lines keep their redacted path), and `[parameters: …]` becomes `[parameters: hidden]` |
+
+Never included: the database, its rows, backups or exports. `tests/test_feedback.py` stores
+distinctive names, phones, notes and amounts, logs a database error carrying them, and checks
+none appears in the stored diagnostics or in what is sent.
+
+**What the relay receives** (`services/feedback.relay_payload`, JSON, `POST` to
+`config.feedback_url()`): `schema` (1), `id`, `install_id`, `category`, `message`, `created_at`
+(UTC, `Z`), `local_time`, `app_version`, `build_id`, `route`, `environment` (`os`, `machine`,
+`python`, `db_revision`, `server_timezone`, `browser`, `screen`, `window`, `timezone`,
+`language`, `ui_build`), `errors[]`, `log_tail`, `screenshot` (`{content_type, data_base64}` or
+`null`). `route` is the path only. The app keeps it under 2,000,000 bytes (the relay takes 2
+MiB): the log is trimmed first, then the errors, then the picture. The relay answers
+`201`/`200 {status: "created", issue_url}` (a retry of the same `id` gets the same URL). Only a
+body with `status` `invalid` (400) or `blocked` (403) is final (`failed`, picture deleted);
+`too_large` (413) gets one slimmer try (no picture, the last 50 log lines), then is final. After 3 failed tries of one item (errors, timeouts, broken connections; not just being offline) the next tries go without the picture, in case it's what pushes the relay past its CPU limit.
+Everything else is retried later, honouring `Retry-After`: `409 in_progress`, `429
+rate_limited` (up to a day for the global cap), `502`, `503 unavailable` / `misconfigured`,
+other statuses and network errors. The app's timeout (90 s) is longer than the relay's 40 s
+budget. The relay's own checks are in `relay/src/validate.ts`.

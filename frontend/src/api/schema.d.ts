@@ -566,10 +566,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/about": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get About */
+        get: operations["getAbout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Feedback
+         * @description Save feedback on this laptop, then send it in the background (never waits for the
+         *     internet). The same `id` again returns what was saved the first time.
+         */
+        post: operations["createFeedback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/feedback/{feedback_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Feedback
+         * @description Whether it has been sent yet (the dialog asks for a few seconds after saving).
+         */
+        get: operations["getFeedback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AboutResponse
+         * @description Settings → About: which version this is, and where the data lives.
+         */
+        AboutResponse: {
+            /**
+             * Version
+             * @example 0.1.0
+             */
+            version: string;
+            /**
+             * Build Id
+             * @description The git commit the app was built from (or 'unknown').
+             * @example 9386553c1482655b37649a823a653f113dfd26b4
+             */
+            build_id: string;
+            /**
+             * Data Dir
+             * @description The folder holding records.db.
+             */
+            data_dir: string;
+            /**
+             * Backup Dir
+             * @description Where the daily backups go.
+             */
+            backup_dir: string;
+            /**
+             * Log Dir
+             * @description The folder holding server.log.
+             */
+            log_dir: string;
+            /**
+             * Feedback Sending
+             * @description Whether this copy sends feedback (a relay URL is set).
+             */
+            feedback_sending: boolean;
+            /**
+             * Feedback Waiting
+             * @description Feedback saved here, not sent yet.
+             */
+            feedback_waiting: number;
+        };
         /**
          * ApplyBatchFee
          * @description Also charge the batch's new default fee to some of its students, from a month on. Each
@@ -1164,6 +1264,144 @@ export interface components {
              */
             fee_history: components["schemas"]["FeeChangeRead"][];
         };
+        /**
+         * FeedbackCategory
+         * @description What kind of feedback the owner is sending (the dialog's Type).
+         * @enum {string}
+         */
+        FeedbackCategory: "problem" | "idea" | "question";
+        /**
+         * FeedbackClientError
+         * @description One entry of the browser's recent-errors list (a script error, or an API call that
+         *     failed).
+         */
+        FeedbackClientError: {
+            /**
+             * At
+             * @default
+             */
+            at: string;
+            /**
+             * Kind
+             * @default
+             */
+            kind: string;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+        };
+        /**
+         * FeedbackClientInfo
+         * @description What the browser knows: when and where, and the last errors it saw.
+         */
+        FeedbackClientInfo: {
+            /**
+             * Local Time
+             * @description The laptop's local time.
+             * @default
+             */
+            local_time: string;
+            /**
+             * Timezone
+             * @default
+             */
+            timezone: string;
+            /**
+             * Language
+             * @default
+             */
+            language: string;
+            /**
+             * User Agent
+             * @default
+             */
+            user_agent: string;
+            /**
+             * Screen
+             * @default
+             * @example 1440x900
+             */
+            screen: string;
+            /**
+             * Window
+             * @default
+             * @example 1280x800
+             */
+            window: string;
+            /**
+             * Ui Build
+             * @description The build ID the UI was built at.
+             * @default
+             */
+            ui_build: string;
+            /**
+             * Errors
+             * @description The last errors (at most 20; older ones are dropped).
+             */
+            errors?: components["schemas"]["FeedbackClientError"][];
+        };
+        /** FeedbackCreate */
+        FeedbackCreate: {
+            /**
+             * Id
+             * @description Made by the dialog when it opens. Sending the same id again returns the feedback already saved (a double click saves it once). The server makes one if absent.
+             */
+            id?: string | null;
+            category: components["schemas"]["FeedbackCategory"];
+            /**
+             * Message
+             * @description What the owner wrote. Required.
+             */
+            message: string;
+            /**
+             * Route
+             * @description The page it was sent from: the path only. A query or #fragment (a search could hold a name) is dropped.
+             * @default
+             * @example /students
+             */
+            route: string;
+            client?: components["schemas"]["FeedbackClientInfo"];
+            /**
+             * Screenshot
+             * @description A JPEG or PNG of the page, base64 (a data: URL is fine), at most 700000 bytes.
+             */
+            screenshot?: string | null;
+        };
+        /** FeedbackRead */
+        FeedbackRead: {
+            /** Id */
+            id: string;
+            category: components["schemas"]["FeedbackCategory"];
+            status: components["schemas"]["FeedbackStatus"];
+            /**
+             * Created At
+             * Format: date-time
+             * @description UTC timestamp, e.g. 2026-10-05T09:30:00Z
+             */
+            created_at: string;
+            /** Sent At */
+            sent_at: string | null;
+            /**
+             * Attempts
+             * @description How many times sending was tried.
+             */
+            attempts: number;
+            /**
+             * Sending
+             * @description Whether this copy is trying to send it (sending is on and it isn't done). If false and still pending, it waits for a version that sends.
+             */
+            sending: boolean;
+        };
+        /**
+         * FeedbackStatus
+         * @description `pending`: saved on this laptop, waiting to be sent (retried automatically). `sent`: the
+         *     feedback inbox has it (`remote_ref` is its issue). `failed`: the inbox turned it down for
+         *     good (e.g. it didn't pass its checks), so it isn't retried.
+         * @enum {string}
+         */
+        FeedbackStatus: "pending" | "sent" | "failed";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -2605,6 +2843,7 @@ export interface components {
     headers: never;
     pathItems: never;
 }
+export type AboutResponse = components['schemas']['AboutResponse'];
 export type ApplyBatchFee = components['schemas']['ApplyBatchFee'];
 export type BacklogItem = components['schemas']['BacklogItem'];
 export type BacklogMonth = components['schemas']['BacklogMonth'];
@@ -2626,6 +2865,12 @@ export type FeeKind = components['schemas']['FeeKind'];
 export type FeePlan = components['schemas']['FeePlan'];
 export type FeePlanStatus = components['schemas']['FeePlanStatus'];
 export type FeePlanStudent = components['schemas']['FeePlanStudent'];
+export type FeedbackCategory = components['schemas']['FeedbackCategory'];
+export type FeedbackClientError = components['schemas']['FeedbackClientError'];
+export type FeedbackClientInfo = components['schemas']['FeedbackClientInfo'];
+export type FeedbackCreate = components['schemas']['FeedbackCreate'];
+export type FeedbackRead = components['schemas']['FeedbackRead'];
+export type FeedbackStatus = components['schemas']['FeedbackStatus'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];
 export type HealthResponse = components['schemas']['HealthResponse'];
 export type ImportBatchPreview = components['schemas']['ImportBatchPreview'];
@@ -3923,6 +4168,99 @@ export interface operations {
                 };
             };
             /** @description No batch with this id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getAbout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AboutResponse"];
+                };
+            };
+        };
+    };
+    createFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                feedback_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackRead"];
+                };
+            };
+            /** @description Not Found */
             404: {
                 headers: {
                     [name: string]: unknown;

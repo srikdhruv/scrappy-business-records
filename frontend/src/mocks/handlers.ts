@@ -8,6 +8,8 @@ import { delay, http, HttpResponse, type JsonBodyType } from 'msw'
 import type {
   BatchCreate,
   BatchUpdate,
+  FeedbackCreate,
+  FeedbackRead,
   PaymentCreate,
   PaymentSort,
   PaymentUpdate,
@@ -49,6 +51,8 @@ export function createHandlers(db: MockDb, { latency = 0 }: HandlerOptions = {})
   const wait = async () => {
     if (latency > 0) await delay(latency)
   }
+  // Feedback: saved "on the laptop", then "sent" the first time anyone asks.
+  const feedback = new Map<string, FeedbackRead>()
 
   return [
     http.get(api('/health'), () =>
@@ -261,6 +265,59 @@ export function createHandlers(db: MockDb, { latency = 0 }: HandlerOptions = {})
     http.get(api('/report'), async ({ request }) => {
       await wait()
       return respond(() => db.report(new URL(request.url).searchParams.get('month')))
+    }),
+
+    http.get(api('/about'), () =>
+      HttpResponse.json({
+        version: '0.1.0',
+        build_id: '0000000000000000000000000000000000000000',
+        data_dir: 'C:\\Users\\Demo\\AppData\\Local\\ScrappyRecords\\data',
+        backup_dir: 'C:\\Users\\Demo\\Documents\\ScrappyRecords Backups',
+        log_dir: 'C:\\Users\\Demo\\AppData\\Local\\ScrappyRecords\\logs',
+        feedback_sending: true,
+        feedback_waiting: [...feedback.values()].filter((f) => f.status === 'pending').length,
+      }),
+    ),
+
+    http.post(api('/feedback'), async ({ request }) => {
+      await wait()
+      const body = (await request.json()) as FeedbackCreate
+      if (!body.message?.trim()) {
+        return HttpResponse.json(
+          {
+            detail: [
+              { loc: ['body', 'message'], msg: 'Please write a message', type: 'value_error' },
+            ],
+          },
+          { status: 422 },
+        )
+      }
+      const id = body.id ?? crypto.randomUUID()
+      const saved: FeedbackRead = feedback.get(id) ?? {
+        id,
+        category: body.category,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        sent_at: null,
+        attempts: 0,
+        sending: true,
+      }
+      feedback.set(id, saved)
+      return HttpResponse.json(saved, { status: 201 })
+    }),
+
+    http.get(api('/feedback/:id'), ({ params }) => {
+      const found = feedback.get(String(params.id))
+      if (!found) return HttpResponse.json({ detail: 'No feedback with that id' }, { status: 404 })
+      const sent: FeedbackRead = {
+        ...found,
+        status: 'sent',
+        sent_at: new Date().toISOString(),
+        attempts: found.attempts + 1,
+        sending: false,
+      }
+      feedback.set(sent.id, sent)
+      return HttpResponse.json(sent)
     }),
   ]
 }

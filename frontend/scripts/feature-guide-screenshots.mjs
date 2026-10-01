@@ -58,7 +58,14 @@ function freePort() {
 function makeHome(name, { seed }) {
   const home = path.join(work, name)
   mkdirSync(path.join(home, 'backups'), { recursive: true })
-  const env = { ...process.env, SCRAPPY_HOME: home, SCRAPPY_BACKUP_DIR: path.join(home, 'backups') }
+  const env = {
+    ...process.env,
+    SCRAPPY_HOME: home,
+    SCRAPPY_BACKUP_DIR: path.join(home, 'backups'),
+    // Sending "on" (so the window looks as it will once the relay is set up), but to a port
+    // where nothing listens: the pictures never send feedback anywhere.
+    SCRAPPY_FEEDBACK_URL: 'http://127.0.0.1:9/feedback',
+  }
   if (seed) {
     execFileSync('uv', [...GUIDE_SERVER, 'seed', '--today', GUIDE_TODAY], {
       cwd: repo,
@@ -231,6 +238,23 @@ await shot('dashboard-earlier-and-extra', [
   section('Earlier months still owed'),
   section('Extra money used'),
 ])
+
+// ---- Settings: Send feedback ----------------------------------------------------------------
+const gear = page.locator('aside').getByRole('button', { name: 'Settings' })
+await gear.click()
+await page.waitForTimeout(300)
+await shot('settings-menu', [page.getByRole('menu'), gear], 12)
+await page.getByRole('menuitem', { name: 'Send feedback' }).click()
+await dialog().getByRole('img', { name: 'Picture of this screen' }).waitFor()
+await dialog()
+  .getByLabel('Message')
+  .fill('The total for Arjun Menon looks wrong after I logged his payment.')
+await page.waitForTimeout(300)
+await shot('feedback', dialog(), 0)
+await dialog().getByText('What gets sent').click()
+await page.waitForTimeout(300)
+await shot('feedback-what-gets-sent', dialog().locator('details'), 8)
+await escape()
 
 await open(demo, `/?month=${addMonths(now, 1)}`)
 await windowShot('dashboard-future-month', 760)

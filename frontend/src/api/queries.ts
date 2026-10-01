@@ -15,11 +15,14 @@ import {
 
 import { api, unwrap } from './client'
 import type {
+  AboutResponse,
   BatchCreate,
   BatchOverview,
   BatchRead,
   BatchUpdate,
   DashboardResponse,
+  FeedbackCreate,
+  FeedbackRead,
   FeePlan,
   LabelConversion,
   LabelPreview,
@@ -46,6 +49,8 @@ export interface PaymentFilters {
 
 export const queryKeys = {
   health: ['health'] as const,
+  about: ['about'] as const,
+  feedback: (id: string) => ['feedback', id] as const,
   students: {
     all: ['students'] as const,
     list: (status: StudentListFilter) => ['students', 'list', status] as const,
@@ -327,6 +332,40 @@ export function useDeletePayment() {
         await api.DELETE('/api/payments/{payment_id}', { params: { path: { payment_id: id } } }),
       ),
     onSuccess: () => invalidateRecords(queryClient),
+  })
+}
+
+/** Settings → About: version, build and where the data lives. */
+export function useAbout(enabled = true) {
+  return useQuery<AboutResponse>({
+    queryKey: queryKeys.about,
+    queryFn: async () => unwrap(await api.GET('/api/about')),
+    enabled,
+  })
+}
+
+/** Save feedback on the laptop (the server sends it on in the background). */
+export function useSendFeedback() {
+  const queryClient = useQueryClient()
+  return useMutation<FeedbackRead, Error, FeedbackCreate>({
+    mutationFn: async (body) => unwrap(await api.POST('/api/feedback', { body })),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(queryKeys.feedback(saved.id), saved)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.about })
+    },
+  })
+}
+
+/** Has it gone yet? Asked every second while `poll` is true. */
+export function useFeedbackStatus(id: string | null, poll: boolean) {
+  return useQuery<FeedbackRead>({
+    queryKey: queryKeys.feedback(id ?? ''),
+    queryFn: async () =>
+      unwrap(
+        await api.GET('/api/feedback/{feedback_id}', { params: { path: { feedback_id: id! } } }),
+      ),
+    enabled: id !== null,
+    refetchInterval: poll ? 1000 : false,
   })
 }
 

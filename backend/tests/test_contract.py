@@ -37,6 +37,9 @@ EXPECTED_OPERATIONS = {
     ("post", "/api/batches/move"): "moveStudents",
     ("get", "/api/report"): "getReport",
     ("get", "/api/report.xlsx"): "downloadReport",
+    ("get", "/api/about"): "getAbout",
+    ("post", "/api/feedback"): "createFeedback",
+    ("get", "/api/feedback/{feedback_id}"): "getFeedback",
     ("get", "/api/export/students.xlsx"): "exportStudents",
     ("get", "/api/export/payments.xlsx"): "exportPayments",
     ("get", "/api/export/everything.xlsx"): "exportEverything",
@@ -68,6 +71,8 @@ def test_status_codes(client: TestClient) -> None:
     fee_change = "/api/students/{student_id}/fee-changes/{fee_change_id}"
     assert "204" in paths[fee_change]["delete"]["responses"]
     assert "200" in paths["/api/students/{student_id}/return"]["post"]["responses"]
+    assert "201" in paths["/api/feedback"]["post"]["responses"]
+    assert "404" in paths["/api/feedback/{feedback_id}"]["get"]["responses"]
     assert "404" in paths["/api/students/{student_id}"]["get"]["responses"]
     assert "201" in paths["/api/batches"]["post"]["responses"]
     assert "204" in paths["/api/batches/{batch_id}"]["delete"]["responses"]
@@ -224,6 +229,9 @@ EVERY_ENDPOINT = [
                                "paid_on": "2026-01-05", "for_month": "2026-01",
                                "method": "upi"}),
     ("patch", "/api/payments/1", {"note": "x"}),
+    ("get", "/api/about", None),
+    ("post", "/api/feedback", {"category": "idea", "message": "x"}),
+    ("get", "/api/feedback/3f0e8c1a-5b7d-4e2a-9c1f-0a1b2c3d4e5f", None),
 ]  # fmt: skip
 
 

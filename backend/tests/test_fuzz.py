@@ -36,6 +36,12 @@ FIELDS = [
     "apply_fee",
     "student_ids",
     "confirm_planned",
+    "id",
+    "category",
+    "message",
+    "route",
+    "client",
+    "screenshot",
 ]
 
 scalars = st.one_of(
@@ -89,6 +95,9 @@ routes = st.sampled_from(
         ("delete", "/api/batches/{id}"),
         ("get", "/api/batches/{id}/fee-plan"),
         ("post", "/api/batches/move"),
+        ("get", "/api/about"),
+        ("post", "/api/feedback"),
+        ("get", "/api/feedback/{id}"),
     ]
 )
 params = st.dictionaries(

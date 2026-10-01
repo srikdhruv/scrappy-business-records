@@ -88,6 +88,7 @@ def make(tag: str, today: dt.date | None, out_dir: Path) -> tuple[Path, Path]:
             env |= {
                 "SCRAPPY_HOME": str(tmp / "home"),
                 "SCRAPPY_BACKUP_DIR": str(tmp / "home" / "backups"),
+                "SCRAPPY_FEEDBACK_URL": "",  # never send the sample's feedback anywhere
                 "UV_PROJECT_ENVIRONMENT": str(tmp / "venv"),
                 "PYTHONPATH": str(src / "backend"),
             }

@@ -3,7 +3,8 @@
 Scrappy Records is a small, private app for anyone who runs classes, such as dance, music or
 tuition, and collects a monthly fee. It answers one question at a glance: **who has paid for
 which month, and who is still left to pay?** Everything stays on your own laptop, and it works
-without the internet.
+without the internet. The only thing that ever leaves the laptop is feedback you choose to
+send (see [Settings and feedback](#settings-and-feedback)).
 
 ## How to use this guide
 
@@ -30,11 +31,12 @@ without the internet.
 9. [Student profile](#student-profile)
 10. [Downloading and uploading Excel](#downloading-and-uploading-excel)
 11. [Unassigned payments](#unassigned-payments)
-12. [What the words and colours mean](#what-the-words-and-colours-mean)
-13. [Everyday situations](#everyday-situations)
-14. [Your data and safety](#your-data-and-safety)
-15. [For developers: feature map](#for-developers-feature-map)
-16. [Keeping this guide up to date](#keeping-this-guide-up-to-date)
+12. [Settings and feedback](#settings-and-feedback)
+13. [What the words and colours mean](#what-the-words-and-colours-mean)
+14. [Everyday situations](#everyday-situations)
+15. [Your data and safety](#your-data-and-safety)
+16. [For developers: feature map](#for-developers-feature-map)
+17. [Keeping this guide up to date](#keeping-this-guide-up-to-date)
 
 ---
 
@@ -54,7 +56,7 @@ your home folder. The app opens in your web browser within a few seconds, always
 Dashboard. No black window appears: the app runs quietly in the background until you switch
 the laptop off.
 
-<img src="images/feature-guide/sidebar.png" alt="The side menu: the Scrappy Records name at the top, then Dashboard, Payments and Students; at the bottom, 'Your data' with Download everything ('Every student, fee and payment in one Excel file.'), a green shield with 'Your records stay on this laptop and are backed up every day' and 'Version 0.1.0'." width="180" align="right">
+<img src="images/feature-guide/sidebar.png" alt="The side menu: the Scrappy Records name at the top, then Dashboard, Payments and Students; at the bottom, 'Your data' with Download everything ('Every student, fee and payment in one Excel file.'), a green shield with 'Your records stay on this laptop and are backed up every day', then a gear button 'Settings' and 'Version 0.1.0'." width="180" align="right">
 
 **The side menu** runs down the left of every page:
 
@@ -63,14 +65,18 @@ the laptop off.
   as a white, raised button.
 - At the bottom, under **Your data**: **Download everything**, which saves every student,
   fee and payment in one Excel file (see
-  [Downloading and uploading Excel](#downloading-and-uploading-excel)).
+  [Downloading and uploading Excel](#downloading-and-uploading-excel)). It's also in the
+  **⚙ Settings** menu.
 - Under that: *"Your records stay on this laptop and are backed up every day."*
-- Under that, **the version**, for example *Version 0.1.0*. Whoever looks after the app may
+- Under that, the **⚙ Settings** button (a gear), with **Send feedback**, **Download
+  everything** and **About** in it. See [Settings and feedback](#settings-and-feedback).
+- Next to it, **the version**, for example *Version 0.1.0*. Whoever looks after the app may
   ask you for it.
 
 On a narrow window (for example, if you drag the browser to half the screen), the menu moves to
-a bar across the top, and *Your data*, the backup line and the version are hidden. Everything
-else still works.
+a bar across the top, and *Your data*, the backup line and the version are hidden. The gear
+button sits in that bar, next to the name, with *Download everything* in it. Everything else
+still works.
 
 <br clear="right">
 
@@ -2050,6 +2056,134 @@ If they really paid twice, log the second one with **+ Log payment**, then delet
 
 ---
 
+## Settings and feedback
+
+### What it's for
+
+Telling the developer about a problem, an idea or a question, straight from the app, with a
+picture of the screen you're looking at. And finding out which version you have and where your
+records are kept.
+
+### What you'll see
+
+<img src="images/feature-guide/settings-menu.png" alt="The gear button 'Settings' at the bottom of the side menu, open, with its choices above it: 'Send feedback', then under 'Your data' 'Download everything', then 'About'." width="250" align="right">
+
+**The ⚙ Settings button** is at the bottom of the side menu, on every page (in the top bar on a
+narrow window). Click it for a small menu:
+
+- **Send feedback**: write to the developer.
+- **Your data → Download everything**: every student, fee and payment in one Excel file (the
+  same as *Download everything* in the side menu; see
+  [Downloading and uploading Excel](#downloading-and-uploading-excel)). Handy on a narrow
+  window, where the side menu hides it.
+- **About**: the version, and where your records and backups are.
+
+More settings will go in this menu later.
+
+<br clear="right">
+
+**Send feedback** opens this window, over the page you were on:
+
+![The Send feedback window: Type with Problem (chosen), Idea and Question; a Message box with 'The total for Arjun Menon looks wrong after I logged his payment.'; a small picture of the Dashboard behind it, with a ticked box 'Include a picture of this screen' and the note 'The picture may show student names and amounts. It goes only to the developer's private feedback inbox.'; a folded 'What gets sent'; and Cancel and Send buttons.](images/feature-guide/feedback.png)
+
+- **Type**: **Problem** (something is wrong), **Idea** (something that would help) or
+  **Question**. Problem is chosen to start with.
+- **Message**: what you want to say. It can't be empty.
+- **A small picture of the screen** you were on: exactly what was in the window behind this
+  one, taken as it opens (not this window itself). Click it to see it bigger, and again to make
+  it small. The box **Include a picture of this screen** is ticked to start with. The picture
+  may show student names and amounts, so untick it if you'd rather not send it. It only ever
+  goes to the developer's private feedback inbox. If it can't be taken within 10 seconds, the
+  window says so and the message goes without it.
+- **If this version can't send feedback yet**, an amber note at the top says so before you
+  type: what you write is saved on this laptop, but please also tell the developer another
+  way.
+- **What gets sent**: click it to see the full list, in plain words:
+
+  ![The open 'What gets sent' list: your message and its type; the picture of this screen, if the box is ticked; the date and time; the app's version and build; the page you're on, without what you searched for; the last problems the app noticed, and its last warnings and errors from the log file, with names and values taken out, and for an error in the app itself only what kind it was and where it happened, never its message; your computer's system, browser and screen size; a random number for this copy of the app, which doesn't say who you are; never your records file, backups or downloads. Below: It's saved on this laptop first, and sent when the internet is on.](images/feature-guide/feedback-what-gets-sent.png)
+
+  The page is sent without anything you searched for or filtered by (a search can be a name),
+  and the log lines have the laptop's user name and any values taken out. An error in the
+  app's own code goes without its message (only what kind of error, and where), since a
+  message could quote a student.
+
+After **Send**, the window says one of:
+
+- **Sent ✓** *Thank you! The developer has it.* It reached the feedback inbox.
+- **Saved** *— it'll be sent automatically when you're online.* The laptop is offline (or the
+  inbox didn't answer in time). It's kept on the laptop and goes by itself: the app tries again
+  every so often while it's open, and every time it starts. You don't need to do anything.
+- **Saved on this laptop.** *It can't be sent yet — please also tell the developer another
+  way.* This version can't send feedback (the developer hasn't switched it on yet). It stays on
+  the laptop and goes once a version that can send it is installed.
+- **Saved on this laptop, but the feedback inbox didn't accept it.** Rare: tell the developer
+  another way.
+
+**About** shows the **Version** (for example 0.1.0), the **Build** (a code that tells the
+developer exactly which copy of the app this is), where **Your records**, the **Daily backups**
+and the **Log files** are on this laptop, and, if any is waiting, how many feedback messages
+haven't been sent yet. If this version can't send feedback, it says so here too.
+
+### What you can do
+
+**Send feedback**
+1. Go to the page the feedback is about (for example the student's profile).
+2. Click **⚙ Settings** at the bottom left, then **Send feedback**.
+3. Choose **Problem**, **Idea** or **Question**, and write what happened or what you'd like.
+4. Leave **Include a picture of this screen** ticked, or untick it.
+5. Click **Send**. Close the window when it says **Sent ✓** or **Saved**.
+
+**See your version, or where your records are**
+1. Click **⚙ Settings**, then **About**.
+
+### Good to know
+
+- Nothing else ever leaves the laptop: never your records file, the backups or anything you
+  download. Feedback is the one exception, and only when you click **Send**.
+- If the picture can't be taken, the window says so and the message is sent without it.
+- Clicking **Send** twice sends it once.
+- Until the developer switches on the feedback inbox, the window says *It can't be sent
+  yet*; what you saved is sent by itself once a version that can send it is installed.
+- If the inbox is busy or has a problem, the app keeps trying, less and less often (at most once
+  a day). Only a message the inbox refuses for good (for example, one it can't read) is given
+  up on, and then its picture is deleted from the laptop.
+
+<details><summary>For developers</summary>
+
+- **Components:** `frontend/src/components/settings-menu.tsx` (the gear and its menu, both
+  layouts; `SettingsDialogs` renders the dialogs once), `components/feedback-dialog.tsx`,
+  `components/about-dialog.tsx`, in `components/layout/app-shell.tsx`.
+- **Picture:** `src/lib/screenshot.ts` draws `#root` (the dialog is a portal outside it) with
+  `html-to-image`, bundled, then keeps only the part in the window (`visibleBox`), redrawing
+  the sticky side menu (`data-screenshot-sticky`) where it is on screen. A JPEG of at most
+  700 KB (quality, then size, lowered to fit; the server's limit too). Only the window is
+  drawn (`viewportFrame`), never the whole page, and table rows out of the window are drawn
+  empty (`rowsOutOfView`), so a list of hundreds of students is fine and quick (under a second)
+  (`e2e/feedback.spec.ts` compares the picture with the real screen at the top, middle and
+  bottom of 450 students). Given up after
+  10 s (`CAPTURE_TIMEOUT_MS`).
+- **Recent errors:** `src/lib/diagnostics.ts`: a ring buffer of the last 20 script errors,
+  unhandled rejections and failed API calls (method, path and status only; `api/client.ts`
+  middleware), plus local time, time zone, language, user agent, screen and window size and
+  the UI's build (`__UI_BUILD__`, `vite.config.ts`).
+- **Outcome:** `src/lib/feedback.ts` (`feedbackOutcome`): Sent; *held* ("can't be sent yet")
+  when this copy doesn't send (`sending: false`); Saved when a first try failed or 15 s have
+  passed; failed. The route sent is `location.pathname` only (the server drops any query too).
+- **API:** `POST /api/feedback` (`createFeedback`, idempotent on `id`), `GET
+  /api/feedback/{feedback_id}` (`getFeedback`, polled every second), `GET /api/about`
+  (`getAbout`). See [data model](data-model.md#feedback).
+- **Backend:** `services/feedback.py` (saving, what's sent), `app/diagnostics.py` (install ID,
+  redacted log tail, environment), `app/feedback_sender.py` (the background sender),
+  [ADR 0005](adr/0005-feedback-is-the-only-outbound-call.md). The relay is `relay/`
+  ([setup](runbooks/feedback-relay-setup.md)).
+- **Tests:** `components/feedback-dialog.test.tsx`, `lib/diagnostics.test.ts`,
+  `lib/feedback.test.ts`, `backend/tests/test_feedback.py`, `e2e/feedback.spec.ts` (against a
+  fake relay, `e2e/fake-relay.mjs`), `relay/test/relay.test.ts`.
+
+</details>
+
+---
+
 ## What the words and colours mean
 
 The same word always has the same colour, everywhere in the app.
@@ -2092,6 +2226,9 @@ The same word always has the same colour, everywhere in the app.
 | **Batch not found** | Amber | The Upload Excel preview | A batch named in the file that isn't in the app: those students come in without a batch unless you tick **Create it** |
 | **Unassigned** | Amber (the section and the Dashboard line) | Top of the Payments page; the Dashboard; the upload preview | A payment from an uploaded file whose student wasn't clear. Counted for no one until you give it to a student |
 | **New**, **Already exists**, **Looks similar**, **Problem**, **Will be added**, **Needs a student** | Green, grey, amber, red | The Upload Excel preview | What adding that row would do: see [the tables](#downloading-and-uploading-excel) |
+| **Sent ✓** | Green tick | The Send feedback window | Your feedback reached the developer's private feedback inbox |
+| **Saved** (feedback) | Marigold | The Send feedback window; About ("waiting to be sent") | Your feedback is kept on this laptop and will be sent by itself when the internet is on |
+| **Build** | — (a code) | About | Which exact copy of the app this is, so the developer can find the code it runs |
 
 **The colours themselves:** green for paid, amber for partly paid, a soft muted red for owed,
 teal for extra or ahead, and grey for anything not due. Marigold is the app's own colour, used
@@ -2381,6 +2518,19 @@ yet, write it down and log it once you do.)
 2. Click **Download Excel**. The file in *Downloads* has just those payments, with the total
    easy to add up in Excel. Attach it to an email or a WhatsApp message.
 
+### Something looks wrong — tell the developer
+
+1. Stay on the page where it looks wrong (for example the student's profile, or the Dashboard
+   month).
+2. Click **⚙ Settings** at the bottom left, then **Send feedback**.
+3. Leave **Problem** chosen. Write what you did and what you expected to see, for example
+   *"I logged ₹1,500 for Ananya for October but she still shows Owes."*
+4. Keep **Include a picture of this screen** ticked, so the developer sees what you see.
+5. Click **Send**. **Sent ✓** means it arrived; **Saved** means it'll go by itself once the
+   laptop is online. Either way, you're done.
+
+For an idea or a question, choose **Idea** or **Question** instead.
+
 ### It says someone owes but I know they paid
 
 Open their profile and look at **Month by month** to see which month shows as owed, then:
@@ -2405,10 +2555,15 @@ Open their profile and look at **Month by month** to see which month shows as ow
 ## Your data and safety
 
 - **Everything stays on this laptop.** Your records are kept in one file on the laptop itself
-  (the [backups page](runbooks/backup-and-restore.md) says where). Nothing is sent anywhere, and
-  no account is needed.
+  (**⚙ Settings → About** and the [backups page](runbooks/backup-and-restore.md) say where).
+  Nothing is sent anywhere, and no account is needed.
+- **The one exception: feedback you send.** When you click **Send** in **Send feedback**, your
+  message, and the picture of the screen if you leave it ticked, go to the developer's private
+  feedback inbox, with the details listed under *What gets sent* (the version, the page, recent
+  errors, the computer's system). Never your records file, backups or downloads. See
+  [Settings and feedback](#settings-and-feedback).
 - **It works offline.** After installing, the app never needs the internet. Only installing
-  and updating download something.
+  and updating download something, and feedback waits on the laptop until you're online.
 - **Automatic backups.** A copy is saved every day to **Documents\ScrappyRecords Backups**
   (Documents/ScrappyRecords Backups on a Mac), and the last 30 days are kept. Another copy is
   saved before every update, before the app upgrades its records to a new layout, and before
@@ -2477,10 +2632,11 @@ Open their profile and look at **Month by month** to see which month shows as ow
 | Download Excel, Download everything | `components/excel-buttons.tsx`, `lib/downloads.ts`, `components/layout/app-shell.tsx` | `GET /api/export/students.xlsx` (`exportStudents`), `GET /api/export/payments.xlsx` (`exportPayments`), `GET /api/export/everything.xlsx` (`exportEverything`) | `services/exports.py` | `lib/downloads.test.ts`, `test_excel_export.py`, `e2e/excel.spec.ts` |
 | Upload Excel (preview, choices, Add), blank templates | `components/excel-upload-dialog.tsx`, `lib/upload.ts` | `POST /api/import/preview` (`previewImport`), `POST /api/import/commit` (`commitImport`), `GET /api/import/template.xlsx` (`importTemplate`) | `services/spreadsheet.py`, `services/imports.py`, `services/matching.py`, `services/text.py`; `backup.py` (`pre-import`) | `components/excel-upload-dialog.test.tsx`, `test_excel_import.py`, `test_excel_review.py`, `test_spreadsheet_cells.py`, `test_fuzz_excel.py`, `e2e/excel.spec.ts` |
 | Unassigned payments, the Dashboard line | `components/unassigned-payments.tsx`, `components/unassigned-banner.tsx`, `components/student-combobox.tsx` | `GET /api/unassigned-payments` (`listUnassignedPayments`), `POST /api/unassigned-payments/{id}/assign` (`assignUnassignedPayment`), `DELETE /api/unassigned-payments/{id}` (`deleteUnassignedPayment`) | `services/unassigned.py` | `components/unassigned-payments.test.tsx`, `test_unassigned.py`, `test_migration_unassigned.py`, `e2e/excel.spec.ts` |
+| Settings menu, Send feedback, About | `components/settings-menu.tsx`, `components/feedback-dialog.tsx`, `components/about-dialog.tsx`, `lib/diagnostics.ts`, `lib/screenshot.ts`, `lib/feedback.ts` | `POST /api/feedback` (`createFeedback`), `GET /api/feedback/{feedback_id}` (`getFeedback`), `GET /api/about` (`getAbout`) | `services/feedback.py`, `diagnostics.py`, `feedback_sender.py`; relay in `relay/` | `components/feedback-dialog.test.tsx`, `lib/diagnostics.test.ts`, `lib/feedback.test.ts`, `test_feedback.py`, `e2e/feedback.spec.ts`, `relay/test/relay.test.ts` |
 
 Test paths without a folder are in `frontend/src/` (`*.tsx`, `*.ts`) or `backend/tests/`
 (`test_*.py`); end-to-end tests are in `frontend/e2e/` (`records.spec.ts`, `fixes.spec.ts`,
-`credit.spec.ts`, `report.spec.ts`, `excel.spec.ts` and `batches.spec.ts`).
+`credit.spec.ts`, `report.spec.ts`, `excel.spec.ts`, `batches.spec.ts` and `feedback.spec.ts`).
 
 ### How a number is calculated: "Still due"
 

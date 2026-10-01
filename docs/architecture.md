@@ -17,14 +17,18 @@ no Docker, no database server and no separate web server.
 │  ┌──────────── pythonw.exe -m app  (uvicorn, 127.0.0.1:8765) ───────────┐  │
 │  │  FastAPI                                                             │  │
 │  │   ├─ /api/health, students, payments, dashboard, batches, export, …  │  │
+│  │   │  about, feedback                                                 │  │
 │  │   ├─ services/ledger.py  (pure business rules: dues, statuses)       │  │
 │  │   ├─ SQLAlchemy ──► sqlite3 (built into Python) ──► data/records.db  │  │
 │  │   └─ /  → static/ (built React app, index.html fallback)             │  │
 │  │  on startup: make dirs → daily backup → Alembic migrations           │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
-│                            ▲                                               │
-│  Browser (Edge/Chrome) ────┘  React UI calls /api/* with fetch             │
+│  │  feedback sender thread ─────────────────────────────────────────────┼──┼──► relay
+│  └──────────────────────────────────────────────────────────────────────┘  │   (HTTPS,
+│                            ▲                                               │    only
+│  Browser (Edge/Chrome) ────┘  React UI calls /api/* with fetch             │ feedback)
 └────────────────────────────────────────────────────────────────────────────┘
+
+relay: a Cloudflare Worker (relay/) ──► GitHub issue in the private feedback repo
 ```
 
 ## Components
@@ -46,6 +50,8 @@ no Docker, no database server and no separate web server.
 | App icon | Marigold circle with a ₹, drawn at build time in the theme colours | `scripts/make_icon.py` |
 | Installer | PowerShell (Windows) and sh (macOS) | `scripts/install.ps1`, `scripts/install.sh` |
 | Install checks | End-to-end install tests CI runs on each OS | `scripts/ci/` |
+| Feedback | Saved in the `feedback` table, sent by a background thread to the relay | `backend/app/services/feedback.py`, `backend/app/feedback_sender.py`, `backend/app/diagnostics.py` |
+| Feedback relay | Cloudflare Worker (TypeScript) filing feedback as issues in a private repo | `relay/`, [setup](runbooks/feedback-relay-setup.md) |
 
 ## Where things live on the user's laptop (Windows)
 
@@ -64,9 +70,12 @@ Everything is per-user, so no admin rights are needed.
     Start Scrappy Records.cmd           ← same as the Desktop shortcut, but shows errors in a console
     scrappy.ico, scrappy.png            ← the app icon (shortcut; macOS .app)
     VERSION
+    BUILD_ID                            ← the git commit the bundle was built from (About, feedback)
   app.new\, app.old\                    ← only exist for a moment during an update
   data\
     records.db                          ← ALL user data; installs/updates never touch it
+    install-id                          ← a random ID for this copy, sent with feedback
+    feedback\<id>.jpg                   ← a feedback picture, only until it has been sent
     server.lock                         ← held by the running server: one server per database
     backups\                            ← only if the Documents backup folder can't be written
   stop-server.request                   ← written by the installer to ask the server to stop
@@ -92,6 +101,7 @@ environment variable, which tests and dev mode use:
 | `SCRAPPY_DATA_DIR` | `$SCRAPPY_HOME\data` | SQLite file location |
 | `SCRAPPY_BACKUP_DIR` | `Documents\ScrappyRecords Backups` | Backups |
 | `SCRAPPY_PORT` | `8765` | Server port |
+| `SCRAPPY_FEEDBACK_URL` | `FEEDBACK_URL` in `config.py` | Where feedback is sent; empty turns sending off (tests, dev) |
 
 The paths are looked up each time they're needed, not once at import, so tests can change them.
 `SCRAPPY_BACKUP_DIR` does **not** follow `SCRAPPY_HOME`: dev mode (`make dev`, `make run`) and the
@@ -184,10 +194,16 @@ messages instead of showing a box, which would otherwise wait for a click.
    cascade-delete its payments. They run in **one transaction**, and are rolled back if
    `PRAGMA foreign_key_check` finds any broken references afterwards. Migrations only add (see
    "Data safety" below).
-4. Serve requests.
+4. Start the **feedback sender** if a relay URL is set (see "Feedback" below).
+5. Serve requests.
 
 The server's version (in `/api/health`) comes from the installed package metadata. If that's
 missing, it's read from a `VERSION` file next to the `app` package, as in the bundle layout above.
+The **build ID** (`app.build_id()`, in `/api/about` and in feedback) is the git commit the app was
+built from: `scripts/build_bundle.py` writes it to `BUILD_ID` next to `VERSION` (CI's
+`GITHUB_SHA`, else `git rev-parse HEAD`), and the bundle's self-test checks `/api/about` reports
+it. In a checkout it comes from `git rev-parse HEAD` (`-dirty` with local changes), else
+`SCRAPPY_BUILD_ID`, else `unknown`. The UI bakes in its own (`__UI_BUILD__`, `vite.config.ts`).
 
 **Opening the app twice.** The launcher sees `/api/health` answering with
 `{"app": "scrappy-records"}` and only opens the browser.
@@ -269,13 +285,53 @@ The owner's data is never lost ([ADR 0004](adr/0004-data-is-never-lost.md)):
   "upgrade needed" path is always exercised. The release workflow refuses to publish a version
   if any earlier release has no sample.
 
+## Feedback
+
+**⚙ Settings → Send feedback** ([feature guide](feature-guide.md#settings-and-feedback)):
+
+1. The browser takes a picture of what's in the window (`html-to-image`, bundled, drawing only
+   the window, never the whole page; 700 KB and 10 s at most) and posts the message, the picture and what it knows (`POST /api/feedback`): the page's
+   path (never its query), local time, screen size, user agent and its last 20 errors.
+2. The server saves it (`feedback` table; the picture as `data/feedback/<id>.jpg`, so the daily
+   backups stay small), adding the version, build ID, install ID, OS and the last 200 log lines
+   worth sending: warnings, errors and their tracebacks, and the app's own notes, with the
+   user's name and home folder hidden in any spelling (escapes decoded first), quoted values
+   and database values removed, and no message at all for an exception raised in the app's
+   own code (only its type and where) (`app/diagnostics.py`). It answers at once and wakes the sender. It never waits for
+   the internet.
+3. The **sender** (`app/feedback_sender.py`, thread `scrappy-feedback`) posts each waiting item
+   to the relay (`config.feedback_url()`, HTTPS, 90 s timeout, longer than the relay's 40 s
+   budget), at startup, when woken, and once a minute. The payload is kept under 2,000,000
+   bytes (the log trimmed first, then the errors, then the picture). Only the relay's own
+   refusals end it: `invalid` or `blocked` mark it `failed` and delete its picture; `too_large`
+   gets one slim try at once (no picture, 50 log lines), then is final. After 3 failed tries
+   of one item (not counting plain offline), it goes without the picture. Anything else backs
+   off: 30 s doubling, with jitter and `Retry-After` respected, up to an hour while the relay
+   can't be reached, up to a day while it answers with an error. A new item or a restart tries
+   at once. Once sent, the item is `sent`, with the issue URL, and its picture is deleted.
+4. The dialog polls `GET /api/feedback/{id}` for up to 15 s: **Sent ✓**, **Saved** (it'll go
+   by itself), or, when this copy has no relay, *It can't be sent yet*.
+5. The **relay** (`relay/`, a Cloudflare Worker with a D1 database) checks the request (2 MiB at
+   most), refuses to file unless the feedback repo is private, dedupes by feedback id (a retry
+   gets the same issue; a concurrent one gets 409), rate-limits per install, per hashed IP and
+   50 a day in all (failing closed), commits the picture to the private repo's `screenshots`
+   branch and opens an issue there ([setup](runbooks/feedback-relay-setup.md)).
+
+The relay URL is `FEEDBACK_URL` in `backend/app/config.py`, empty (sending off) until the relay
+is deployed. `SCRAPPY_FEEDBACK_URL` overrides it; tests and `make dev` set it empty. Plain HTTP
+is only allowed to `127.0.0.1` (the tests' fake relay).
+
 ## Security and privacy
 
 - The server listens on `127.0.0.1` only, so it isn't reachable from the network and triggers no
   firewall prompt.
 - There is no authentication, by design: only the logged-in Windows user can reach loopback.
-- There are no outbound network calls at runtime and no telemetry.
-- The only network access is the installer downloading the release zip from GitHub.
+- There is no telemetry. The only outbound call at runtime is **feedback the owner chooses to
+  send**, to the feedback relay, over HTTPS ([ADR 0005](adr/0005-feedback-is-the-only-outbound-call.md)).
+  Only rows of the `feedback` table go out: never the database, backups or exports.
+- The GitHub token that files issues lives only in the relay, as a Worker secret, limited to the
+  private feedback repo. The app holds no secret.
+- Otherwise, the only network access is the installer downloading the release zip from GitHub.
 
 ## Development mode
 

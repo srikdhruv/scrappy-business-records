@@ -166,31 +166,25 @@ The owner hires instructors to take some batches and pays them.
   with openpyxl. They could share one small helper (and the report's Indian-grouping ₹ format).
   Not urgent: both are tested, and they look alike on purpose.
 
-## 10. In-app feedback (open problem, revisit after v0.1)
+## 10. In-app feedback — done
 
-**Goal:** the owner can tell us something is wrong or missing, straight from the app, and it
-lands where we track work (ideally as a GitHub issue), with the app version and the page she
-was on attached.
+**Done:** ⚙ Settings → **Send feedback** (see the
+[feature guide](../feature-guide.md#settings-and-feedback)). The owner writes a message (Problem,
+Idea or Question), with a picture of the screen unless she unticks it. The app saves it on the
+laptop, then its server sends it to a small relay (a Cloudflare Worker in `relay/`), which files
+it as an issue in a private feedback repo. The version, build, page, recent errors and the last
+lines of the log go with it; the records never do.
 
-**Constraints that make this hard:**
-- **Local only.** The app has no server of its own online. Sending feedback would be the first
-  outbound call the app makes at runtime, so it must be an explicit, user-initiated exception.
-- **No GitHub account.** The owner has no GitHub account, and a GitHub token can't be shipped
-  inside a publicly downloadable app without being extractable and abusable.
-- **Privacy.** The repo is public, so its issues are public. Feedback may mention students,
-  phone numbers or amounts, and none of that may end up in public.
-- **Offline.** The laptop may be offline when she wants to send feedback.
+How the old constraints were met:
+- **Local only:** sending feedback is the app's one outbound call, started by the owner, and
+  only feedback goes out ([ADR 0005](../adr/0005-feedback-is-the-only-outbound-call.md)).
+- **No GitHub account / no token in the app:** the token lives only in the relay, as a secret,
+  limited to the private feedback repo.
+- **Privacy:** issues and screenshots land in the private repo, never the public one.
+- **Offline:** feedback waits on the laptop and is retried at startup and every minute or so,
+  backing off, until it goes.
 
-**Options considered, and why neither was chosen yet:**
-- **A small relay into a private repo.** A tiny hosted service (e.g. a free-tier Cloudflare
-  Worker) holds a token and files issues in a separate private feedback repo. The app queues
-  feedback while offline.
-  - Concern: it adds the first online component, which someone has to own and maintain, and it
-    needs abuse protection.
-- **A button that opens WhatsApp to the maintainer**, with the version and page prefilled.
-  - Concern: it isn't logged automatically, and the maintainer's number can't live in the public
-    repo, so it would have to be entered at install time.
+Setup: [feedback relay runbook](../runbooks/feedback-relay-setup.md).
 
-**Next step:** find a design without those drawbacks before building. For example, feedback
-could be written to a local file that the maintainer collects during updates, or sent through a
-channel the owner already uses. Until then, feedback arrives informally.
+**Later:** a "Your feedback" list in Settings (what was sent, and replies), and more settings in
+the same menu (the business name).

@@ -4,6 +4,10 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import App from './App'
+import { installErrorListeners } from './lib/diagnostics'
+
+// Remember script errors for feedback (Settings → Send feedback → "What gets sent").
+installErrorListeners()
 
 /**
  * `npm run dev:mock` answers /api from an in-memory mock (src/mocks) instead of the backend.

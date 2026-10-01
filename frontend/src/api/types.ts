@@ -1,5 +1,6 @@
 /** The API types the UI works with: the generated ones from `schema.d.ts` (`make gen-api`). */
 export type {
+  AboutResponse,
   ApplyBatchFee,
   BacklogItem,
   BacklogMonth,
@@ -15,6 +16,12 @@ export type {
   DashboardSummary,
   ExtraSent,
   ExportTemplateKind,
+  FeedbackCategory,
+  FeedbackClientError,
+  FeedbackClientInfo,
+  FeedbackCreate,
+  FeedbackRead,
+  FeedbackStatus,
   FeeChangeRead,
   FeePlan,
   FeePlanStatus,
