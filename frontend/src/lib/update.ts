@@ -27,7 +27,13 @@ const REQUEST_TIMEOUT_MS = 5_000
 export type UpdatePhase =
   | { kind: 'waiting'; slow: boolean }
   | { kind: 'done'; version: string }
-  | { kind: 'failed'; detail: string | null; technical: string; appRunning: boolean }
+  | {
+      kind: 'failed'
+      detail: string | null
+      technical: string
+      recordsRestored: boolean
+      appRunning: boolean
+    }
   | { kind: 'timeout'; appRunning: boolean }
 
 export interface AttemptSeen {
@@ -35,6 +41,7 @@ export interface AttemptSeen {
   started_at: string
   detail: string
   technical?: string
+  records_restored?: boolean
 }
 
 export interface Observation {
@@ -62,6 +69,7 @@ export function nextPhase(
       kind: 'failed',
       detail: seen.attempt.detail || null,
       technical: seen.attempt.technical ?? '',
+      recordsRestored: seen.attempt.records_restored === true,
       appRunning: true,
     }
   }

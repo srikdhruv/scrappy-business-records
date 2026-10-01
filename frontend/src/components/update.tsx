@@ -213,7 +213,11 @@ export function UpdateBanner() {
       >
         <TriangleAlertIcon className="size-5 shrink-0 text-partial" aria-hidden />
         <p className="min-w-0 flex-1 text-base">
-          <strong>The last update didn’t finish — your records are safe.</strong>{' '}
+          <strong>
+            {info?.last_attempt?.records_restored
+              ? 'The last update didn’t finish — your records were put back as they were before the update.'
+              : 'The last update didn’t finish — your records are safe.'}
+          </strong>{' '}
           <span className="text-foreground/80">
             You still have version {info?.current}, just as it was.
           </span>
@@ -489,6 +493,9 @@ function UpdatingScreen({
                   : `The update to version ${toVersion} didn’t finish.`}
               </p>
               <p>
+                {phase.kind === 'failed' && phase.recordsRestored && (
+                  <>Your records were put back as they were before the update. </>
+                )}
                 <strong>Your records are safe.</strong> If the new version didn’t go in, the old one
                 ({fromVersion}) is still there, just as it was.
               </p>

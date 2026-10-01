@@ -32,6 +32,7 @@ const STARTED = {
   outcome: 'running' as const,
   detail: '',
   technical: '',
+  records_restored: false,
 }
 
 /** The server: `info` from GET /api/update, and what health says (changeable). */
@@ -369,6 +370,15 @@ describe('an update that was cut short', () => {
     await settle()
     expect(screen.queryByRole('region', { name: 'The last update' })).not.toBeInTheDocument()
     expect(await banner()).toHaveTextContent('A new version (0.3.0) is ready.')
+  })
+
+  it('says the records were put back when the installer did so', async () => {
+    serve({ ...READY, last_attempt: { ...FAILED, records_restored: true } })
+    renderApp('/')
+    const notice = await screen.findByRole('region', { name: 'The last update' })
+    expect(notice).toHaveTextContent(
+      'The last update didn’t finish — your records were put back as they were before the update.',
+    )
   })
 
   it('OK closes it, and the new-version banner comes back', async () => {

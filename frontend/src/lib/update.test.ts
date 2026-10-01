@@ -47,6 +47,7 @@ describe('nextPhase', () => {
       kind: 'failed',
       detail: failed().detail,
       technical: '',
+      recordsRestored: false,
       appRunning: true,
     })
   })
