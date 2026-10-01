@@ -1,7 +1,8 @@
 name: Post-release check
 
 # After a release is published, install it exactly as a user would, on a fresh Windows machine
-# with no Python: main's install.ps1 from raw.githubusercontent.com, and the release asset.
+# with no Python (main's install.ps1 from raw.githubusercontent.com, and the release asset) and
+# on a fresh Mac (main's install.sh: scripts/ci/verify_release_mac.sh).
 #   mode `tagged`: the -Version <tag> form (for a prerelease, before it becomes "latest");
 #   mode `latest`: the literal plain install line from the docs (releases/latest/download/),
 #                  which must install this tag, then also -Version.
@@ -66,3 +67,26 @@ jobs:
           -File scripts\ci\verify_release_windows.ps1
           -Tag ${{ steps.tag.outputs.tag }}
           -Mode ${{ steps.tag.outputs.mode }}
+
+  macos:
+    name: Install the published release on macOS (the real one-liner)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Which release
+        id: tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          MODE: ${{ inputs.mode || (github.event.release.prerelease && 'tagged') || 'latest' }}
+        run: |
+          if [ -z "$TAG" ]; then
+            TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          fi
+          echo "Checking $TAG ($MODE)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+      - name: Install, restart, update and --version, like a user
+        run: scripts/ci/verify_release_mac.sh "${{ steps.tag.outputs.tag }}" "${{ steps.tag.outputs.mode }}"

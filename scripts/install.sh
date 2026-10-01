@@ -16,7 +16,7 @@
 #                        ~/Library/Application Support/ScrappyRecords. [SCRAPPY_INSTALL_ROOT]
 #   --apps-dir DIR       Testing only: put "Scrappy Records.app" here instead of
 #                        ~/Applications.                            [SCRAPPY_APPS_DIR]
-#   [SCRAPPY_TEST_FAIL_AFTER_BACKUP=FILE]  Testing only: if FILE exists, delete it and fail just
+#   [SCRAPPY_TEST_MODE=1 + SCRAPPY_TEST_FAIL_AFTER_BACKUP=FILE]  Testing only: if FILE exists, delete it and fail just
 #                        after the backup, so CI can check what a failed update does.
 #
 # Started by the app itself (Settings -> Update now, docs/adr/0006-in-app-update.md): the app
@@ -225,16 +225,18 @@ running_version() {
         sed -n 's/.*"app":"scrappy-records".*"version":"\([^"]*\)".*/\1/p'
 }
 
-# wait_for_version VERSION LAUNCHER_OK ROOT: up to 3 minutes for VERSION to answer. Gives up
-# early if the launcher failed and none of the app's programs is running (it won't start).
+# wait_for_version VERSION ROOT: wait for VERSION to answer. A first start can be slow (a
+# backup and an upgrade of the records first), so keep waiting, up to 10 minutes, while any of
+# its programs is still running; give up early only once none is left (it crashed). The
+# launcher has already returned when this runs. Succeeds as soon as it answers once.
 wait_for_version() {
     i=0
-    while [ $i -lt 360 ]; do
+    while [ $i -lt 1200 ]; do
         [ "$(running_version)" != "$1" ] || return 0
-        if [ "$2" != 1 ] && [ -z "$(app_pids "$3")" ]; then
-            sleep 1
-            [ "$(running_version)" = "$1" ]
-            return
+        if [ -z "$(app_pids "$2")" ]; then
+            sleep 2
+            [ "$(running_version)" != "$1" ] || return 0
+            [ -n "$(app_pids "$2")" ] || return 1
         fi
         sleep 0.5
         i=$((i + 1))
@@ -324,13 +326,11 @@ main() {
             fail "Couldn't download the checksum list (SHA256SUMS). Check the internet connection and try again."
         if [ "$sums_status" = 200 ]; then
             check_sum "$zip_path" "$ASSET" "$tmp/SHA256SUMS"
+        elif [ "$sums_status" = 404 ] && [ "$version" = v0.1.0 ]; then
+            # The one release from before checksums, and only when asked for by name.
+            say "Version v0.1.0 was published before checksums; installing it unchecked, as asked."
         elif [ "$sums_status" = 404 ]; then
-            # Only releases from before checksums (v0.1.0) have no SHA256SUMS.
-            zip_version=$(/usr/bin/unzip -p "$zip_path" VERSION 2>/dev/null | head -n 1 | tr -d '\r ')
-            case "$zip_version" in
-                0.0.* | 0.1.0) say "Version $zip_version was published before checksums; installing it unchecked." ;;
-                *) fail "This release has no checksum list (SHA256SUMS), so the download can't be checked. Nothing was changed." ;;
-            esac
+            fail "This release has no checksum list (SHA256SUMS), so the download can't be checked. Nothing was changed."
         else
             fail "Couldn't download the checksum list (SHA256SUMS). Check the internet connection and try again."
         fi
@@ -362,7 +362,8 @@ main() {
         pre_update_backup=$(find_pre_update_backup "$database" "$tmp/backup-start")
         records_before=$(records_state "$database")
     fi
-    if [ -n "${SCRAPPY_TEST_FAIL_AFTER_BACKUP:-}" ] && [ -f "$SCRAPPY_TEST_FAIL_AFTER_BACKUP" ]; then
+    if [ "${SCRAPPY_TEST_MODE:-}" = 1 ] && [ -n "${SCRAPPY_TEST_FAIL_AFTER_BACKUP:-}" ] &&
+        [ -f "$SCRAPPY_TEST_FAIL_AFTER_BACKUP" ]; then
         rm -f "$SCRAPPY_TEST_FAIL_AFTER_BACKUP"
         fail "Test hook: failing after the backup, as asked."
     fi
@@ -416,7 +417,8 @@ main() {
         [ "$from_app" != 1 ] || export SCRAPPY_AFTER_UPDATE=1
         launcher_ok=0
         (cd "$app_dir" && SCRAPPY_NO_DIALOG=1 ./python/bin/python3 -m app.launcher) && launcher_ok=1
-        if wait_for_version "$new_version" "$launcher_ok" "$root"; then started=1; fi
+        [ "$launcher_ok" = 1 ] || say "Still waiting for version $new_version to start..."
+        if wait_for_version "$new_version" "$root"; then started=1; fi
     elif (cd "$app_dir" && ./python/bin/python3 -c 'import app.main') >/dev/null 2>&1; then
         started=1
     fi
@@ -426,8 +428,21 @@ main() {
         note "Version $new_version didn't start: putting version $old_version back..."
         stop_running_app "$root"
         failed_dir="$root/app.failed-$(date +%Y%m%d%H%M%S)"
-        { mv "$app_dir" "$failed_dir" && mv "$old_dir" "$app_dir"; } ||
-            fail "The new version didn't start, and the old one couldn't be put back. Run the install line again."
+        open_it=0
+        if [ "$no_launch" != "1" ] || [ "$from_app" = 1 ]; then open_it=1; fi
+        launched=1 # from here on this decides what is opened, not the exit trap
+        if ! mv "$app_dir" "$failed_dir"; then
+            note "Couldn't move version $new_version aside; it stays, and version $old_version is kept in $old_dir."
+            [ "$open_it" != 1 ] || (cd "$app_dir" && ./python/bin/python3 -m app.launcher) >/dev/null 2>&1 || true
+            fail "The new version ($new_version) didn't start, and the previous version couldn't be put back. Restart the Mac, then run the install line again."
+        fi
+        if ! mv "$old_dir" "$app_dir"; then
+            # Never leave no app at all: the new version goes back where it was.
+            mv "$failed_dir" "$app_dir" 2>/dev/null || true
+            note "Couldn't put version $old_version back; version $new_version stays, and version $old_version is kept in $old_dir."
+            [ "$open_it" != 1 ] || (cd "$app_dir" && ./python/bin/python3 -m app.launcher) >/dev/null 2>&1 || true
+            fail "The new version ($new_version) didn't start, and the previous version couldn't be put back. Restart the Mac, then run the install line again."
+        fi
         rm -rf "$failed_dir"
         note "Version $new_version didn't start, so version $old_version was put back."
         # Did the failed start change the records (an upgrade that ran, then a crash)? Then the
@@ -439,16 +454,18 @@ main() {
                 note "Your records were put back as they were before the update."
                 records=", and your records were put back as they were before the update"
             else
+                open_it=0 # never open the old version on records it may not be able to read
                 records=", but your records couldn't be put back as they were before the update by themselves ($restore_error). Nothing is lost: the backup from before the update is $pre_update_backup"
             fi
         elif [ -n "$records_before" ]; then
             note "Your records were not changed."
         fi
-        if [ "$no_launch" != "1" ] || [ "$from_app" = 1 ]; then
+        opened=""
+        if [ "$open_it" = 1 ]; then
             (cd "$app_dir" && ./python/bin/python3 -m app.launcher) >/dev/null 2>&1 || true
+            opened=" and opened again"
         fi
-        launched=1 # opened (or not wanted): nothing more to open on the way out
-        fail "The new version ($new_version) didn't start, so the previous version ($old_version) was put back and opened again$records."
+        fail "The new version ($new_version) didn't start, so the previous version ($old_version) was put back$opened$records."
     fi
     rm -rf "$old_dir"
 

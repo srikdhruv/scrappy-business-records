@@ -18,10 +18,11 @@
 #                        [SCRAPPY_INSTALL_ROOT]
 #   -ShortcutDir <dir>   Testing only: put the shortcut here instead of on the Desktop.
 #                        [SCRAPPY_SHORTCUT_DIR]
-#   [SCRAPPY_TEST_FORCE_FILE_COPY_BACKUP=1]  Testing only: skip the app's own pre-update backup,
-#                        so CI can check the file-copy fallback.
-#   [SCRAPPY_TEST_FAIL_AFTER_BACKUP=<file>]  Testing only: if <file> exists, delete it and fail
-#                        just after the backup, so CI can check what a failed update does.
+#   Testing only, and only with SCRAPPY_TEST_MODE=1 (ignored otherwise):
+#   [SCRAPPY_TEST_FORCE_FILE_COPY_BACKUP=1]  skip the app's own pre-update backup, so CI can
+#                        check the file-copy fallback.
+#   [SCRAPPY_TEST_FAIL_AFTER_BACKUP=<file>]  if <file> exists, delete it and fail just after the
+#                        backup, so CI can check what a failed update does.
 #   [SCRAPPY_TEST_MODE=1 + SCRAPPY_INSTALL_DOWNLOAD_URL=<url>/]  Testing only: download the
 #                        release's files (zip, SHA256SUMS) from <url> instead of GitHub.
 #
@@ -36,17 +37,18 @@
 #
 # What it does (docs/adr/0003-distribution-and-install.md):
 #   1. downloads scrappy-records-windows-x64.zip from the GitHub release to %TEMP%, checks it
-#      against the release's SHA256SUMS (stopping, with nothing changed, if it doesn't match;
-#      only v0.1.0, from before checksums, has none), and unpacks it to app.new next to the
-#      current copy;
+#      against the release's SHA256SUMS (stopping, with nothing changed, if it doesn't match or
+#      is missing; only -Version v0.1.0, from before checksums, is installed without), and
+#      unpacks it to app.new next to the current copy;
 #   2. stops the app if it is running: first politely (a stop request the server acts on within
 #      a second), then by force after 10 seconds;
 #   3. saves a backup of the data, with the old version's Python, else the new one's, else by
 #      copying the database file together with its journal. If none works, it stops there;
 #   4. swaps app.new in for app. The data folder is never touched;
-#   5. deletes the downloaded zip, opens the new version and waits (up to 3 minutes) for it to
-#      answer as the new version (with -NoLaunch: checks it can load). If it doesn't, the old
-#      copy (kept as app.old until now) is put back and opened, and this says so;
+#   5. deletes the downloaded zip, opens the new version and waits for it to answer as the new
+#      version (up to 10 minutes while it is still starting; with -NoLaunch: checks it can
+#      load). If it never does, the old copy (kept as app.old until now) is put back and opened,
+#      with the pre-update backup put back too if the failed start changed the records;
 #   6. creates the "Scrappy Records" Desktop shortcut.
 #
 # Compatibility: this file always comes from `main`, but step 3 runs the *installed* version's
@@ -213,7 +215,7 @@ function Backup-ScrappyData([string[]]$Bundles, [string]$Database) {
     foreach ($bundle in $Bundles) {
         $python = Join-Path $bundle 'python\python.exe'
         if (-not (Test-Path -LiteralPath $python)) { continue }
-        if ($env:SCRAPPY_TEST_FORCE_FILE_COPY_BACKUP -eq '1') { continue }  # test hook: step 2 only
+        if ($env:SCRAPPY_TEST_MODE -eq '1' -and $env:SCRAPPY_TEST_FORCE_FILE_COPY_BACKUP -eq '1') { continue }  # test hook: step 2 only
         $result = Invoke-ScrappyProgram $python '-m app.backup --reason pre-update' $bundle 120
         if ($result.ExitCode -eq 0) {
             Write-ScrappyStep $result.Output
@@ -345,18 +347,19 @@ function Get-ScrappyRunningVersion([string]$Port) {
     return $null
 }
 
-function Wait-ScrappyVersion([string]$Version, $Launcher, [string]$Root, [int]$Seconds = 180) {
-    # Wait for the new version to answer. Gives up early if the launcher has failed and none of
-    # the app's programs is running any more (it won't start); a slow first start may take a
-    # few minutes (it backs up and upgrades the records first).
+function Wait-ScrappyVersion([string]$Version, $Launcher, [string]$Root, [int]$Seconds = 600) {
+    # Wait for the new version to answer. A first start can be slow (an antivirus scanning the
+    # new files, a backup and an upgrade of the records first), so keep waiting, up to 10
+    # minutes, while any of its programs is still running; give up early only once the launcher
+    # has failed and none is left (it crashed). Returns $true as soon as it answers once.
     $port = if ($env:SCRAPPY_PORT) { $env:SCRAPPY_PORT } else { '8765' }
     $deadline = (Get-Date).AddSeconds($Seconds)
     while ((Get-Date) -lt $deadline) {
         if ((Get-ScrappyRunningVersion $port) -eq $Version) { return $true }
-        if ($Launcher -and $Launcher.HasExited -and $Launcher.ExitCode -ne 0 -and
-            @(Get-ScrappyProcesses $Root).Count -eq 0) {
-            Start-Sleep -Seconds 1
-            return ((Get-ScrappyRunningVersion $port) -eq $Version)
+        if ($Launcher -and $Launcher.HasExited -and @(Get-ScrappyProcesses $Root).Count -eq 0) {
+            Start-Sleep -Seconds 2
+            if ((Get-ScrappyRunningVersion $port) -eq $Version) { return $true }
+            if (@(Get-ScrappyProcesses $Root).Count -eq 0) { return $false }
         }
         Start-Sleep -Milliseconds 500
     }
@@ -483,19 +486,6 @@ function Assert-ScrappyChecksum([string]$File, [string]$Name, [string]$Sums) {
     Write-ScrappyStep 'The download matches its checksum.'
 }
 
-function Get-ScrappyZipVersion([string]$ZipPath) {
-    # VERSION from inside the zip, without unpacking it.
-    $zip = [IO.Compression.ZipFile]::OpenRead($ZipPath)
-    try {
-        $entry = $zip.GetEntry('VERSION')
-        if (-not $entry) { return $null }
-        $reader = New-Object IO.StreamReader($entry.Open())
-        try { return $reader.ReadLine().Trim() } finally { $reader.Dispose() }
-    } finally {
-        $zip.Dispose()
-    }
-}
-
 function Write-ScrappyLog([string]$HomeDir, [string]$Message) {
     # One line in logs\update.log (an update started from the app writes all its output there).
     try {
@@ -509,6 +499,9 @@ function Write-ScrappyLog([string]$HomeDir, [string]$Message) {
 function Get-ScrappyHint([string]$Message) {
     if ($Message -match "records couldn't be put back") {
         return 'Nothing is lost: the copy from before the update is in the backups folder. Ask whoever set this up to restore it (docs/runbooks/backup-and-restore.md).'
+    }
+    if ($Message -match "previous version couldn't be put back") {
+        return 'Your records are safe. Restart the laptop, then run the install line again.'
     }
     if ($Message -match "didn't start") {
         return 'Your previous version was put back and opened again, with your records. Tell whoever set this up.'
@@ -614,17 +607,11 @@ function Install-ScrappyRecords {
             $sums = Get-ScrappySums ($base + 'SHA256SUMS')
             if ($null -ne $sums) {
                 Assert-ScrappyChecksum $ZipPath $asset $sums
+            } elseif ($Version -eq 'v0.1.0') {
+                # The one release from before checksums, and only when asked for by name.
+                Write-ScrappyStep 'Version v0.1.0 was published before checksums; installing it unchecked, as asked.'
             } else {
-                # Only releases from before checksums (v0.1.0) have no SHA256SUMS.
-                $zipVersion = Get-ScrappyZipVersion $ZipPath
-                $parts = @(([string]$zipVersion) -split '[.+-]')
-                $isOld = $parts.Count -ge 3 -and $parts[0] -match '^[0-9]+$' -and $parts[1] -match '^[0-9]+$' -and
-                    $parts[2] -match '^[0-9]+$' -and [int]$parts[0] -eq 0 -and
-                    ([int]$parts[1] -lt 1 -or ([int]$parts[1] -eq 1 -and [int]$parts[2] -eq 0))
-                if (-not $isOld) {
-                    throw "This release has no checksum list (SHA256SUMS), so the download can't be checked. Nothing was changed."
-                }
-                Write-ScrappyStep "Version $zipVersion was published before checksums; installing it unchecked."
+                throw "This release has no checksum list (SHA256SUMS), so the download can't be checked. Nothing was changed."
             }
         }
 
@@ -652,7 +639,8 @@ function Install-ScrappyRecords {
             $preUpdateBackup = Find-ScrappyPreUpdateBackup $database $backupStart
             $recordsBefore = Get-ScrappyRecordsState $database
         }
-        if ($env:SCRAPPY_TEST_FAIL_AFTER_BACKUP -and (Test-Path -LiteralPath $env:SCRAPPY_TEST_FAIL_AFTER_BACKUP)) {
+        if ($env:SCRAPPY_TEST_MODE -eq '1' -and $env:SCRAPPY_TEST_FAIL_AFTER_BACKUP -and
+            (Test-Path -LiteralPath $env:SCRAPPY_TEST_FAIL_AFTER_BACKUP)) {
             Remove-Item -LiteralPath $env:SCRAPPY_TEST_FAIL_AFTER_BACKUP -Force
             throw 'Test hook: failing after the backup, as asked.'
         }
@@ -702,8 +690,9 @@ function Install-ScrappyRecords {
     $pythonw = Join-Path $appDir 'python\pythonw.exe'
     if ($downloaded) { Remove-Item -LiteralPath $ZipPath -Force -ErrorAction SilentlyContinue }
 
-    # 5. Does the new version start? Open it and wait (up to 3 minutes) for it to answer as
-    #    the new version; with -NoLaunch, check its Python can at least load the app. If not,
+    # 5. Does the new version start? Open it and wait for it to answer as the new version (up
+    #    to 10 minutes while it is still starting); with -NoLaunch, check its Python can at least
+    #    load the app. Once it has answered, it stays (it may have been used). If it never does,
     #    put the old version back and open that instead.
     $started = $false
     $launcher = $null
@@ -711,7 +700,7 @@ function Install-ScrappyRecords {
         try {
             Write-ScrappyStep 'Opening Scrappy Records in your browser...'
             $launcher = Start-ScrappyApp $appDir -AfterUpdate:$fromApp -NoDialog
-            $started = Wait-ScrappyVersion $newVersion $launcher $InstallRoot 180
+            $started = Wait-ScrappyVersion $newVersion $launcher $InstallRoot 600
         } catch {
             Write-ScrappyStep "The new version didn't open ($($_.Exception.Message))."
         }
@@ -730,12 +719,32 @@ function Install-ScrappyRecords {
         & $log "Version $newVersion didn't start: putting version $oldVersion back..."
         [void](Stop-ScrappyProcesses $InstallRoot $homeDir)
         $failedDir = Join-Path $InstallRoot "app.failed-$(Get-Date -Format 'yyyyMMddHHmmss')"
-        Move-ScrappyFolder $appDir $failedDir
-        Move-ScrappyFolder $oldDir $appDir
+        $openIt = (-not $NoLaunch -or $fromApp)
+        try {
+            Move-ScrappyFolder $appDir $failedDir
+        } catch {
+            $why = $_.Exception.Message
+            & $log "Couldn't move version $newVersion aside ($why); it stays, and version $oldVersion is kept in $oldDir."
+            if ($openIt) { try { [void](Start-ScrappyApp $appDir -AfterUpdate:$fromApp) } catch { } }
+            if (-not $homeWasSet) { Remove-Item Env:SCRAPPY_HOME -ErrorAction SilentlyContinue }
+            throw "The new version ($newVersion) didn't start, and the previous version couldn't be put back ($why)."
+        }
+        try {
+            Move-ScrappyFolder $oldDir $appDir
+        } catch {
+            $why = $_.Exception.Message
+            # Never leave no app at all: the new version goes back where it was.
+            try { Move-ScrappyFolder $failedDir $appDir } catch { }
+            & $log "Couldn't put version $oldVersion back ($why); version $newVersion stays, and version $oldVersion is kept in $oldDir."
+            if ($openIt) { try { [void](Start-ScrappyApp $appDir -AfterUpdate:$fromApp) } catch { } }
+            if (-not $homeWasSet) { Remove-Item Env:SCRAPPY_HOME -ErrorAction SilentlyContinue }
+            throw "The new version ($newVersion) didn't start, and the previous version couldn't be put back ($why)."
+        }
         Remove-ScrappyFolder $failedDir -BestEffort
         & $log "Version $newVersion didn't start, so version $oldVersion was put back."
         # Did the failed start change the records (an upgrade that ran, then a crash)? Then the
-        # old version may not open them: put back the backup taken just before (ADR 0004).
+        # old version may not be able to open them: put back the backup taken just before
+        # (ADR 0004). If that fails, don't open the old version on records it may not read.
         $records = ''
         if ($recordsBefore -and (Get-ScrappyRecordsState $database) -ne $recordsBefore) {
             & $log 'The new version changed the records before it stopped: putting back the backup from before the update...'
@@ -744,16 +753,18 @@ function Install-ScrappyRecords {
                 & $log 'Your records were put back as they were before the update.'
                 $records = ', and your records were put back as they were before the update'
             } catch {
+                $openIt = $false
                 $records = ", but your records couldn't be put back as they were before the update by themselves ($($_.Exception.Message)). Nothing is lost: the backup from before the update is $preUpdateBackup"
             }
         } elseif ($recordsBefore) {
             & $log 'Your records were not changed.'
         }
-        if (-not $NoLaunch -or $fromApp) {
+        if ($openIt) {
             try { [void](Start-ScrappyApp $appDir -AfterUpdate:$fromApp) } catch { }
         }
         if (-not $homeWasSet) { Remove-Item Env:SCRAPPY_HOME -ErrorAction SilentlyContinue }
-        throw "The new version ($newVersion) didn't start, so the previous version ($oldVersion) was put back and opened again$records."
+        $opened = if ($openIt) { ' and opened again' } else { '' }
+        throw "The new version ($newVersion) didn't start, so the previous version ($oldVersion) was put back$opened$records."
     }
     Remove-ScrappyFolder $oldDir -BestEffort
 

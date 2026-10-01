@@ -379,6 +379,9 @@ class FakeProcess:
         self.done.wait(10)
         return self.code if self.code is not None else 0
 
+    def poll(self) -> int | None:
+        return (self.code if self.code is not None else 0) if self.done.is_set() else None
+
 
 @dataclass
 class Spawned:
@@ -802,8 +805,18 @@ def test_spawn_installer_really_detaches(tmp_path: Path) -> None:
 def test_a_running_update_older_than_30_minutes_has_failed(rig: Rig) -> None:
     rig.client.post("/api/update/start", json={"version": NEXT}, headers=GOOD_HEADERS)
     assert rig.client.get("/api/update").json()["reason"] == "updating"
-    # The installer vanished (the laptop was switched off, say): 31 minutes later...
     attempt = updater.load_attempt()
+    assert attempt is not None
+    long_ago = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=31)
+    updater.save_attempt(dataclasses.replace(attempt, started_at=long_ago.isoformat()))
+    # While this server's installer still runs, 30 minutes change nothing: no second installer.
+    assert rig.client.get("/api/update").json()["reason"] == "updating"
+    again = rig.client.post("/api/update/start", json={"version": NEXT}, headers=GOOD_HEADERS)
+    assert again.status_code == 409 and len(rig.spawned.calls) == 1
+    assert updater.load_attempt().outcome == "running"  # type: ignore[union-attr]
+    # The installer vanished (the laptop was switched off, say): 31 minutes later...
+    rig.spawned.process = FakeProcess()
+    rig.updater.runner.process = None
     assert attempt is not None
     long_ago = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=31)
     updater.save_attempt(dataclasses.replace(attempt, started_at=long_ago.isoformat()))
@@ -816,6 +829,19 @@ def test_a_running_update_older_than_30_minutes_has_failed(rig: Rig) -> None:
     assert again.status_code == 202
     assert again.json()["last_attempt"]["outcome"] == "running"
     assert len(rig.spawned.calls) == 2
+
+
+def test_a_start_time_in_the_future_is_stale() -> None:
+    config.log_dir().mkdir(parents=True)
+    future = dt.datetime.now(dt.UTC) + dt.timedelta(days=2)  # the clock went back since
+    updater.save_attempt(dataclasses.replace(_attempt(NEXT), started_at=future.isoformat()))
+    settled = updater.settled_attempt()
+    assert settled is not None and settled.outcome == "failed"
+
+
+def test_only_tags_with_a_v_are_releases() -> None:
+    assert parse_feed(release(tag="99.0.0")).latest is None
+    assert parse_feed(release(tag="v99.0.0")).latest == "99.0.0"
 
 
 def test_a_running_update_under_30_minutes_is_left_alone() -> None:

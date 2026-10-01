@@ -226,7 +226,7 @@ jobs:
     # release back into a prerelease, so `latest` points at the previous version again.
     name: Undo "latest" (the plain install line failed)
     needs: [promote, verify-latest]
-    if: failure() && needs.promote.result == 'success'
+    if: (failure() || cancelled()) && needs.promote.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write

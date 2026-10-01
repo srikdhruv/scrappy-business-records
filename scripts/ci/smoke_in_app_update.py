@@ -30,8 +30,9 @@ non-English letters, with no developer tools on PATH, it checks:
    pre-update backup, the attempt succeeded, nothing is left behind, the launcher saw the
    waiting page (no second tab);
 9. the pasted line's path: installing D over B → B is put back and opened, and the records
-   are exactly the pre-update backup again; and a zip that doesn't match its SHA256SUMS
-   changes nothing.
+   are exactly the pre-update backup again; a zip that doesn't match its SHA256SUMS changes
+   nothing; and a version whose first start takes over 3 minutes (but works) is waited for,
+   not rolled back.
 
 **Before a release is promoted** (`release.yml`, `--release-tag vX`): only steps 1, 2 and 8,
 with the release's real files: the app downloads `install.ps1` / `install.sh` and
@@ -74,6 +75,8 @@ ASSET = "scrappy-records-windows-x64.zip" if IS_WINDOWS else "scrappy-records-ma
 OLD_VERSION = "0.0.1"
 BROKEN_VERSION = "9.9.9"
 MIGRATING_VERSION = "9.9.8"
+SLOW_VERSION = "9.9.7"
+SLOW_START_SECONDS = 200
 NAME = "Ishaan Rao (in-app update test)"
 APP_HEADERS = {"Content-Type": "application/json", "X-Scrappy-Request": "1"}
 UPDATE_TIMEOUT = 300.0
@@ -123,12 +126,17 @@ def _head_revision(src: zipfile.ZipFile) -> str:
 def rezip(source: Path, target: Path, version: str, broken: str = "") -> str:
     """Copy the bundle with VERSION set to `version`, and, if `broken` is "import", an app that
     can't even be imported; if "migrate", one that upgrades the records (a new table) and then
-    crashes on startup. Returns the bundle's real version."""
+    crashes on startup; if "slow", one whose first start takes over 3 minutes (while
+    `<home>/ci-slow-start` exists) but then works. Returns the bundle's real version."""
     with zipfile.ZipFile(source) as src, zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as dst:
         real = src.read("VERSION").decode().strip()
         # (before copying: writestr() rewrites the ZipInfo it's given, so src can't be read after)
         head = _head_revision(src) if broken == "migrate" else ""
-        changed = {"import": "app/__init__.py", "migrate": "app/main.py"}.get(broken, "")
+        changed = {
+            "import": "app/__init__.py",
+            "migrate": "app/main.py",
+            "slow": "app/main.py",
+        }.get(broken, "")
         cached = changed.replace("app/", "app/__pycache__/").removesuffix(".py") + "."
         for info in src.infolist():
             name = info.filename
@@ -145,6 +153,17 @@ def rezip(source: Path, target: Path, version: str, broken: str = "") -> str:
                     b"def run_startup_tasks() -> None:  # CI: upgrade the records, then crash\n"
                     b"    _ci_startup()\n"
                     b'    raise RuntimeError("upgraded the records, then crashed")\n'
+                )
+            elif broken == "slow" and name == changed:
+                data += (
+                    b"\n\n_ci_startup = run_startup_tasks\n\n\n"
+                    b"def run_startup_tasks() -> None:  # CI: a slow first start\n"
+                    b"    import time\n\n"
+                    b"    flag = config.home_dir() / 'ci-slow-start'\n"
+                    b"    if flag.exists():\n"
+                    b"        flag.unlink()\n"
+                    b"        time.sleep(" + str(SLOW_START_SECONDS).encode() + b")\n"
+                    b"    _ci_startup()\n"
                 )
             dst.writestr(info, data)
         if broken == "migrate":
@@ -748,6 +767,24 @@ def main() -> int:
                 fail("the mismatch wasn't reported plainly")
             if servers_started() != before or health(port) != new_version:
                 fail("a zip that doesn't match changed something")
+            data_intact()
+
+            step(f"A slow first start ({SLOW_START_SECONDS} s) is waited for, never undone")
+            slow_zip = pasted / ASSET
+            rezip(new_zip, slow_zip, SLOW_VERSION, broken="slow")
+            (pasted / "SHA256SUMS").write_text(f"{sha256(slow_zip.read_bytes())}  {ASSET}\n")
+            (root / "ci-slow-start").write_text("slow, once\n")
+            started = time.monotonic()
+            output = run(installer(slow_zip, root, no_launch=False), env)
+            print(f"installed in {time.monotonic() - started:.0f} s")
+            if time.monotonic() - started < SLOW_START_SECONDS:
+                fail("the slow start wasn't slow (the test hook didn't work)")
+            if "Scrappy Records is installed" not in output or "didn't start" in output:
+                fail("a slow but good start was undone")
+            if health(port) != SLOW_VERSION or (root / "ci-slow-start").exists():
+                fail("the slow version isn't the one running")
+            if (app_dir / "VERSION").read_text().strip() != SLOW_VERSION:
+                fail("the app folder isn't the slow version")
             data_intact()
 
         print("\nIN-APP UPDATE TEST PASSED")

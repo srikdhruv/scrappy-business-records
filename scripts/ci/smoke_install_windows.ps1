@@ -137,6 +137,7 @@ try {
     $env:SCRAPPY_BACKUP_DIR = $backups
     $env:SCRAPPY_NO_BROWSER = '1'
     $env:SCRAPPY_NO_DIALOG = '1'
+    $env:SCRAPPY_TEST_MODE = '1'  # the installer's test hooks only work in test mode
     Remove-Item Env:SCRAPPY_PORT -ErrorAction SilentlyContinue
 
     Step 'A release that does not exist gives the friendly "not found" message (real download)'

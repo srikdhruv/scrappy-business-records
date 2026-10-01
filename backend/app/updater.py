@@ -99,7 +99,7 @@ ASSETS: dict[Platform, str] = {
 SCRIPTS: dict[Platform, str] = {"windows": "install.ps1", "macos": "install.sh"}
 
 # Only plain release tags reach a URL or a command line: v1.2.3, nothing else.
-_RELEASE_TAG = re.compile(r"^v?[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$", re.ASCII)
+_RELEASE_TAG = re.compile(r"^v[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$", re.ASCII)
 SUMS = "SHA256SUMS"
 STALE_SECONDS = 30 * 60.0  # a "running" update this old has failed (the installer is gone)
 _MAX_SUMS_BYTES = 64 * 1024
@@ -424,9 +424,13 @@ def load_attempt() -> Attempt | None:
         return None
 
 
-def settled_attempt(now: dt.datetime | None = None) -> Attempt | None:
+def settled_attempt(
+    now: dt.datetime | None = None, installer_alive: bool = False
+) -> Attempt | None:
     """The last attempt; one still "running" after 30 minutes is marked failed (the installer
-    died, or the laptop was switched off), so the page stops waiting and Update now works again."""
+    died, or the laptop was switched off), so the page stops waiting and Update now works again.
+    Never while this server's installer is still running (`installer_alive`). A start time in
+    the future (the clock went back) counts as stale."""
     attempt = load_attempt()
     if attempt is not None and attempt.outcome == UpdateOutcome.failed.value:
         if not attempt.technical:
@@ -441,14 +445,14 @@ def settled_attempt(now: dt.datetime | None = None) -> Attempt | None:
                 with contextlib.suppress(OSError):
                     save_attempt(attempt)
         return attempt
-    if attempt is None or attempt.outcome != UpdateOutcome.running.value:
+    if attempt is None or attempt.outcome != UpdateOutcome.running.value or installer_alive:
         return attempt
     now = now or _utcnow()
     try:
         started = dt.datetime.fromisoformat(attempt.started_at)
     except ValueError:
         started = now - dt.timedelta(seconds=STALE_SECONDS)
-    if (now - started).total_seconds() < STALE_SECONDS:
+    if 0 <= (now - started).total_seconds() < STALE_SECONDS:
         return attempt
     attempt = replace(
         attempt,
@@ -726,12 +730,18 @@ class UpdateRunner:
         self._lock = threading.Lock()
         self.process: Any = None
 
+    def alive(self) -> bool:
+        """Is the installer this server started still running?"""
+        return self.process is not None and self.process.poll() is None
+
     def start(self, kind: Platform, root: Path, tag: str, to_version: str) -> Attempt:
         if not self._lock.acquire(blocking=False):
             raise UpdateError(409, "The update has already started.")
         try:
-            current = settled_attempt()
-            if current is not None and current.outcome == UpdateOutcome.running.value:
+            current = settled_attempt(installer_alive=self.alive())
+            if self.alive() or (
+                current is not None and current.outcome == UpdateOutcome.running.value
+            ):
                 raise UpdateError(409, "The update has already started.")
             _clean_old_temp_folders()
             folder = Path(tempfile.mkdtemp(prefix=f"scrappy-update-{tag}-"))
@@ -848,7 +858,9 @@ class Updater:
         return self._page_seen > 0 and time.monotonic() - self._page_seen < PAGE_WAITING_SECONDS
 
     def _blocker(self, result: FeedResult | None, available: bool) -> UpdateReason | None:
-        attempt = settled_attempt()
+        attempt = settled_attempt(installer_alive=self.runner.alive())
+        if self.runner.alive():
+            return UpdateReason.updating
         if attempt is not None and attempt.outcome == UpdateOutcome.running.value:
             return UpdateReason.updating
         if not self.checker.enabled:
@@ -872,7 +884,7 @@ class Updater:
         latest = result.latest if result else None
         available = versions.is_newer(latest, __version__)
         reason = self._blocker(result, available)
-        attempt = settled_attempt()
+        attempt = settled_attempt(installer_alive=self.runner.alive())
         return UpdateInfo(
             current=__version__,
             latest=latest,
