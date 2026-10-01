@@ -40,6 +40,7 @@ from app.schemas import (
     NoFeeReason,
     ReportCheck,
     ReportFilter,
+    ReportGroup,
     ReportResponse,
     ReportRow,
     ReportSort,
@@ -85,6 +86,7 @@ RUPEES = r'[>=10000000]"₹"##\,##\,##\,##0;[>=100000]"₹"##\,##\,##0;"₹"#,##
 RUPEES_PAISE = r'[>=10000000]"₹"##\,##\,##\,##0.00;[>=100000]"₹"##\,##\,##0.00;"₹"#,##0.00'
 
 _HEAD_FONT = Font(bold=True)
+_GROUP_FILL = PatternFill("solid", fgColor="F2E9D8")  # the app's muted cream
 _HEAD_FILL = PatternFill("solid", fgColor="FBEFD5")  # the app's cream-marigold
 _TITLE_FONT = Font(bold=True, size=14)
 _TOTAL_BORDER = Border(top=Side(style="thin"))
@@ -239,7 +241,7 @@ def _values(r: ReportRow) -> list[Any]:
         r.credit_paise,
         r.paid_ahead_paise,
         "; ".join(check_text(c) for c in r.checks),
-        r.batch_label,
+        r.batch_name or r.batch_label,
         r.phone,
     ]
 
@@ -256,6 +258,21 @@ def _put(ws: Worksheet, row: int, col: int, column: _Column, value: Any) -> None
         cell.data_type = "s"  # a name starting with "=" stays text: never a formula
     if fmt:
         cell.number_format = fmt
+
+
+SUMMED = (
+    "Fee ₹",
+    "Paid for this month ₹",
+    "Short ₹",
+    "Total owed now ₹",
+    "Paid from another payment's extra ₹",
+    "Extra sent elsewhere ₹",
+    "Extra kept as credit ₹",
+    "Owed from earlier months ₹",
+    "Kept as credit, all months ₹",
+    "Paid ahead ₹",
+)
+"""The money columns the totals row (and a batch's subtotal row) adds up."""
 
 
 def _formula(ws: Worksheet, row: int, col: int, formula: str, paise: bool) -> None:
@@ -314,9 +331,12 @@ def workbook(
     q: str | None = None,
     sort: ReportSort | None = None,
     order: SortOrder = SortOrder.asc,
+    group: ReportGroup = ReportGroup.none,
+    batch_words: str | None = None,
 ) -> bytes:
-    """`report` is the rows to write (already filtered and sorted: `report.shown`); the other
-    arguments only say so in the title."""
+    """`report` is the rows to write (already filtered, sorted and grouped: `report.shown`);
+    the other arguments only say so in the title. Grouped by batch, each batch's rows come
+    under a heading row with its name and how many students."""
     book = Workbook()
     ws = book.active
     assert ws is not None
@@ -325,8 +345,11 @@ def workbook(
     ahead = report.month > report.current_month
 
     heading = title(report.month)
-    if words := shown_words(report, status, q, sort, order):
-        heading += f" · {words}"
+    words = [w for w in (batch_words, shown_words(report, status, q, sort, order)) if w]
+    if group is ReportGroup.batch:
+        words.append("grouped by batch")
+    if words:
+        heading += " · " + " · ".join(words)
     ws["A1"] = ILLEGAL_CHARACTERS_RE.sub("", heading)
     ws["A1"].data_type = "s"
     ws["A1"].font = _TITLE_FONT
@@ -351,12 +374,39 @@ def workbook(
     first = HEADER_ROW + 1
     row = HEADER_ROW
     has_paise: set[int] = set()  # columns with an amount in paise somewhere
+    sizes: dict[str | None, int] = {}
     for r in report.rows:
+        sizes[r.batch_name] = sizes.get(r.batch_name, 0) + 1
+    grouped = group is ReportGroup.batch
+    group_first = 0
+    for n, r in enumerate(report.rows):
+        if grouped and (n == 0 or r.batch_name != report.rows[n - 1].batch_name):
+            row += 1
+            count = sizes[r.batch_name]
+            label = f"{r.batch_name or 'No batch'} ({count} student{'' if count == 1 else 's'})"
+            _put(ws, row, 1, COLUMNS[0], label)
+            ws.cell(row=row, column=1).font = _HEAD_FONT
+            for i in range(1, len(COLUMNS) + 1):
+                ws.cell(row=row, column=i).fill = _GROUP_FILL
+            group_first = row + 1
         row += 1
         for i, (column, value) in enumerate(zip(COLUMNS, _values(r), strict=True), start=1):
             _put(ws, row, i, column, value)
             if column.money and isinstance(value, int) and value % 100:
                 has_paise.add(i)
+        last_of_group = n == len(report.rows) - 1 or report.rows[n + 1].batch_name != r.batch_name
+        if grouped and last_of_group:
+            # Each batch's subtotal: SUBTOTAL formulas, which the total below leaves out.
+            row += 1
+            _put(ws, row, 1, COLUMNS[0], f"Subtotal: {r.batch_name or 'No batch'}")
+            for heading_text in SUMMED:
+                col = _COL[heading_text]
+                letter = get_column_letter(col)
+                _formula(
+                    ws, row, col, f"=SUBTOTAL(109,{letter}{group_first}:{letter}{row - 1})", True
+                )
+            for i in range(1, len(COLUMNS) + 1):
+                ws.cell(row=row, column=i).font = _HEAD_FONT
     last = row
 
     t = report.totals

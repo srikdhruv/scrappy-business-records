@@ -65,8 +65,8 @@ export function MarkLeftDialog({
           <DialogHeader>
             <DialogTitle>Mark {student.name} as left?</DialogTitle>
             <DialogDescription>
-              {firstName(student.name)} won’t owe anything after this month, and will then move to
-              the Left tab. Their payments and history are kept.
+              {firstName(student.name)} won’t owe anything after this month, and will then show as
+              Left on the Students page. Their payments and history are kept.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">

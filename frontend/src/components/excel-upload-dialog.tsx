@@ -3,6 +3,10 @@
  * row by row, make the few choices it needs, then Add. Nothing is saved until Add, nothing that
  * is already here is ever changed, and the server checks every row again (and saves a backup)
  * before adding anything.
+ *
+ * Batches: a file's Batches sheet adds its batches; a name in the students' Batch column that
+ * isn't a batch here is flagged, and only created if she ticks "Create it" (otherwise those
+ * students are left without a batch, the name kept as their old class label).
  */
 import { FileSpreadsheetIcon, FileUpIcon, LoaderCircleIcon, TriangleAlertIcon } from 'lucide-react'
 import { useId, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
@@ -11,6 +15,7 @@ import { toast } from 'sonner'
 import { useCommitImport, usePreviewImport, useStudents, type ChosenFile } from '@/api/queries'
 import type {
   ExportTemplateKind,
+  ImportBatchPreview,
   ImportPaymentDecision,
   ImportPaymentPreview,
   ImportPreview,
@@ -42,10 +47,11 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { templateUrl } from '@/lib/downloads'
 import { errorMessage } from '@/lib/errors'
 import { formatDate, formatMonthShort, formatRupees } from '@/lib/format'
-import { METHOD_LABELS } from '@/lib/labels'
+import { METHOD_LABELS, plural } from '@/lib/labels'
 import type { Tone } from '@/lib/status'
 import {
   addedSentence,
+  batchesToCreate,
   emptyChoices,
   needsChoice,
   paymentKey,
@@ -79,6 +85,13 @@ const PAYMENT_STATUS: Record<ImportPaymentPreview['status'], { tone: Tone; label
   problem: { tone: 'owed', label: 'Problem' },
 }
 
+const BATCH_STATUS: Record<ImportBatchPreview['status'], { tone: Tone; label: string }> = {
+  new: { tone: 'paid', label: 'Will be added' },
+  exists: { tone: 'muted', label: 'Already here' },
+  not_found: { tone: 'partial', label: 'Not found' },
+  problem: { tone: 'owed', label: 'Problem' },
+}
+
 // ---- the dialog ----------------------------------------------------------------------------------
 
 type Filter = 'all' | 'choose' | 'skipped'
@@ -102,11 +115,14 @@ export function ExcelUploadDialog({
   const [choices, setChoices] = useState<Choices>(emptyChoices)
   const [filter, setFilter] = useState<Filter>('all')
   const [error, setError] = useState<string | null>(null)
+  // Not-found batches she chose to create (by name, as in the preview).
+  const [createBatches, setCreateBatches] = useState<ReadonlySet<string>>(new Set())
 
   const reset = () => {
     setFile(null)
     setPreview(null)
     setChoices(emptyChoices())
+    setCreateBatches(new Set())
     setFilter('all')
     setError(null)
     previewImport.reset()
@@ -123,6 +139,7 @@ export function ExcelUploadDialog({
     setError(null)
     setPreview(null)
     setChoices(emptyChoices())
+    setCreateBatches(new Set())
     let picked: ChosenFile
     try {
       picked = { name: chosen.name, bytes: await chosen.arrayBuffer() }
@@ -160,13 +177,17 @@ export function ExcelUploadDialog({
           }
           return [] // what its status says
         }),
+        create_batches: [...createBatches],
       })
-      const title = addedSentence(
+      let title = addedSentence(
         result.students_added,
         result.payments_added,
         result.unassigned_added,
       )
+      const batches = plural(result.batches_added, 'batch', 'batches')
+      if (result.batches_added > 0 && title === 'Nothing was added') title = `Added ${batches}`
       const notes = [
+        result.batches_added > 0 && !title.endsWith(batches) ? `${batches} created.` : '',
         result.unassigned_added ? 'Unassigned payments wait at the top of the Payments page.' : '',
         result.backup_file ? 'A backup was saved first.' : '',
       ].filter(Boolean)
@@ -212,6 +233,8 @@ export function ExcelUploadDialog({
             setChoices={setChoices}
             filter={filter}
             setFilter={setFilter}
+            createBatches={createBatches}
+            setCreateBatches={setCreateBatches}
           />
         )}
 
@@ -229,22 +252,24 @@ export function ExcelUploadDialog({
           <Button variant="outline" onClick={() => close(false)} disabled={commitImport.isPending}>
             Cancel
           </Button>
-          {preview && summary && (
-            <Button
-              onClick={() => void add()}
-              disabled={
-                commitImport.isPending ||
-                summary.students + summary.payments + summary.unassigned === 0
-              }
-            >
-              {commitImport.isPending && <LoaderCircleIcon className="animate-spin" aria-hidden />}
-              {commitImport.isPending
-                ? 'Adding…'
-                : summary.students + summary.payments + summary.unassigned === 0
-                  ? 'Nothing to add'
-                  : 'Add'}
-            </Button>
-          )}
+          {preview &&
+            summary &&
+            (() => {
+              const nothing =
+                summary.students +
+                  summary.payments +
+                  summary.unassigned +
+                  batchesToCreate(preview, createBatches) ===
+                0
+              return (
+                <Button onClick={() => void add()} disabled={commitImport.isPending || nothing}>
+                  {commitImport.isPending && (
+                    <LoaderCircleIcon className="animate-spin" aria-hidden />
+                  )}
+                  {commitImport.isPending ? 'Adding…' : nothing ? 'Nothing to add' : 'Add'}
+                </Button>
+              )
+            })()}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -357,6 +382,8 @@ function PreviewBody({
   setChoices,
   filter,
   setFilter,
+  createBatches,
+  setCreateBatches,
 }: {
   preview: ImportPreview
   summary: Summary
@@ -364,6 +391,8 @@ function PreviewBody({
   setChoices: (update: (c: Choices) => Choices) => void
   filter: Filter
   setFilter: (f: Filter) => void
+  createBatches: ReadonlySet<string>
+  setCreateBatches: (create: ReadonlySet<string>) => void
 }) {
   const { data: allStudents = [] } = useStudents('all')
   const names = useMemo(() => new Map(allStudents.map((s) => [s.id, s])), [allStudents])
@@ -377,6 +406,7 @@ function PreviewBody({
   const keep = (row: { status: string }) =>
     filter === 'all' || (filter === 'choose' ? needsChoice(row) : skipped(row.status))
   const students = preview.students.filter(keep)
+  const withBatch = preview.students.some((s) => s.batch_name)
   const payments = preview.payments.filter(keep)
   const skippedCount = summary.alreadyHere + summary.problems
   const studentTotal = rowCount(preview.student_counts)
@@ -409,6 +439,19 @@ function PreviewBody({
         </p>
       )}
 
+      {(preview.batches ?? []).length > 0 && (
+        <BatchesSection
+          batches={preview.batches ?? []}
+          create={createBatches}
+          onCreate={(name, yes) => {
+            const next = new Set(createBatches)
+            if (yes) next.add(name)
+            else next.delete(name)
+            setCreateBatches(next)
+          }}
+        />
+      )}
+
       <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
         <TabsList aria-label="Which rows to show">
           <TabsTrigger value="all">All rows</TabsTrigger>
@@ -426,13 +469,22 @@ function PreviewBody({
           <RowTable
             caption={`Students (${studentTotal.toLocaleString('en-IN')})`}
             more={preview.all_rows_shown ? 0 : studentTotal - preview.students.length}
-            headings={['Row', 'Name', 'Phone', 'Monthly fee', 'Joined', 'What happens']}
+            headings={[
+              'Row',
+              'Name',
+              'Phone',
+              ...(withBatch ? ['Batch'] : []),
+              'Monthly fee',
+              'Joined',
+              'What happens',
+            ]}
           >
             {students.map((s) => (
               <tr key={s.row} className="border-t border-border/60 align-top">
                 <Cell className="text-muted-foreground tabular-nums">{s.row}</Cell>
                 <Cell className="font-semibold">{s.name || '—'}</Cell>
                 <Cell>{s.phone ?? '—'}</Cell>
+                {withBatch && <Cell>{s.batch_name ?? '—'}</Cell>}
                 <Cell className="tabular-nums">
                   {s.monthly_fee_paise === null ? '—' : formatRupees(s.monthly_fee_paise)}
                 </Cell>
@@ -684,5 +736,73 @@ function PaymentWhatHappens({
         </div>
       )}
     </StatusLine>
+  )
+}
+
+/** The batches the file names: added (its Batches sheet), already here, or not found (with
+ * "Create it"), and any Batches sheet row that can't be added. */
+function BatchesSection({
+  batches,
+  create,
+  onCreate,
+}: {
+  batches: ImportBatchPreview[]
+  create: ReadonlySet<string>
+  onCreate: (name: string, create: boolean) => void
+}) {
+  return (
+    <section aria-labelledby="upload-batches" className="rounded-xl border border-border/80">
+      <h3 id="upload-batches" className="px-4 pt-3 text-base font-extrabold">
+        Batches ({batches.length})
+      </h3>
+      <ul className="divide-y divide-border/60">
+        {batches.map((b) => (
+          <li
+            key={`${b.status}:${b.row ?? ''}:${b.name}`}
+            className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 px-4 py-2.5"
+          >
+            <div className="min-w-0">
+              <p className="font-semibold wrap-break-word">{b.name}</p>
+              <p className="text-sm text-muted-foreground">
+                {b.student_count > 0 && `${plural(b.student_count, 'student')} to add`}
+                {b.row !== null && `${b.student_count > 0 ? ' · ' : ''}Batches sheet, row ${b.row}`}
+              </p>
+            </div>
+            <div className="max-w-md min-w-64">
+              <StatusLine
+                {...BATCH_STATUS[b.status]}
+                reason={
+                  b.status === 'new'
+                    ? 'From the file’s Batches sheet, with its days, times and fee.'
+                    : b.status === 'exists'
+                      ? 'Its students go into it. The batch itself isn’t changed.'
+                      : b.status === 'not_found'
+                        ? create.has(b.name)
+                          ? 'It will be created (just the name), and its students go into it.'
+                          : `${b.reason ?? 'Batch not found, will be left without a batch'} (the name is kept in their old class label, next to any label the row already has).`
+                        : b.reason
+                }
+              />
+              {b.status === 'not_found' && b.student_count === 0 && (
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  No student being added goes in it, so it can’t be created from this file.
+                </p>
+              )}
+              {b.status === 'not_found' && b.student_count > 0 && (
+                <label className="mt-1.5 flex items-center gap-2 text-sm font-semibold">
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-current"
+                    checked={create.has(b.name)}
+                    onChange={(e) => onCreate(b.name, e.target.checked)}
+                  />
+                  Create it
+                </label>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }

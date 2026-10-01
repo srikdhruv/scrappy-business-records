@@ -1,8 +1,9 @@
 /**
  * The monthly report (`/report?month=YYYY-MM`, opened from the Dashboard): every student for one
  * month. The answers come first (status, fee, paid, short, total owed now), then the details
- * (extra money in and out, earlier months, credit), then class and phone. Filter by status,
- * search by name, sort by a column; the totals row and the Collected line add up the rows shown.
+ * (extra money in and out, earlier months, credit), then class and phone. Filter by status and
+ * batch, search by name, sort by a column, group by batch; the totals row and the Collected line
+ * add up the rows shown.
  * Download Excel gives the same rows as a file, and Print gives a clean A4 landscape page (see
  * the `@media print` rules in index.css).
  *
@@ -22,8 +23,8 @@ import {
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 
-import { useReport } from '@/api/queries'
-import type { ReportRow, ReportTotals } from '@/api/types'
+import { useBatches, useReport } from '@/api/queries'
+import type { BatchRead, ReportRow, ReportTotals } from '@/api/types'
 import { PageHeader } from '@/components/layout/page-header'
 import { MonthNote, MonthSwitcher } from '@/components/month-switcher'
 import { Panel } from '@/components/panel'
@@ -56,14 +57,18 @@ import {
   extraRuns,
   filterRows,
   formatMonthRuns,
+  groupRows,
   isStatusFilter,
+  matchesBatch,
   matchesStatus,
+  parseBatchFilter,
   reportDownloadUrl,
   reportTitle,
   sortRows,
   statusDetail,
   statusFilterLabel,
   sumRows,
+  type BatchFilter,
   type ReportSort,
   type ReportSortKey,
   type StatusFilter,
@@ -74,6 +79,13 @@ import { cn } from '@/lib/utils'
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/
 
+/** "No batch", or the batch's name, for the printed line and the empty message. */
+function batchWords(batch: BatchFilter, batches: readonly BatchRead[]): string {
+  if (batch === 'all') return ''
+  if (batch === 'none') return 'No batch'
+  return batches.find((b) => b.id === batch)?.name ?? 'A batch that no longer exists'
+}
+
 // The Student column stays in view while the table scrolls sideways.
 const STICKY = 'sticky left-0 z-[1] bg-card shadow-[inset_-1px_0_0_var(--border)] print:static'
 
@@ -83,6 +95,9 @@ export function ReportPage() {
   const chosen = requested && MONTH_RE.test(requested) ? requested : undefined
   const statusParam = params.get('status')
   const filter: StatusFilter = isStatusFilter(statusParam) ? statusParam : 'all'
+  const batch = parseBatchFilter(params.get('batch'))
+  const groupByBatch = params.get('group') === 'batch'
+  const { data: batches = [] } = useBatches()
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<ReportSort | null>(null)
 
@@ -106,11 +121,12 @@ export function ReportPage() {
   }
 
   const rows = useMemo(
-    () => (data ? sortRows(filterRows(data.rows, filter, search, data), sort) : []),
-    [data, filter, search, sort],
+    () => (data ? sortRows(filterRows(data.rows, filter, search, data, batch), sort) : []),
+    [data, filter, search, sort, batch],
   )
+  const groups = useMemo(() => (groupByBatch ? groupRows(rows) : null), [rows, groupByBatch])
   const totals = useMemo(() => sumRows(rows), [rows])
-  const filtered = filter !== 'all' || search.trim() !== ''
+  const filtered = filter !== 'all' || search.trim() !== '' || batch !== 'all'
   const everyone = data?.rows.length ?? 0
   const ahead = data ? data.month > data.current_month : false
 
@@ -124,10 +140,12 @@ export function ReportPage() {
             {filtered &&
               ` · Showing ${rows.length} of ${plural(everyone, 'student')}: ${[
                 filter !== 'all' ? statusFilterLabel(filter, data) : '',
+                batchWords(batch, batches),
                 search.trim() ? `matching “${search.trim()}”` : '',
               ]
                 .filter(Boolean)
                 .join(', ')}`}
+            {groupByBatch && ' · Grouped by batch'}
           </p>
         </div>
       )}
@@ -156,7 +174,16 @@ export function ReportPage() {
             data && (
               <>
                 <Button variant="outline" asChild className="bg-card">
-                  <a href={reportDownloadUrl(data.month, { filter, search, sort })} download>
+                  <a
+                    href={reportDownloadUrl(data.month, {
+                      filter,
+                      search,
+                      sort,
+                      batch,
+                      groupByBatch,
+                    })}
+                    download
+                  >
                     <FileDownIcon className="text-primary-strong" aria-hidden />
                     Download Excel
                   </a>
@@ -225,12 +252,54 @@ export function ReportPage() {
                 </SelectContent>
               </Select>
             </div>
+            {(batches.length > 0 || batch !== 'all') && (
+              <div className="min-w-48 flex-[1_1_12rem]">
+                <Select
+                  value={String(batch)}
+                  onValueChange={(v) => update({ batch: v === 'all' ? null : v })}
+                >
+                  <SelectTrigger className="h-11! w-full bg-card text-base" aria-label="Batch">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All batches ({data.rows.length})</SelectItem>
+                    {batches.map((b) => (
+                      <SelectItem key={b.id} value={String(b.id)}>
+                        {b.name} ({data.rows.filter((r) => matchesBatch(r, b.id)).length})
+                      </SelectItem>
+                    ))}
+                    {typeof batch === 'number' && !batches.some((b) => b.id === batch) && (
+                      <SelectItem value={String(batch)}>
+                        {batchWords(batch, batches)} (0)
+                      </SelectItem>
+                    )}
+                    <SelectItem value="none">
+                      No batch ({data.rows.filter((r) => matchesBatch(r, 'none')).length})
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="min-w-44 flex-[1_1_10rem]">
+              <Select
+                value={groupByBatch ? 'batch' : 'none'}
+                onValueChange={(v) => update({ group: v === 'batch' ? 'batch' : null })}
+              >
+                <SelectTrigger className="h-11! w-full bg-card text-base" aria-label="Group by">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No groups</SelectItem>
+                  <SelectItem value="batch">Grouped by batch</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             {filtered && (
               <Button
                 variant="ghost"
                 onClick={() => {
                   setSearch('')
-                  update({ status: null })
+                  update({ status: null, batch: null })
                 }}
                 className="h-11"
               >
@@ -258,6 +327,7 @@ export function ReportPage() {
             <>
               <ReportTable
                 rows={rows}
+                groups={groups}
                 totals={totals}
                 filtered={filtered}
                 ahead={ahead}
@@ -349,6 +419,7 @@ function UnassignedLine({ count, paise, month }: { count: number; paise: number;
 
 function ReportTable({
   rows,
+  groups,
   totals,
   filtered,
   ahead,
@@ -356,6 +427,8 @@ function ReportTable({
   onSort,
 }: {
   rows: ReportRow[]
+  /** Grouped by batch: a heading row before each batch's rows. */
+  groups: ReturnType<typeof groupRows> | null
   totals: ReportTotals
   filtered: boolean
   ahead: boolean
@@ -404,38 +477,92 @@ function ReportTable({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rows.map((r) => (
-          <Row key={r.student_id} row={r} />
-        ))}
+        {groups
+          ? groups.map((g) => [
+              <TableRow
+                key={`group-${g.batchId ?? 'none'}`}
+                className="bg-muted/50 hover:bg-muted/50 print:break-after-avoid"
+              >
+                <th
+                  colSpan={12}
+                  scope="rowgroup"
+                  className="py-2 pl-6 text-left font-normal whitespace-normal"
+                >
+                  <span className="text-base font-extrabold">{g.label}</span>{' '}
+                  <span className="text-sm text-muted-foreground">
+                    · {plural(g.rows.length, 'student')}
+                  </span>
+                </th>
+              </TableRow>,
+              ...g.rows.map((r) => <Row key={r.student_id} row={r} />),
+              <SumsRow
+                key={`subtotal-${g.batchId ?? 'none'}`}
+                label={`Subtotal · ${g.label}`}
+                totals={sumRows(g.rows)}
+                ahead={ahead}
+                subtotal
+              />,
+            ])
+          : rows.map((r) => <Row key={r.student_id} row={r} />)}
       </TableBody>
       <TableFooter className="bg-muted/60 font-bold">
-        <TableRow className="hover:bg-transparent [&>td]:align-top">
-          <TableCell className={cn(STICKY, 'bg-muted pl-6 whitespace-normal')}>
-            {filtered
+        <SumsRow
+          label={
+            filtered
               ? `Total of the ${rows.length} shown`
-              : `Total · ${plural(rows.length, 'student')}`}
-          </TableCell>
-          <TableCell className="font-semibold whitespace-normal">
-            {totals.active_student_count > 0 &&
-              `${totals.not_fully_paid_count} of ${totals.active_student_count} ${ahead ? 'not paid ahead' : 'not fully paid'}`}
-          </TableCell>
-          <MoneyCell paise={totals.fee_paise} />
-          <MoneyCell paise={totals.paid_paise} />
-          <MoneyCell paise={totals.short_paise} />
-          <MoneyCell paise={totals.owed_now_paise} />
-          <MoneyCell paise={totals.covered_by_credit_paise} />
-          <MoneyCell paise={totals.extra_sent_paise}>
-            {totals.extra_unused_paise > 0 && (
-              <Note tone="credit">{formatRupees(totals.extra_unused_paise)} kept as credit</Note>
-            )}
-          </MoneyCell>
-          <MoneyCell paise={totals.owed_before_paise} />
-          <CreditCell credit={totals.credit_paise} ahead={totals.paid_ahead_paise} />
-          <TableCell />
-          <TableCell className="pr-6" />
-        </TableRow>
+              : `Total · ${plural(rows.length, 'student')}`
+          }
+          totals={totals}
+          ahead={ahead}
+        />
       </TableFooter>
     </Table>
+  )
+}
+
+/** The totals row, or (grouped by batch) a batch's subtotal row: the sums of its rows. */
+function SumsRow({
+  label,
+  totals,
+  ahead,
+  subtotal = false,
+}: {
+  label: string
+  totals: ReportTotals
+  ahead: boolean
+  subtotal?: boolean
+}) {
+  return (
+    <TableRow
+      className={cn(
+        'hover:bg-transparent [&>td]:align-top',
+        subtotal && 'break-inside-avoid border-b-2 bg-muted/30 font-bold',
+      )}
+    >
+      <TableCell
+        className={cn(STICKY, subtotal ? 'bg-card' : 'bg-muted', 'pl-6 whitespace-normal')}
+      >
+        {label}
+      </TableCell>
+      <TableCell className="font-semibold whitespace-normal">
+        {totals.active_student_count > 0 &&
+          `${totals.not_fully_paid_count} of ${totals.active_student_count} ${ahead ? 'not paid ahead' : 'not fully paid'}`}
+      </TableCell>
+      <MoneyCell paise={totals.fee_paise} />
+      <MoneyCell paise={totals.paid_paise} />
+      <MoneyCell paise={totals.short_paise} />
+      <MoneyCell paise={totals.owed_now_paise} />
+      <MoneyCell paise={totals.covered_by_credit_paise} />
+      <MoneyCell paise={totals.extra_sent_paise}>
+        {totals.extra_unused_paise > 0 && (
+          <Note tone="credit">{formatRupees(totals.extra_unused_paise)} kept as credit</Note>
+        )}
+      </MoneyCell>
+      <MoneyCell paise={totals.owed_before_paise} />
+      <CreditCell credit={totals.credit_paise} ahead={totals.paid_ahead_paise} />
+      <TableCell />
+      <TableCell className="pr-6" />
+    </TableRow>
   )
 }
 
@@ -507,7 +634,7 @@ function Row({ row: r }: { row: ReportRow }) {
       </MoneyCell>
       <CreditCell credit={r.credit_paise} ahead={r.paid_ahead_paise} />
       <TableCell className="min-w-52 whitespace-normal text-muted-foreground">
-        {r.batch_label}
+        {r.batch_name ?? r.batch_label}
       </TableCell>
       <TableCell className="print-nowrap pr-6 text-muted-foreground tabular-nums">
         {r.phone}

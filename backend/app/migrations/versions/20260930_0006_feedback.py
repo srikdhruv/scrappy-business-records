@@ -1,7 +1,7 @@
 """feedback: in-app feedback, saved here first and then sent (a new table; nothing else changes)
 
-Revision ID: 0005
-Revises: 0004
+Revision ID: 0006
+Revises: 0005
 Create Date: 2026-09-30 20:00:00
 
 Only adds a table (ADR 0004). The owner's records are untouched.
@@ -12,8 +12,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0005"
-down_revision: str | Sequence[str] | None = "0004"
+revision: str = "0006"
+down_revision: str | Sequence[str] | None = "0005"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
